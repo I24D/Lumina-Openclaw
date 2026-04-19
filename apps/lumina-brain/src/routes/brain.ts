@@ -85,7 +85,7 @@ brainRouter.post("/turn", async (req: Request, res: Response) => {
   if (!parsed.success) {
     const response: BrainTurnResponse = {
       type:    "error",
-      message: `Invalid request: ${parsed.error.errors.map((e) => e.message).join("; ")}`,
+      message: `Invalid request: ${parsed.error.errors.map((e: { message: string }) => e.message).join("; ")}`,
       code:    "invalid_request",
     };
     res.status(400).json(response);
@@ -142,7 +142,7 @@ brainRouter.post(
     if (!parsed.success) {
       const response: BrainTurnResponse = {
         type:    "error",
-        message: `Invalid tool results: ${parsed.error.errors.map((e) => e.message).join("; ")}`,
+        message: `Invalid tool results: ${parsed.error.errors.map((e: { message: string }) => e.message).join("; ")}`,
         code:    "invalid_request",
       };
       res.status(400).json(response);

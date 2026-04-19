@@ -65,13 +65,13 @@ export class AnthropicProvider implements LLMClient {
 
     // Extract tool calls from tool_use blocks
     const toolUseBlocks = response.content.filter(
-      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
+      (b: Anthropic.ContentBlock): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
 
     if (toolUseBlocks.length > 0) {
       return {
         content: null,
-        tool_calls: toolUseBlocks.map((b) => ({
+        tool_calls: toolUseBlocks.map((b: Anthropic.ToolUseBlock) => ({
           id:        b.id,
           name:      b.name,
           arguments: b.input as Record<string, unknown>,
@@ -82,7 +82,7 @@ export class AnthropicProvider implements LLMClient {
 
     // Plain text response
     const textBlock = response.content.find(
-      (b): b is Anthropic.TextBlock => b.type === "text",
+      (b: Anthropic.ContentBlock): b is Anthropic.TextBlock => b.type === "text",
     );
 
     return {

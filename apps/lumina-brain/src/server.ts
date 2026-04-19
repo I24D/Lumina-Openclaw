@@ -22,7 +22,7 @@ const app  = express();
 app.use(express.json({ limit: "4mb" }));
 
 // Request logger (minimal, production-friendly)
-app.use((req, _res, next) => {
+app.use((req: express.Request, _res: express.Response, next: express.NextFunction) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
 });
@@ -36,7 +36,7 @@ app.use("/health", healthRouter);
 app.use("/api/openclaw/brain", requireBearerAuth, brainRouter);
 
 // 404 fallback
-app.use((_req, res) => {
+app.use((_req: express.Request, res: express.Response) => {
   res.status(404).json({ error: "Not found" });
 });
 

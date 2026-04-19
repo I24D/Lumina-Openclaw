@@ -13,7 +13,7 @@ const START_TIME = Date.now();
 
 export const healthRouter = Router();
 
-healthRouter.get("/", (_req, res) => {
+healthRouter.get("/", (_req: import("express").Request, res: import("express").Response) => {
   res.json({
     status: "ok",
     version: process.env.npm_package_version ?? "1.0.0",

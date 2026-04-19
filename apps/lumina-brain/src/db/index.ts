@@ -17,7 +17,7 @@ export function getPool(): pg.Pool {
       connectionTimeoutMillis: 5_000,
     });
 
-    _pool.on("error", (err) => {
+    _pool.on("error", (err: Error) => {
       console.error("[brain/db] Pool error:", err);
     });
   }
