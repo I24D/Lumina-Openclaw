@@ -13,7 +13,6 @@ import express from "express";
 import { requireBearerAuth } from "./middleware/auth.js";
 import { brainRouter }       from "./routes/brain.js";
 import { healthRouter }      from "./routes/health.js";
-import { getLLMClient }      from "./llm/client.js";
 
 const PORT = parseInt(process.env.PORT ?? "3100", 10);
 const app  = express();
@@ -54,17 +53,14 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 // ── Startup ────────────────────────────────────────────────────────────────
 
 async function main() {
-  // Validate LLM config eagerly so misconfigured deploys fail fast
-  try {
-    getLLMClient();
-  } catch (err) {
-    console.error("[startup] LLM client init failed:", err);
+  if (!process.env.LUMINA_CORE_URL) {
+    console.error("[startup] Missing required env var: LUMINA_CORE_URL");
     process.exit(1);
   }
 
   app.listen(PORT, () => {
     console.log(`[lumina-brain] Listening on port ${PORT}`);
-    console.log(`[lumina-brain] LLM: ${process.env.BRAIN_LLM_PROVIDER ?? "anthropic"} / ${process.env.BRAIN_LLM_MODEL ?? "claude-sonnet-4-6"}`);
+    console.log(`[lumina-brain] LUMINA core: ${process.env.LUMINA_CORE_URL}`);
     console.log(`[lumina-brain] Session TTL: ${process.env.SESSION_TTL_MS ?? "1800000"}ms`);
   });
 }

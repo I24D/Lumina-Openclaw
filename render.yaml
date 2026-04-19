@@ -40,11 +40,9 @@ services:
         value: production
       - key: BRAIN_API_KEY
         generateValue: true
-      - key: BRAIN_LLM_PROVIDER
-        value: openai
-      - key: BRAIN_LLM_MODEL
-        value: gpt-5.2
-      - key: BRAIN_LLM_API_KEY
+      - key: LUMINA_CORE_URL
+        sync: false
+      - key: LUMINA_BRAIN_SECRET
         sync: false
       - key: SESSION_TTL_MS
         value: "1800000"
