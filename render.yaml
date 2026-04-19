@@ -2,9 +2,9 @@ services:
   - type: web
     name: lumina-auth
     env: node
-    rootDir: apps/lumina-auth
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    rootDir: .
+    buildCommand: corepack enable && pnpm install --frozen-lockfile=false && pnpm --filter @lumina/auth build
+    startCommand: pnpm --filter @lumina/auth start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
@@ -23,9 +23,9 @@ services:
   - type: web
     name: lumina-brain
     env: node
-    rootDir: apps/lumina-brain
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    rootDir: .
+    buildCommand: corepack enable && pnpm install --frozen-lockfile=false && pnpm --filter @lumina/protocol build && pnpm --filter @lumina/brain build
+    startCommand: pnpm --filter @lumina/brain start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV

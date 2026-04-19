@@ -5,8 +5,9 @@
   "private": true,
   "main": "dist/main.js",
   "scripts": {
-    "dev":       "tsc && electron .",
-    "build":     "tsc",
+    "prepare:defaults": "node scripts/prepare-defaults.mjs",
+    "dev":       "node scripts/prepare-defaults.mjs && tsc && electron .",
+    "build":     "node scripts/prepare-defaults.mjs && tsc",
     "pack":      "npm run build && electron-builder --dir",
     "dist":      "npm run build && electron-builder",
     "dist:win":  "npm run build && electron-builder --win",
@@ -35,9 +36,49 @@
     ],
     "extraResources": [
       {
+        "from": "build/lumina-defaults.json",
+        "to": "config/lumina-defaults.json"
+      },
+      {
         "from":   "../../Open_PC/dist/control-ui",
         "to":     "ui",
         "filter": ["**/*"]
+      },
+      {
+        "from": "../../Open_PC/openclaw.mjs",
+        "to": "openclaw/openclaw.mjs"
+      },
+      {
+        "from": "../../Open_PC/package.json",
+        "to": "openclaw/package.json"
+      },
+      {
+        "from": "../../Open_PC/assets",
+        "to": "openclaw/assets",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../../Open_PC/dist",
+        "to": "openclaw/dist",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../../Open_PC/dist-runtime",
+        "to": "openclaw/dist-runtime",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../../Open_PC/node_modules",
+        "to": "openclaw/node_modules",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../../tool-proxy/server.mjs",
+        "to": "proxy/server.mjs"
+      },
+      {
+        "from": "../../tool-proxy/proxy-config.json",
+        "to": "proxy/proxy-config.json"
       }
     ],
     "win": {
@@ -60,6 +101,12 @@
       "createDesktopShortcut":    true,
       "createStartMenuShortcut":  true
     },
-    "publish": null
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "I24D",
+        "repo": "Lumina-I24D"
+      }
+    ]
   }
 }

@@ -2,7 +2,7 @@
   "i24d": {
     "url": "https://i24d-whatsapp-ai.onrender.com/v1/chat/completions",
     "modelsBase": "https://i24d-whatsapp-ai.onrender.com",
-    "token": "Les24Ia3257@toorT7531598462"
+    "token": ""
   },
   "proxy": {
     "port": 4321

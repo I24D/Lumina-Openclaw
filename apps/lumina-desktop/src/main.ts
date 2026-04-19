@@ -6,47 +6,31 @@ import {
   shell,
   nativeTheme,
 } from "electron";
+import { autoUpdater } from "electron-updater";
 import path from "node:path";
-import fs   from "node:fs";
-import { loadConfig }             from "./config.js";
+import fs from "node:fs";
+import { loadConfig } from "./config.js";
 import { startGateway, stopGateway } from "./gateway-manager.js";
-
-// ── Config ─────────────────────────────────────────────────────────────────
+import { resolveRuntimePaths } from "./runtime-paths.js";
 
 const config = loadConfig();
+const runtimePaths = resolveRuntimePaths();
+let updateCheckTimer: NodeJS.Timeout | null = null;
 
 const rendererConfig = {
   authServiceUrl: config.authServiceUrl,
-  gatewayUrl:     `ws://127.0.0.1:${config.gatewayPort}`,
-  gatewayToken:   config.gatewayToken,
+  gatewayUrl: `ws://127.0.0.1:${config.gatewayPort}`,
+  gatewayToken: config.gatewayToken,
 };
-
-// ── Window ─────────────────────────────────────────────────────────────────
 
 let mainWindow: BrowserWindow | null = null;
 
 function resolveUiPath(): string {
-  // Production: extraResources bundled by electron-builder
-  const resourcesPath = process.resourcesPath;
-  const prodUi = path.join(resourcesPath, "ui", "index.html");
-  if (fs.existsSync(prodUi)) return prodUi;
-
-  // Development: built Vite output relative to monorepo root
-  const devUi = path.resolve(
-    __dirname,
-    "..",
-    "..",
-    "..",
-    "Open_PC",
-    "dist",
-    "control-ui",
-    "index.html",
-  );
-  if (fs.existsSync(devUi)) return devUi;
-
+  if (fs.existsSync(runtimePaths.uiIndexPath)) {
+    return runtimePaths.uiIndexPath;
+  }
   throw new Error(
-    `Lumina UI not found. Run 'pnpm ui:build' first.\n` +
-    `Searched:\n  ${prodUi}\n  ${devUi}`,
+    `Lumina UI not found. Run 'pnpm ui:build' first.\nSearched:\n  ${runtimePaths.uiIndexPath}`,
   );
 }
 
@@ -58,98 +42,132 @@ function resolveIconPath(): string | undefined {
 function createWindow(): BrowserWindow {
   nativeTheme.themeSource = "dark";
 
-  const win = new BrowserWindow({
-    width:           1280,
-    height:          820,
-    minWidth:        900,
-    minHeight:       600,
-    show:            false,
+  const window = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 900,
+    minHeight: 600,
+    show: false,
     backgroundColor: "#0e1015",
-    titleBarStyle:   process.platform === "darwin" ? "hiddenInset" : "default",
-    icon:            resolveIconPath(),
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    icon: resolveIconPath(),
     webPreferences: {
-      preload:          path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
-      nodeIntegration:  false,
-      sandbox:          false,
-      webSecurity:      true,
+      nodeIntegration: false,
+      sandbox: false,
+      webSecurity: true,
     },
   });
 
-  // Open external links in the OS browser, not inside Electron
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  window.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: "deny" };
   });
 
-  win.once("ready-to-show", () => {
-    win.show();
-    win.focus();
+  window.once("ready-to-show", () => {
+    window.show();
+    window.focus();
   });
 
-  win.on("closed", () => {
+  window.on("closed", () => {
     mainWindow = null;
   });
 
-  return win;
+  return window;
 }
 
-// ── IPC handlers ───────────────────────────────────────────────────────────
-
-// Synchronous — called by preload BEFORE page scripts run
 ipcMain.on("get-config-sync", (event) => {
   event.returnValue = rendererConfig;
 });
 
 ipcMain.handle("get-version", () => app.getVersion());
-
 ipcMain.on("quit", () => app.quit());
 
-// ── App lifecycle ──────────────────────────────────────────────────────────
-
 app.on("before-quit", () => {
+  if (updateCheckTimer) {
+    clearInterval(updateCheckTimer);
+    updateCheckTimer = null;
+  }
   stopGateway();
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (process.platform !== "darwin") {
+    app.quit();
+  }
 });
 
 app.on("activate", () => {
-  if (mainWindow === null) void launch();
+  if (mainWindow === null) {
+    void launch();
+  }
 });
+
+function setupAutoUpdates(): void {
+  if (!app.isPackaged) {
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on("error", (err) => {
+    console.error("[updates] Auto-update failed:", err);
+  });
+
+  autoUpdater.on("update-downloaded", async () => {
+    if (!mainWindow) {
+      autoUpdater.quitAndInstall();
+      return;
+    }
+
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      title: "Lumina update ready",
+      message: "A new Lumina desktop update has been downloaded.",
+      detail: "Restart the app now to finish installing the update.",
+      buttons: ["Restart now", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+    });
+
+    if (response === 0) {
+      autoUpdater.quitAndInstall();
+    }
+  });
+
+  void autoUpdater.checkForUpdatesAndNotify();
+  updateCheckTimer = setInterval(() => {
+    void autoUpdater.checkForUpdatesAndNotify();
+  }, 6 * 60 * 60 * 1000);
+}
 
 async function launch(): Promise<void> {
   mainWindow = createWindow();
 
-  // Start the Openclaw gateway before loading the UI
   try {
     await startGateway(config);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("[main] Gateway start failed:", message);
+    console.error("[main] Runtime start failed:", message);
 
-    // mainWindow is guaranteed non-null here
-    const { response } = await dialog.showMessageBox(mainWindow!, {
-      type:    "warning",
-      title:   "Lumina — Gateway not available",
-      message: "Could not start the local AI gateway.",
+    await dialog.showMessageBox(mainWindow, {
+      type: "warning",
+      title: "Lumina â€” Runtime not available",
+      message: "Could not start the bundled Lumina runtime.",
       detail:
         `${message}\n\n` +
-        "You can still sign in and use Lumina, but some AI capabilities may be limited. " +
-        "Make sure the OpenClaw CLI is installed to enable full features.",
-      buttons: ["Continue anyway", "Quit"],
+        "Lumina packages its local runtime automatically. Review the error details and try launching the app again.",
+      buttons: ["Quit"],
     });
 
-    if (response === 1) {
-      app.quit();
-      return;
-    }
+    app.quit();
+    return;
   }
 
-  // Preload script runs before any page JS — config is already injected by then
-  const uiPath = resolveUiPath();
-  await mainWindow!.loadFile(uiPath);
+  await mainWindow.loadFile(resolveUiPath());
+  setupAutoUpdates();
 }
 
 app.whenReady()

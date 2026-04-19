@@ -53,6 +53,8 @@ import { dirname, join } from "node:path";
 // ── Config loading ────────────────────────────────────────────────────
 
 const __dir = dirname(fileURLToPath(import.meta.url));
+const luminaConfigPath = join(os.homedir(), ".lumina", "config.json");
+const fallbackOpenclawConfigPath = join(os.homedir(), ".openclaw", "openclaw.json");
 
 function loadJson(filePath) {
   try {
@@ -62,30 +64,39 @@ function loadJson(filePath) {
   }
 }
 
-const proxyCfg   = loadJson(join(__dir, "proxy-config.json")) ?? {};
-const openclawCfg = loadJson(join(os.homedir(), ".openclaw", "openclaw.json")) ?? {};
+const luminaCfg = loadJson(luminaConfigPath) ?? {};
+const proxyCfg = loadJson(join(__dir, "proxy-config.json")) ?? {};
+const openclawCfg =
+  loadJson(process.env.OPENCLAW_CONFIG_PATH ?? fallbackOpenclawConfigPath) ?? {};
 
-// Resolution order: env var > proxy-config.json > openclaw.json > hardcoded fallback
+// Resolution order: env var > ~/.lumina/config.json > proxy-config.json > openclaw.json > fallback
 const I24D_URL         = process.env.I24D_URL
+  ?? luminaCfg.i24dChatUrl
   ?? proxyCfg.i24d?.url
   ?? "https://i24d-whatsapp-ai.onrender.com/v1/chat/completions";
 
 const I24D_MODELS_BASE = process.env.I24D_MODELS_BASE
+  ?? luminaCfg.i24dModelsBaseUrl
   ?? proxyCfg.i24d?.modelsBase
   ?? "https://i24d-whatsapp-ai.onrender.com";
 
 const I24D_TOKEN       = process.env.I24D_TOKEN
+  ?? luminaCfg.i24dToken
   ?? proxyCfg.i24d?.token
   ?? "";
 
-const PROXY_PORT       = parseInt(process.env.PROXY_PORT ?? proxyCfg.proxy?.port ?? "4321", 10);
+const PROXY_PORT       = parseInt(
+  process.env.PROXY_PORT ?? luminaCfg.proxyPort ?? proxyCfg.proxy?.port ?? "4321",
+  10,
+);
 
 const OPENCLAW_PORT    = parseInt(
-  process.env.OPENCLAW_PORT ?? openclawCfg.gateway?.port ?? "18789",
+  process.env.OPENCLAW_PORT ?? luminaCfg.gatewayPort ?? openclawCfg.gateway?.port ?? "18789",
   10
 );
 
 const OPENCLAW_TOKEN   = process.env.OPENCLAW_TOKEN
+  ?? luminaCfg.gatewayToken
   ?? openclawCfg.gateway?.auth?.token
   ?? "";
 
@@ -783,7 +794,7 @@ server.listen(PROXY_PORT, "127.0.0.1", () => {
   console.log("╚══════════════════════════════════════════════════════════════╝");
   console.log();
   console.log("I24D   :", I24D_URL);
-  console.log("Config : proxy-config.json + ~/.openclaw/openclaw.json");
+  console.log("Config : ~/.lumina/config.json + proxy-config.json + $OPENCLAW_CONFIG_PATH");
   console.log();
   console.log("INTENTS (auto-fetch):");
   console.log("  system metrics, process list, open windows, clipboard,");

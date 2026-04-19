@@ -120,7 +120,7 @@ export function tabFromPath(pathname: string, basePath = ""): Tab | null {
     normalized = "/";
   }
   if (normalized === "/") {
-    return "chat";
+    return "instances";
   }
   return PATH_TO_TAB.get(normalized) ?? null;
 }
