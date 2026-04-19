@@ -1,11 +1,3 @@
-envVarGroups:
-  - name: lumina-jwt-secrets
-    envVars:
-      - key: JWT_ACCESS_SECRET
-        sync: false
-      - key: JWT_REFRESH_SECRET
-        sync: false
-
 services:
   - type: web
     name: lumina-auth
@@ -14,17 +6,19 @@ services:
     buildCommand: npm install && npm run build
     startCommand: npm start
     healthCheckPath: /health
-    envVarGroups:
-      - lumina-jwt-secrets
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: "3200"
       - key: DATABASE_URL
         sync: false
       - key: ALLOWED_ORIGINS
         value: "*"
-      - key: PORT
-        value: "3200"
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
 
   - type: web
     name: lumina-brain
@@ -33,13 +27,17 @@ services:
     buildCommand: npm install && npm run build
     startCommand: npm start
     healthCheckPath: /health
-    envVarGroups:
-      - lumina-jwt-secrets
     envVars:
       - key: NODE_ENV
         value: production
       - key: BRAIN_API_KEY
         generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
       - key: LUMINA_CORE_URL
         sync: false
       - key: LUMINA_BRAIN_SECRET
@@ -48,5 +46,3 @@ services:
         value: "1800000"
       - key: MAX_TOOL_ITERATIONS
         value: "5"
-      - key: DATABASE_URL
-        sync: false
