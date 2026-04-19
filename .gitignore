@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.local
+.env
+.DS_Store
+Thumbs.db
+
+# Electron build output
+apps/lumina-desktop/out/
+apps/lumina-desktop/release/
+
+# Vite build output (built before packaging)
+Open_PC/dist/
+
+# pnpm
+.pnpm-store/
+claurst/

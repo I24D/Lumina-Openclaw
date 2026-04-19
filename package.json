@@ -1,0 +1,33 @@
+{
+  "name": "lumina-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lumina — AI brain + OpenClaw execution runtime monorepo",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "brain:dev":      "pnpm --filter @lumina/brain dev",
+    "brain:build":    "pnpm --filter @lumina/brain build",
+    "brain:start":    "pnpm --filter @lumina/brain start",
+    "auth:dev":       "pnpm --filter @lumina/auth dev",
+    "auth:build":     "pnpm --filter @lumina/auth build",
+    "auth:start":     "pnpm --filter @lumina/auth start",
+    "runtime:start":  "pnpm --filter @lumina/openclaw-runtime start",
+    "ui:build":       "pnpm --filter openclaw-control-ui build",
+    "ui:dev":         "pnpm --filter openclaw-control-ui dev",
+    "desktop:dev":    "pnpm --filter @lumina/desktop dev",
+    "desktop:build":  "pnpm --filter @lumina/desktop build",
+    "desktop:dist":   "pnpm --filter @lumina/desktop dist",
+    "desktop:win":    "pnpm --filter @lumina/desktop dist:win",
+    "desktop:mac":    "pnpm --filter @lumina/desktop dist:mac",
+    "desktop:linux":  "pnpm --filter @lumina/desktop dist:linux",
+    "release":        "pnpm ui:build && pnpm desktop:dist",
+    "typecheck":      "pnpm -r typecheck",
+    "protocol:build": "pnpm --filter @lumina/protocol build"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

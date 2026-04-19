@@ -1,0 +1,95 @@
+2026-04-11T12:10:19.832-04:00 [gateway] security warning: dangerous config flags enabled: gateway.controlUi.allowInsecureAuth=true. Run `openclaw security audit`.
+2026-04-11T12:10:20.604-04:00 [gateway] removed stale session lock: C:\Users\dal_n\.openclaw\agents\main\sessions\f5f93bed-5ab0-4832-a1aa-2e846116b7b7.jsonl.lock (dead-pid)
+2026-04-11T12:10:24.978-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:10:56.254-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:10:56.342-04:00 [plugins] [lumina-heartbeat] LOW MEMORY: only 237 MB free — I24D should investigate.
+2026-04-11T12:11:55.358-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:12:25.340-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:12:55.531-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:13:25.407-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:13:55.423-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:14:27.515-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:14:57.589-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:15:27.669-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:16:28.140-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:22:28.191-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:22:58.208-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:23:58.113-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:24:28.038-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:25:28.033-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:26:29.649-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:26:58.310-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 91.6% — I24D should investigate.
+2026-04-11T12:27:28.362-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:27:58.342-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 94.8% — I24D should investigate.
+2026-04-11T12:28:58.349-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:29:28.479-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:29:58.412-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:30:28.367-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:30:58.379-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 98.8% — I24D should investigate.
+2026-04-11T12:31:28.385-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:31:58.396-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:32:58.415-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 94.8% — I24D should investigate.
+2026-04-11T12:33:28.548-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:35:28.480-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:35:58.522-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:37:58.501-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:38:28.649-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:39:58.547-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 93.9% — I24D should investigate.
+2026-04-11T12:40:27.034-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T12:43:28.906-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:45:28.825-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:48:28.955-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:49:29.346-04:00 [plugins] [lumina-heartbeat] LOW MEMORY: only 210 MB free — I24D should investigate.
+2026-04-11T12:49:58.870-04:00 [plugins] [lumina-heartbeat] LOW MEMORY: only 198 MB free — I24D should investigate.
+2026-04-11T12:50:59.117-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T12:50:59.124-04:00 [plugins] [lumina-heartbeat] LOW MEMORY: only 195 MB free — I24D should investigate.
+2026-04-11T12:51:58.784-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T12:53:23.304-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T12:55:21.727-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T13:02:22.963-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T13:03:29.453-04:00 [plugins] [lumina-heartbeat] LOW MEMORY: only 242 MB free — I24D should investigate.
+2026-04-11T13:04:59.413-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 97.5% — I24D should investigate.
+2026-04-11T13:05:59.425-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T13:07:08.721-04:00 Config overwrite: C:\Users\dal_n\.openclaw\openclaw.json (sha256 3501f66babd1e4fef0b2b55cb926b5719e0883493d9a12f9deb03836f571817f -> bca709ef40e7a012768855982fe0a4516b81667a1a8e652fc9e5709b84baf203, backup=C:\Users\dal_n\.openclaw\openclaw.json.bak)
+2026-04-11T13:09:01.483-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T13:10:21.277-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T13:10:21.465-04:00 [tools] agents.main.tools.allow allowlist contains unknown entries (browser, gateway, nodes, lumina_clipboard, lumina_shell_run). Some entries are shipped core tools but unavailable in the current runtime/provider/model/config; other entries won't match any tool unless the plugin is enabled.
+2026-04-11T13:11:31.458-04:00 [plugins] [lumina-heartbeat] LOW MEMORY: only 250 MB free — I24D should investigate.
+2026-04-11T13:13:23.398-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T13:13:23.462-04:00 [tools] agents.main.tools.allow allowlist contains unknown entries (browser). These entries are shipped core tools but unavailable in the current runtime/provider/model/config.
+2026-04-11T13:19:32.176-04:00 [plugins] [lumina-heartbeat] LOW MEMORY: only 244 MB free — I24D should investigate.
+2026-04-11T13:23:31.834-04:00 [plugins] [lumina-heartbeat] LOW MEMORY: only 242 MB free — I24D should investigate.
+2026-04-11T13:26:31.847-04:00 [plugins] [lumina-heartbeat] LOW MEMORY: only 251 MB free — I24D should investigate.
+2026-04-11T13:35:11.980-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 92.7% — I24D should investigate.
+2026-04-11T13:39:41.740-04:00 [plugins] [lumina-heartbeat] LOW MEMORY: only 246 MB free — I24D should investigate.
+2026-04-11T13:40:25.276-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T13:42:21.152-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 90.5% — I24D should investigate.
+2026-04-11T13:59:51.577-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 98.7% — I24D should investigate.
+2026-04-11T14:03:51.744-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T14:06:21.797-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T14:10:21.712-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T14:37:52.296-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 93% — I24D should investigate.
+2026-04-11T14:40:20.965-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T14:46:52.565-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 92.4% — I24D should investigate.
+2026-04-11T15:10:22.220-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T15:10:23.263-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T15:11:53.223-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 91.4% — I24D should investigate.
+2026-04-11T15:14:53.241-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T15:40:21.701-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T16:10:21.249-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T16:40:21.357-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T16:50:54.943-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T16:54:25.018-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T16:55:54.934-04:00 [plugins] [lumina-heartbeat] LOW MEMORY: only 11 MB free — I24D should investigate.
+2026-04-11T17:10:21.552-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T17:17:25.497-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 91.7% — I24D should investigate.
+2026-04-11T17:21:25.466-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 93.8% — I24D should investigate.
+2026-04-11T17:32:25.636-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T17:40:22.231-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T17:56:26.318-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T17:56:56.255-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 96.1% — I24D should investigate.
+2026-04-11T18:10:21.727-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T18:27:26.890-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 98.8% — I24D should investigate.
+2026-04-11T18:38:57.279-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 100% — I24D should investigate.
+2026-04-11T18:40:21.911-04:00 [agent] low context window: custom-i24d-whatsapp-ai-onrender-com/I24D ctx=16000 (warn<32000) source=modelsConfig
+2026-04-11T19:07:27.876-04:00 [plugins] [lumina-heartbeat] HIGH CPU: 91% — I24D should investigate.

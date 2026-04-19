@@ -1,0 +1,14 @@
+{
+  "name": "@lumina/openclaw-runtime",
+  "version": "1.0.0",
+  "description": "OpenClaw Runtime — brain-aware execution proxy for Lumina on Windows",
+  "type": "module",
+  "main": "./src/server.mjs",
+  "scripts": {
+    "start": "node --stack-size=65536 src/server.mjs",
+    "dev":   "node --stack-size=65536 --watch src/server.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

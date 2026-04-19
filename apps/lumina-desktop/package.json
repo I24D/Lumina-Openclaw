@@ -1,0 +1,65 @@
+{
+  "name": "@lumina/desktop",
+  "version": "1.0.0",
+  "description": "Lumina — Desktop app (Electron)",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "dev":       "tsc && electron .",
+    "build":     "tsc",
+    "pack":      "npm run build && electron-builder --dir",
+    "dist":      "npm run build && electron-builder",
+    "dist:win":  "npm run build && electron-builder --win",
+    "dist:mac":  "npm run build && electron-builder --mac",
+    "dist:linux":"npm run build && electron-builder --linux",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.4"
+  },
+  "devDependencies": {
+    "electron":         "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "@types/node":      "^22.0.0",
+    "typescript":       "^5.5.4"
+  },
+  "build": {
+    "appId":       "ai.lumina.desktop",
+    "productName": "Lumina",
+    "copyright":   "Copyright © 2026 Lumina AI",
+    "asar":        true,
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "!assets/ICONS_REQUIRED.md"
+    ],
+    "extraResources": [
+      {
+        "from":   "../../Open_PC/dist/control-ui",
+        "to":     "ui",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target":   [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "icon":     "assets/icon.icns",
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target":   [{ "target": "AppImage", "arch": ["x64"] }],
+      "icon":     "assets/icon.png",
+      "category": "Office"
+    },
+    "nsis": {
+      "oneClick":    false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut":    true,
+      "createStartMenuShortcut":  true
+    },
+    "publish": null
+  }
+}

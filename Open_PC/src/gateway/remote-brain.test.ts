@@ -1,0 +1,174 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { OpenClawConfig } from "../config/config.js";
+import {
+  type GatewayRemoteBrainLoopParams,
+  runGatewayRemoteBrainLoop,
+} from "./remote-brain.js";
+
+const TEST_CFG = {} as OpenClawConfig;
+
+function createLoopParams(
+  overrides: Partial<GatewayRemoteBrainLoopParams> = {},
+): GatewayRemoteBrainLoopParams {
+  return {
+    cfg: TEST_CFG,
+    env: {
+      ...process.env,
+      OPENCLAW_REMOTE_BRAIN_ENABLED: "true",
+      OPENCLAW_REMOTE_BRAIN_URL: "https://lumina.example.com/api/openclaw/brain/turn",
+      OPENCLAW_REMOTE_BRAIN_MAX_TURNS: "4",
+    },
+    sessionKey: "agent:main:main",
+    requestId: "req_1",
+    messageChannel: "openclaw-chat",
+    messageProvider: "openclaw-chat",
+    senderIsOwner: true,
+    messages: [{ role: "user", content: "Check the weather." }],
+    ...overrides,
+  };
+}
+
+function jsonResponse(body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("runGatewayRemoteBrainLoop", () => {
+  it("executes local runtime tools before requesting a final answer", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
+          reply: "",
+          toolCalls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: {
+                name: "weather_lookup",
+                arguments: JSON.stringify({ city: "New York" }),
+              },
+            },
+          ],
+          finishReason: "tool_calls",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
+          reply: "It is 72F and sunny in New York.",
+          toolCalls: [],
+          finishReason: "stop",
+        }),
+      );
+
+    const execute = vi.fn(async () => ({
+      content: [{ type: "text", text: "72F and sunny" }],
+      details: { city: "New York" },
+    }));
+
+    const result = await runGatewayRemoteBrainLoop(
+      createLoopParams({
+        deps: {
+          fetchImpl,
+          localTools: [
+            {
+              definition: {
+                name: "weather_lookup",
+                description: "Get weather for a city.",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    city: { type: "string" },
+                  },
+                  required: ["city"],
+                },
+              },
+              execute,
+            },
+          ],
+          runtimeVersion: "2026.4.4",
+        },
+      }),
+    );
+
+    if (!result.enabled || !result.ok) {
+      throw new Error("expected successful remote brain result");
+    }
+    expect(result.reply).toContain("72F");
+    expect(result.executedToolCalls).toBe(1);
+    expect(execute).toHaveBeenCalledWith("call_1", { city: "New York" });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+    const secondBody = JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body)) as {
+      messages: Array<{ role: string; tool_call_id?: string; content: string }>;
+    };
+    expect(secondBody.messages.at(-1)).toMatchObject({
+      role: "tool",
+      tool_call_id: "call_1",
+    });
+    expect(secondBody.messages.at(-1)?.content ?? "").toContain("72F");
+  });
+
+  it("returns client tool calls to the caller without executing local tools", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse({
+        ok: true,
+        reply: "Need weather before answering.",
+        toolCalls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: {
+              name: "get_weather",
+              arguments: JSON.stringify({ city: "Miami" }),
+            },
+          },
+        ],
+        finishReason: "tool_calls",
+      }),
+    );
+
+    const result = await runGatewayRemoteBrainLoop(
+      createLoopParams({
+        clientTools: [
+          {
+            type: "function",
+            function: {
+              name: "get_weather",
+              description: "Client-hosted weather tool.",
+              parameters: {
+                type: "object",
+                properties: {
+                  city: { type: "string" },
+                },
+                required: ["city"],
+              },
+            },
+          },
+        ],
+        deps: {
+          fetchImpl,
+          localTools: [],
+          runtimeVersion: "2026.4.4",
+        },
+      }),
+    );
+
+    if (!result.enabled || !result.ok) {
+      throw new Error("expected successful remote brain tool-call result");
+    }
+    expect(result.finishReason).toBe("tool_calls");
+    expect(result.pendingToolCalls).toHaveLength(1);
+    expect(result.executedToolCalls).toBe(0);
+    expect(result.pendingToolCalls?.[0]?.function.name).toBe("get_weather");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});

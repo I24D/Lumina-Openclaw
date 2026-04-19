@@ -1,0 +1,33 @@
+{
+  "id": "lumina-pc",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Enable or disable the Lumina_PC execution layer.",
+        "default": true
+      },
+      "shellApprovalRequired": {
+        "type": "boolean",
+        "description": "Require explicit approval before executing shell commands.",
+        "default": true
+      },
+      "heartbeatIntervalMs": {
+        "type": "number",
+        "description": "Interval in milliseconds for reporting system metrics to I24D.",
+        "default": 30000
+      },
+      "screenshotDir": {
+        "type": "string",
+        "description": "Directory where screenshots are saved. Defaults to %TEMP%\\lumina-pc-screenshots."
+      },
+      "watchedPaths": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Paths to watch for file changes and report to I24D."
+      }
+    }
+  }
+}

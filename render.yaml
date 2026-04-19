@@ -1,0 +1,54 @@
+envVarGroups:
+  - name: lumina-jwt-secrets
+    envVars:
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+
+services:
+  - type: web
+    name: lumina-auth
+    env: node
+    rootDir: apps/lumina-auth
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVarGroups:
+      - lumina-jwt-secrets
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      - key: PORT
+        value: "3200"
+
+  - type: web
+    name: lumina-brain
+    env: node
+    rootDir: apps/lumina-brain
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVarGroups:
+      - lumina-jwt-secrets
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BRAIN_API_KEY
+        generateValue: true
+      - key: BRAIN_LLM_PROVIDER
+        value: openai
+      - key: BRAIN_LLM_MODEL
+        value: gpt-5.2
+      - key: BRAIN_LLM_API_KEY
+        sync: false
+      - key: SESSION_TTL_MS
+        value: "1800000"
+      - key: MAX_TOOL_ITERATIONS
+        value: "5"
+      - key: DATABASE_URL
+        sync: false
