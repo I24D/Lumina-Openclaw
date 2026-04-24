@@ -9,6 +9,7 @@ import { formatUncaughtError } from "../infra/errors.js";
 import { isMainModule } from "../infra/is-main.js";
 import { ensureOpenClawCliOnPath } from "../infra/path-env.js";
 import { assertSupportedRuntime } from "../infra/runtime-guard.js";
+import { traceStartup } from "../infra/startup-trace.js";
 import { enableConsoleCapture } from "../logging.js";
 import { hasMemoryRuntime } from "../plugins/memory-state.js";
 import {
@@ -117,6 +118,7 @@ function shouldLoadCliDotEnv(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 export async function runCli(argv: string[] = process.argv) {
+  traceStartup("run-main.begin");
   const originalArgv = normalizeWindowsArgv(argv);
   const parsedContainer = parseCliContainerArgs(originalArgv);
   if (!parsedContainer.ok) {
@@ -145,7 +147,9 @@ export async function runCli(argv: string[] = process.argv) {
   let normalizedArgv = parsedProfile.argv;
 
   if (shouldLoadCliDotEnv()) {
+    traceStartup("run-main.import.dotenv.begin");
     const { loadCliDotEnv } = await import("./dotenv.js");
+    traceStartup("run-main.import.dotenv.ready");
     loadCliDotEnv({ quiet: true });
   }
   normalizeEnv();
@@ -166,15 +170,21 @@ export async function runCli(argv: string[] = process.argv) {
       return;
     }
 
+    traceStartup("run-main.route.begin");
     if (await tryRouteCli(normalizedArgv)) {
+      traceStartup("run-main.route.handled");
       return;
     }
+    traceStartup("run-main.route.miss");
 
     // Capture all console output into structured logs while keeping stdout/stderr behavior.
     enableConsoleCapture();
 
+    traceStartup("run-main.import.program.begin");
     const { buildProgram } = await import("./program.js");
+    traceStartup("run-main.import.program.ready");
     const program = buildProgram();
+    traceStartup("run-main.program.built");
     const { installUnhandledRejectionHandler } = await import("../infra/unhandled-rejections.js");
 
     // Global error handlers to prevent silent crashes from unhandled rejections/exceptions.
@@ -191,6 +201,7 @@ export async function runCli(argv: string[] = process.argv) {
     // are correct even with lazy command registration.
     const primary = getPrimaryCommand(parseArgv);
     if (primary) {
+      traceStartup("run-main.register.primary.begin", { primary });
       const { getProgramContext } = await import("./program/program-context.js");
       const ctx = getProgramContext(program);
       if (ctx) {
@@ -199,6 +210,7 @@ export async function runCli(argv: string[] = process.argv) {
       }
       const { registerSubCliByName } = await import("./program/register.subclis.js");
       await registerSubCliByName(program, primary);
+      traceStartup("run-main.register.primary.ready", { primary });
     }
 
     const hasBuiltinPrimary =
@@ -209,6 +221,7 @@ export async function runCli(argv: string[] = process.argv) {
       hasBuiltinPrimary,
     });
     if (!shouldSkipPluginRegistration) {
+      traceStartup("run-main.register.plugins.begin", { primary: primary ?? "none" });
       // Register plugin CLI commands before parsing
       const { registerPluginCliCommands } = await import("../plugins/cli.js");
       const { loadValidatedConfigForPluginRegistration } =
@@ -229,9 +242,12 @@ export async function runCli(argv: string[] = process.argv) {
           }
         }
       }
+      traceStartup("run-main.register.plugins.ready", { primary: primary ?? "none" });
     }
 
+    traceStartup("run-main.parse.begin", { primary: primary ?? "none" });
     await program.parseAsync(parseArgv);
+    traceStartup("run-main.parse.ready", { primary: primary ?? "none" });
   } finally {
     await closeCliMemoryManagers();
   }

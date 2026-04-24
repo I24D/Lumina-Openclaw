@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
+import renderPreset from "../config/render-preset.json";
 import { resolveRuntimePaths } from "./runtime-paths.js";
 
 const CONFIG_DIR = path.join(os.homedir(), ".lumina");
@@ -9,11 +10,14 @@ const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 const OPENCLAW_CONFIG_FILE = path.join(CONFIG_DIR, "openclaw.json");
 const OPENCLAW_STATE_DIR = path.join(CONFIG_DIR, "openclaw-state");
 const WORKSPACE_DIR = path.join(CONFIG_DIR, "workspace");
+const CANONICAL_LUMINA_PROVIDER_ID = "lumina";
+const LEGACY_LUMINA_PROVIDER_IDS = ["custom-i24d-whatsapp-ai-onrender-com"];
 
 interface GeneratedDefaults {
   authServiceUrl?: string;
   providerId?: string;
   modelId?: string;
+  preferredModelRef?: string;
   modelName?: string;
   modelContextWindow?: number;
   modelMaxTokens?: number;
@@ -23,7 +27,16 @@ interface GeneratedDefaults {
   i24dModelsBaseUrl?: string;
   i24dChatUrl?: string;
   i24dToken?: string;
+  remoteBrainEnabled?: boolean;
+  remoteBrainUrl?: string;
+  remoteBrainSecret?: string;
+  remoteBrainTimeoutMs?: number;
+  remoteBrainMaxTurns?: number;
+  runtimeReleaseManifestUrl?: string;
+  runtimeReleaseChannel?: string;
+  skipOpenClawChannels?: boolean;
   defaultTab?: string;
+  requireLuminaAuth?: boolean;
   updateRepoOwner?: string;
   updateRepoName?: string;
 }
@@ -37,12 +50,22 @@ interface StoredLuminaConfig {
   i24dChatUrl?: string;
   i24dModelsBaseUrl?: string;
   i24dToken?: string;
+  remoteBrainEnabled?: boolean;
+  remoteBrainUrl?: string;
+  remoteBrainSecret?: string;
+  remoteBrainTimeoutMs?: number;
+  remoteBrainMaxTurns?: number;
+  runtimeReleaseManifestUrl?: string;
+  runtimeReleaseChannel?: string;
+  skipOpenClawChannels?: boolean;
   providerId?: string;
   modelId?: string;
+  preferredModelRef?: string;
   modelName?: string;
   modelContextWindow?: number;
   modelMaxTokens?: number;
   defaultTab?: string;
+  requireLuminaAuth?: boolean;
   updateRepoOwner?: string;
   updateRepoName?: string;
 }
@@ -60,46 +83,86 @@ export interface LuminaConfig {
   i24dChatUrl: string;
   i24dModelsBaseUrl: string;
   i24dToken: string;
+  remoteBrainEnabled: boolean;
+  remoteBrainUrl: string;
+  remoteBrainSecret: string;
+  remoteBrainTimeoutMs: number;
+  remoteBrainMaxTurns: number;
+  runtimeReleaseManifestUrl: string;
+  runtimeReleaseChannel: string;
+  skipOpenClawChannels: boolean;
   providerId: string;
   modelId: string;
+  preferredModelRef: string;
   modelName: string;
   modelContextWindow: number;
   modelMaxTokens: number;
   defaultTab: string;
+  requireLuminaAuth: boolean;
   updateRepoOwner: string;
   updateRepoName: string;
 }
 
-const DEFAULTS: Omit<LuminaConfig, "gatewayToken" | "i24dToken"> = {
+const DEFAULTS: Omit<LuminaConfig, "gatewayToken" | "i24dToken" | "remoteBrainSecret"> = {
   configDir: CONFIG_DIR,
   openclawConfigPath: OPENCLAW_CONFIG_FILE,
   openclawStateDir: OPENCLAW_STATE_DIR,
   workspaceDir: WORKSPACE_DIR,
-  gatewayPort: 18789,
-  proxyPort: 4321,
-  proxyApiKey: "lumina-local-proxy",
-  authServiceUrl: "https://lumina-auth.onrender.com",
-  i24dChatUrl: "https://i24d-whatsapp-ai.onrender.com/v1/chat/completions",
-  i24dModelsBaseUrl: "https://i24d-whatsapp-ai.onrender.com",
-  providerId: "custom-i24d-whatsapp-ai-onrender-com",
-  modelId: "I24D",
-  modelName: "I24D (Lumina)",
-  modelContextWindow: 16000,
-  modelMaxTokens: 4096,
-  defaultTab: "instances",
-  updateRepoOwner: "I24D",
-  updateRepoName: "Lumina-I24D",
+  gatewayPort: renderPreset.gatewayPort,
+  proxyPort: renderPreset.proxyPort,
+  proxyApiKey: renderPreset.proxyApiKey,
+  authServiceUrl: renderPreset.authServiceUrl,
+  i24dChatUrl: renderPreset.i24dChatUrl,
+  i24dModelsBaseUrl: renderPreset.i24dModelsBaseUrl,
+  remoteBrainEnabled:
+    (typeof renderPreset.remoteBrainEnabled === "boolean"
+      ? renderPreset.remoteBrainEnabled
+      : Boolean(renderPreset.remoteBrainUrl)) && Boolean(renderPreset.remoteBrainUrl),
+  remoteBrainUrl: renderPreset.remoteBrainUrl,
+  remoteBrainTimeoutMs: renderPreset.remoteBrainTimeoutMs,
+  remoteBrainMaxTurns: renderPreset.remoteBrainMaxTurns,
+  runtimeReleaseManifestUrl: renderPreset.runtimeReleaseManifestUrl,
+  runtimeReleaseChannel: renderPreset.runtimeReleaseChannel,
+  skipOpenClawChannels: renderPreset.skipOpenClawChannels,
+  providerId: CANONICAL_LUMINA_PROVIDER_ID,
+  modelId: renderPreset.modelId,
+  preferredModelRef: `${CANONICAL_LUMINA_PROVIDER_ID}/${renderPreset.modelId}`,
+  modelName: renderPreset.modelName,
+  modelContextWindow: renderPreset.modelContextWindow,
+  modelMaxTokens: renderPreset.modelMaxTokens,
+  defaultTab: renderPreset.defaultTab,
+  requireLuminaAuth: renderPreset.requireLuminaAuth,
+  updateRepoOwner: renderPreset.updateRepoOwner,
+  updateRepoName: renderPreset.updateRepoName,
 };
 
 export function loadConfig(): LuminaConfig {
   const generatedDefaults = loadGeneratedDefaults();
   const storedConfig = loadStoredConfig();
+  const currentOpenClawConfig = loadCurrentOpenClawConfig();
+  const currentOpenClawModels = asObject(currentOpenClawConfig?.models);
+  const currentOpenClawProviders = asObject(currentOpenClawModels?.providers);
+  const currentOpenClawAgents = asObject(currentOpenClawConfig?.agents);
+  const currentOpenClawDefaults = asObject(currentOpenClawAgents?.defaults);
+  const currentOpenClawModelAliases = asObject(currentOpenClawDefaults?.models);
   const legacyConfig = loadLegacyOpenClawConfig();
+  const storedModelName = normalizeModelName(storedConfig.modelName);
+  const generatedModelName = normalizeModelName(generatedDefaults.modelName);
   const providerId =
-    readString(process.env.LUMINA_PROVIDER_ID) ??
-    storedConfig.providerId ??
-    generatedDefaults.providerId ??
+    normalizeProviderIdValue(process.env.LUMINA_PROVIDER_ID) ??
+    normalizeProviderIdValue(storedConfig.providerId) ??
+    normalizeProviderIdValue(generatedDefaults.providerId) ??
     DEFAULTS.providerId;
+  const modelId =
+    readString(process.env.LUMINA_MODEL_ID) ??
+    storedConfig.modelId ??
+    generatedDefaults.modelId ??
+    DEFAULTS.modelId;
+  const managedModelRefs = new Set(
+    resolveProviderLookupIds(providerId).map((candidateProviderId) =>
+      createModelRef(candidateProviderId, modelId).toLowerCase(),
+    ),
+  );
 
   try {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -108,6 +171,62 @@ export function loadConfig(): LuminaConfig {
   } catch {
     // best-effort
   }
+
+  const i24dModelsBaseUrl =
+    readString(process.env.LUMINA_I24D_BASE_URL) ??
+    storedConfig.i24dModelsBaseUrl ??
+    generatedDefaults.i24dModelsBaseUrl ??
+    DEFAULTS.i24dModelsBaseUrl;
+
+  const i24dChatUrl =
+    readString(process.env.LUMINA_I24D_CHAT_URL) ??
+    storedConfig.i24dChatUrl ??
+    generatedDefaults.i24dChatUrl ??
+    joinUrlPath(i24dModelsBaseUrl, "/v1/chat/completions");
+
+  const i24dToken =
+    readString(process.env.LUMINA_I24D_TOKEN) ??
+    storedConfig.i24dToken ??
+    readLegacyI24dToken(legacyConfig, providerId) ??
+    generatedDefaults.i24dToken ??
+    "";
+
+  const remoteBrainUrl =
+    readString(process.env.LUMINA_REMOTE_BRAIN_URL) ??
+    storedConfig.remoteBrainUrl ??
+    generatedDefaults.remoteBrainUrl ??
+    joinUrlPath(i24dModelsBaseUrl, "/api/openclaw/brain/turn");
+
+  const remoteBrainSecret =
+    readString(process.env.LUMINA_REMOTE_BRAIN_SECRET) ??
+    storedConfig.remoteBrainSecret ??
+    generatedDefaults.remoteBrainSecret ??
+    i24dToken;
+
+  const configuredRemoteBrainEnabled =
+    readBool(process.env.LUMINA_REMOTE_BRAIN_ENABLED) ??
+    storedConfig.remoteBrainEnabled ??
+    generatedDefaults.remoteBrainEnabled;
+  const inferredRemoteBrainEnabled = Boolean(remoteBrainUrl);
+  const remoteBrainEnabled = Boolean(
+    (configuredRemoteBrainEnabled ?? inferredRemoteBrainEnabled) && remoteBrainUrl,
+  );
+  const currentPreferredModelRef = readOpenClawPreferredModelRef(currentOpenClawConfig);
+  const persistedPreferredModelRef =
+    readString(process.env.LUMINA_PREFERRED_MODEL_REF) ??
+    readString(storedConfig.preferredModelRef) ??
+    readString(generatedDefaults.preferredModelRef) ??
+    createModelRef(providerId, modelId);
+  const preferredModelRef =
+    currentPreferredModelRef &&
+    !managedModelRefs.has(currentPreferredModelRef.toLowerCase()) &&
+    hasConfiguredModelRef(
+      currentOpenClawProviders,
+      currentOpenClawModelAliases,
+      currentPreferredModelRef,
+    )
+      ? currentPreferredModelRef
+      : persistedPreferredModelRef;
 
   const config: LuminaConfig = {
     ...DEFAULTS,
@@ -136,32 +255,44 @@ export function loadConfig(): LuminaConfig {
       storedConfig.authServiceUrl ??
       generatedDefaults.authServiceUrl ??
       DEFAULTS.authServiceUrl,
-    i24dChatUrl:
-      readString(process.env.LUMINA_I24D_CHAT_URL) ??
-      storedConfig.i24dChatUrl ??
-      generatedDefaults.i24dChatUrl ??
-      DEFAULTS.i24dChatUrl,
-    i24dModelsBaseUrl:
-      readString(process.env.LUMINA_I24D_BASE_URL) ??
-      storedConfig.i24dModelsBaseUrl ??
-      generatedDefaults.i24dModelsBaseUrl ??
-      DEFAULTS.i24dModelsBaseUrl,
-    i24dToken:
-      readString(process.env.LUMINA_I24D_TOKEN) ??
-      storedConfig.i24dToken ??
-      readLegacyI24dToken(legacyConfig, providerId) ??
-      generatedDefaults.i24dToken ??
-      "",
+    i24dChatUrl,
+    i24dModelsBaseUrl,
+    i24dToken,
+    remoteBrainEnabled,
+    remoteBrainUrl,
+    remoteBrainSecret,
+    remoteBrainTimeoutMs:
+      readInt(process.env.LUMINA_REMOTE_BRAIN_TIMEOUT_MS) ??
+      storedConfig.remoteBrainTimeoutMs ??
+      generatedDefaults.remoteBrainTimeoutMs ??
+      DEFAULTS.remoteBrainTimeoutMs,
+    remoteBrainMaxTurns:
+      readInt(process.env.LUMINA_REMOTE_BRAIN_MAX_TURNS) ??
+      storedConfig.remoteBrainMaxTurns ??
+      generatedDefaults.remoteBrainMaxTurns ??
+      DEFAULTS.remoteBrainMaxTurns,
+    runtimeReleaseManifestUrl:
+      readString(process.env.LUMINA_RUNTIME_RELEASE_MANIFEST_URL) ??
+      storedConfig.runtimeReleaseManifestUrl ??
+      generatedDefaults.runtimeReleaseManifestUrl ??
+      DEFAULTS.runtimeReleaseManifestUrl,
+    runtimeReleaseChannel:
+      readString(process.env.LUMINA_RUNTIME_RELEASE_CHANNEL) ??
+      storedConfig.runtimeReleaseChannel ??
+      generatedDefaults.runtimeReleaseChannel ??
+      DEFAULTS.runtimeReleaseChannel,
+    skipOpenClawChannels:
+      readBool(process.env.LUMINA_SKIP_OPENCLAW_CHANNELS) ??
+      storedConfig.skipOpenClawChannels ??
+      generatedDefaults.skipOpenClawChannels ??
+      DEFAULTS.skipOpenClawChannels,
     providerId,
-    modelId:
-      readString(process.env.LUMINA_MODEL_ID) ??
-      storedConfig.modelId ??
-      generatedDefaults.modelId ??
-      DEFAULTS.modelId,
+    modelId,
+    preferredModelRef,
     modelName:
       readString(process.env.LUMINA_MODEL_NAME) ??
-      storedConfig.modelName ??
-      generatedDefaults.modelName ??
+      storedModelName ??
+      generatedModelName ??
       DEFAULTS.modelName,
     modelContextWindow:
       readInt(process.env.LUMINA_MODEL_CONTEXT_WINDOW) ??
@@ -178,6 +309,11 @@ export function loadConfig(): LuminaConfig {
       storedConfig.defaultTab ??
       generatedDefaults.defaultTab ??
       DEFAULTS.defaultTab,
+    requireLuminaAuth:
+      readBool(process.env.LUMINA_REQUIRE_AUTH) ??
+      storedConfig.requireLuminaAuth ??
+      generatedDefaults.requireLuminaAuth ??
+      DEFAULTS.requireLuminaAuth,
     updateRepoOwner:
       readString(process.env.LUMINA_GITHUB_OWNER) ??
       storedConfig.updateRepoOwner ??
@@ -209,12 +345,22 @@ export function saveConfig(config: LuminaConfig): void {
           i24dChatUrl: config.i24dChatUrl,
           i24dModelsBaseUrl: config.i24dModelsBaseUrl,
           i24dToken: config.i24dToken,
+          remoteBrainEnabled: config.remoteBrainEnabled,
+          remoteBrainUrl: config.remoteBrainUrl,
+          remoteBrainSecret: config.remoteBrainSecret,
+          remoteBrainTimeoutMs: config.remoteBrainTimeoutMs,
+          remoteBrainMaxTurns: config.remoteBrainMaxTurns,
+          runtimeReleaseManifestUrl: config.runtimeReleaseManifestUrl,
+          runtimeReleaseChannel: config.runtimeReleaseChannel,
+          skipOpenClawChannels: config.skipOpenClawChannels,
           providerId: config.providerId,
           modelId: config.modelId,
+          preferredModelRef: config.preferredModelRef,
           modelName: config.modelName,
           modelContextWindow: config.modelContextWindow,
           modelMaxTokens: config.modelMaxTokens,
           defaultTab: config.defaultTab,
+          requireLuminaAuth: config.requireLuminaAuth,
           updateRepoOwner: config.updateRepoOwner,
           updateRepoName: config.updateRepoName,
         },
@@ -255,6 +401,17 @@ function loadGeneratedDefaults(): GeneratedDefaults {
   }
 }
 
+function loadCurrentOpenClawConfig(): Record<string, unknown> | null {
+  try {
+    if (!fs.existsSync(OPENCLAW_CONFIG_FILE)) {
+      return null;
+    }
+    return JSON.parse(fs.readFileSync(OPENCLAW_CONFIG_FILE, "utf8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 function loadLegacyOpenClawConfig(): Record<string, unknown> | null {
   try {
     const legacyPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
@@ -279,8 +436,66 @@ function readLegacyI24dToken(
 ): string | null {
   const models = asObject(config?.models);
   const providers = asObject(models?.providers);
-  const provider = asObject(providers?.[providerId]);
-  return readStringValue(provider?.apiKey);
+  for (const candidateProviderId of resolveProviderLookupIds(providerId)) {
+    const provider = asObject(providers?.[candidateProviderId]);
+    const token = readStringValue(provider?.apiKey);
+    if (token) {
+      return token;
+    }
+  }
+  return null;
+}
+
+function readOpenClawPreferredModelRef(config: Record<string, unknown> | null): string | null {
+  const agents = asObject(config?.agents);
+  const defaults = asObject(agents?.defaults);
+  return readModelPrimaryValue(defaults?.model);
+}
+
+function readModelPrimaryValue(value: unknown): string | null {
+  if (typeof value === "string") {
+    return readString(value);
+  }
+  const object = asObject(value);
+  return readStringValue(object?.primary);
+}
+
+function parseModelRef(modelRef: string): { providerId: string; modelId: string } | null {
+  const trimmed = modelRef.trim();
+  const separator = trimmed.indexOf("/");
+  if (separator <= 0 || separator >= trimmed.length - 1) {
+    return null;
+  }
+  const providerId = normalizeProviderIdValue(trimmed.slice(0, separator)) ?? "";
+  const modelId = readString(trimmed.slice(separator + 1)) ?? "";
+  if (!providerId || !modelId) {
+    return null;
+  }
+  return { providerId, modelId };
+}
+
+function hasConfiguredModelRef(
+  providers: Record<string, unknown> | null,
+  modelAliases: Record<string, unknown> | null,
+  modelRef: string,
+): boolean {
+  const normalizedModelRef = readString(modelRef);
+  if (!normalizedModelRef) {
+    return false;
+  }
+  if (modelAliases && modelAliases[normalizedModelRef] !== undefined) {
+    return true;
+  }
+  const parsed = parseModelRef(normalizedModelRef);
+  if (!parsed || !providers) {
+    return false;
+  }
+  const provider = asObject(providers[parsed.providerId]);
+  const models = Array.isArray(provider?.models) ? provider.models : [];
+  return models.some((entry) => {
+    const object = asObject(entry);
+    return typeof object?.id === "string" && object.id.trim().toLowerCase() === parsed.modelId.toLowerCase();
+  });
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -308,4 +523,67 @@ function readInt(input: string | undefined): number | null {
   }
   const value = Number.parseInt(input, 10);
   return Number.isFinite(value) ? value : null;
+}
+
+function readBool(input: string | undefined): boolean | null {
+  if (!input) {
+    return null;
+  }
+  const normalized = input.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  return null;
+}
+
+function normalizeProviderIdValue(input: string | undefined): string | null {
+  const value = readString(input);
+  if (!value) {
+    return null;
+  }
+  const normalized = value.toLowerCase();
+  if (LEGACY_LUMINA_PROVIDER_IDS.includes(normalized)) {
+    return CANONICAL_LUMINA_PROVIDER_ID;
+  }
+  return normalized;
+}
+
+function resolveProviderLookupIds(providerId: string): string[] {
+  const normalized = normalizeProviderIdValue(providerId) ?? DEFAULTS.providerId;
+  if (normalized === CANONICAL_LUMINA_PROVIDER_ID) {
+    return [CANONICAL_LUMINA_PROVIDER_ID, ...LEGACY_LUMINA_PROVIDER_IDS];
+  }
+  return [normalized];
+}
+
+function normalizeModelName(input: string | undefined): string | null {
+  const value = readString(input);
+  if (!value) {
+    return null;
+  }
+  return value === "I24D (Lumina)" ? "Lumina IA" : value;
+}
+
+function createModelRef(providerId: string, modelId: string): string {
+  const normalizedProviderId = normalizeProviderIdValue(providerId) ?? readString(providerId) ?? "";
+  const normalizedModelId = readString(modelId) ?? "";
+  if (!normalizedProviderId || !normalizedModelId) {
+    return "";
+  }
+  return `${normalizedProviderId}/${normalizedModelId}`;
+}
+
+function joinUrlPath(baseUrl: string, pathname: string): string {
+  const normalizedBase = baseUrl.trim().replace(/\/+$/, "");
+  if (!normalizedBase) {
+    return "";
+  }
+  const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  return `${normalizedBase}${normalizedPath}`;
 }

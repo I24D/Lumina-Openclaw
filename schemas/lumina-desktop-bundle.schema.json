@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumina.i24d.dev/schemas/lumina-desktop-bundle.schema.json",
+  "title": "Lumina Desktop Bundle Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "bundleId",
+    "bundleKind",
+    "bundleVersion",
+    "createdAt",
+    "channel",
+    "platform",
+    "arch",
+    "product",
+    "source",
+    "install",
+    "launch",
+    "entries"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "bundleId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bundleKind": {
+      "const": "desktop-runtime"
+    },
+    "bundleVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "channel": {
+      "enum": ["stable", "beta", "nightly"]
+    },
+    "platform": {
+      "enum": ["win32", "darwin", "linux"]
+    },
+    "arch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["appId", "productName", "vendor"],
+      "properties": {
+        "appId": { "type": "string", "minLength": 1 },
+        "productName": { "type": "string", "minLength": 1 },
+        "vendor": { "type": "string", "minLength": 1 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopPackageName",
+        "desktopPackageVersion",
+        "openClawPackageName",
+        "openClawVersion",
+        "hostNodeVersion",
+        "lockfileSha256"
+      ],
+      "properties": {
+        "desktopPackageName": { "type": "string", "minLength": 1 },
+        "desktopPackageVersion": { "type": "string", "minLength": 1 },
+        "openClawPackageName": { "type": "string", "minLength": 1 },
+        "openClawVersion": { "type": "string", "minLength": 1 },
+        "hostNodeVersion": { "type": "string", "minLength": 1 },
+        "lockfileSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "install": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["payloadRoot", "copyMode", "launchStrategy"],
+      "properties": {
+        "payloadRoot": { "type": "string", "minLength": 1 },
+        "copyMode": {
+          "const": "merge-contents-of-payload-root"
+        },
+        "launchStrategy": {
+          "const": "desktop-runtime-bundle"
+        }
+      }
+    },
+    "launch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defaultsFile", "nodeExecutable", "openClawEntry", "uiIndex", "proxyEntry"],
+      "properties": {
+        "defaultsFile": { "type": "string", "minLength": 1 },
+        "nodeExecutable": { "type": "string", "minLength": 1 },
+        "openClawEntry": { "type": "string", "minLength": 1 },
+        "uiIndex": { "type": "string", "minLength": 1 },
+        "proxyEntry": { "type": "string", "minLength": 1 }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "layout",
+          "bundleRelativePath",
+          "installRelativePath",
+          "required",
+          "executable",
+          "byteSize",
+          "fileCount",
+          "sha256"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": {
+            "enum": ["config", "runtime", "service", "content", "ui"]
+          },
+          "layout": {
+            "enum": ["file", "directory"]
+          },
+          "bundleRelativePath": { "type": "string", "minLength": 1 },
+          "installRelativePath": { "type": "string", "minLength": 1 },
+          "required": { "type": "boolean" },
+          "executable": { "type": "boolean" },
+          "byteSize": { "type": "integer", "minimum": 0 },
+          "fileCount": { "type": "integer", "minimum": 1 },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    }
+  }
+}

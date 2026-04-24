@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumina.i24d.dev/schemas/lumina-release-manifest.schema.json",
+  "title": "Lumina Release Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "manifestId",
+    "channel",
+    "version",
+    "publishedAt",
+    "product",
+    "target",
+    "bundle",
+    "bootstrap",
+    "artifacts"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "manifestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "channel": {
+      "enum": ["stable", "beta", "nightly"]
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "publishedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["appId", "productName", "vendor"],
+      "properties": {
+        "appId": { "type": "string", "minLength": 1 },
+        "productName": { "type": "string", "minLength": 1 },
+        "vendor": { "type": "string", "minLength": 1 }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "arch"],
+      "properties": {
+        "platform": {
+          "enum": ["win32", "darwin", "linux"]
+        },
+        "arch": { "type": "string", "minLength": 1 }
+      }
+    },
+    "bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundleId", "bundleVersion", "minBootstrapVersion"],
+      "properties": {
+        "bundleId": { "type": "string", "minLength": 1 },
+        "bundleVersion": { "type": "string", "minLength": 1 },
+        "minBootstrapVersion": { "type": "string", "minLength": 1 }
+      }
+    },
+    "bootstrap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {
+          "const": "download-and-expand-runtime-bundle"
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "role",
+          "platform",
+          "arch",
+          "format",
+          "fileName",
+          "relativePath",
+          "byteSize",
+          "sha256"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "role": {
+            "enum": [
+              "runtime-bundle",
+              "bundle-manifest",
+              "desktop-installer",
+              "bootstrap-installer"
+            ]
+          },
+          "platform": {
+            "enum": ["win32", "darwin", "linux"]
+          },
+          "arch": { "type": "string", "minLength": 1 },
+          "format": {
+            "enum": [
+              "tar.gz",
+              "zip",
+              "exe",
+              "msi",
+              "pkg",
+              "dmg",
+              "deb",
+              "rpm",
+              "appimage",
+              "portable",
+              "directory",
+              "json"
+            ]
+          },
+          "fileName": { "type": "string", "minLength": 1 },
+          "relativePath": { "type": "string", "minLength": 1 },
+          "url": { "type": "string", "minLength": 1 },
+          "byteSize": { "type": "integer", "minimum": 0 },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "bundleManifestSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "bundleManifestRelativePath": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

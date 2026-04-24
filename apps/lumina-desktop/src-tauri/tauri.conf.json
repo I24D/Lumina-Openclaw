@@ -1,0 +1,33 @@
+{
+  "productName": "Lumina OpenClaw",
+  "version": "1.0.0",
+  "identifier": "ai.lumina.desktop",
+  "build": {
+    "frontendDist": "lumina://localhost"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": []
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "../assets/icon.png",
+      "../assets/icon.ico"
+    ],
+    "resources": {
+      "../build/runtime-bundle/bundle.manifest.json": "bundle.manifest.json",
+      "../build/runtime-bundle/payload/config/": "config",
+      "../build/runtime-bundle/payload/node/": "node",
+      "../build/runtime-tools/": "runtime-tools",
+      "../build/runtime-bundle/payload/ui/": "ui",
+      "../build/runtime-bundle/payload/openclaw/": "openclaw",
+      "../build/runtime-bundle/payload/proxy/": "proxy",
+      "../dist/bootstrap.js": "desktop-shell/bootstrap.js",
+      "../dist/config.js": "desktop-shell/config.js",
+      "../dist/runtime-paths.js": "desktop-shell/runtime-paths.js",
+      "../dist/tauri-bridge.js": "desktop-shell/tauri-bridge.js",
+      "../dist/tauri-init.js": "desktop-shell/tauri-init.js"
+    }
+  }
+}

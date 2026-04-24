@@ -55,4 +55,27 @@ describe("chat-model-select-state", () => {
     expect(resolved.options.map((option) => option.value)).toContain("openai/gpt-5-mini");
     expect(resolved.options.map((option) => option.value)).not.toContain("gpt-5-mini");
   });
+
+  it("uses the catalog display name for the default Lumina model label", () => {
+    const state = {
+      sessionKey: "main",
+      chatModelOverrides: {},
+      chatModelCatalog: createModelCatalog({
+        id: "I24D",
+        name: "Lumina IA",
+        provider: "lumina",
+      }),
+      sessionsResult: createSessionsListResult({
+        defaultsModel: "I24D",
+        defaultsProvider: "lumina",
+        model: null,
+        modelProvider: null,
+      }),
+    };
+
+    const resolved = resolveChatModelSelectState(state);
+    expect(resolved.defaultModel).toBe("lumina/I24D");
+    expect(resolved.defaultDisplay).toBe("Lumina IA · lumina");
+    expect(resolved.defaultLabel).toBe("Default (Lumina IA · lumina)");
+  });
 });

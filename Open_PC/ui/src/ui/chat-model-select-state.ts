@@ -1,8 +1,8 @@
 import type { AppViewState } from "./app-view-state.ts";
 import {
   buildChatModelOption,
-  formatChatModelDisplay,
   normalizeChatModelOverrideValue,
+  resolveChatModelDisplay,
   resolvePreferredServerChatModelValue,
 } from "./chat-model-ref.ts";
 import type { ModelCatalogEntry } from "./types.ts";
@@ -32,7 +32,7 @@ function resolveActiveSessionRow(state: ChatModelSelectStateInput) {
 export function resolveChatModelOverrideValue(state: ChatModelSelectStateInput): string {
   const catalog = state.chatModelCatalog ?? [];
 
-  // Prefer the local cache — it reflects in-flight patches before sessionsResult refreshes.
+  // Prefer the local cache - it reflects in-flight patches before sessionsResult refreshes.
   const cached = state.chatModelOverrides[state.sessionKey];
   if (cached) {
     return normalizeChatModelOverrideValue(cached, catalog);
@@ -71,7 +71,7 @@ function buildChatModelOptions(
       return;
     }
     seen.add(key);
-    options.push({ value: trimmed, label: label ?? trimmed });
+    options.push({ value: trimmed, label: label ?? resolveChatModelDisplay(trimmed, catalog) });
   };
 
   for (const entry of catalog) {
@@ -93,7 +93,7 @@ export function resolveChatModelSelectState(
 ): ChatModelSelectState {
   const currentOverride = resolveChatModelOverrideValue(state);
   const defaultModel = resolveDefaultModelValue(state);
-  const defaultDisplay = formatChatModelDisplay(defaultModel);
+  const defaultDisplay = resolveChatModelDisplay(defaultModel, state.chatModelCatalog ?? []);
 
   return {
     currentOverride,

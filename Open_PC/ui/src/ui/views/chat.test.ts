@@ -956,6 +956,98 @@ describe("chat view", () => {
     vi.unstubAllGlobals();
   });
 
+  it("saves the desktop preferred model when switching the main session model", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+      } satisfies Partial<Response>),
+    );
+    const previousLumina = window.__LUMINA__;
+    const savePreferredModel = vi.fn(async () => undefined);
+    window.__LUMINA__ = {
+      ...previousLumina,
+      savePreferredModel,
+    };
+
+    try {
+      const { state } = createChatHeaderState();
+      const container = document.createElement("div");
+      render(renderChatSessionSelect(state), container);
+
+      const modelSelect = container.querySelector<HTMLSelectElement>(
+        'select[data-chat-model-select="true"]',
+      );
+      expect(modelSelect).not.toBeNull();
+
+      modelSelect!.value = "openai/gpt-5-mini";
+      modelSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushTasks();
+
+      expect(savePreferredModel).toHaveBeenCalledWith("openai/gpt-5-mini");
+    } finally {
+      if (previousLumina) {
+        window.__LUMINA__ = previousLumina;
+      } else {
+        delete window.__LUMINA__;
+      }
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not save the desktop preferred model for non-main session switches", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+      } satisfies Partial<Response>),
+    );
+    const previousLumina = window.__LUMINA__;
+    const savePreferredModel = vi.fn(async () => undefined);
+    window.__LUMINA__ = {
+      ...previousLumina,
+      savePreferredModel,
+    };
+
+    try {
+      const { state } = createChatHeaderState({ omitSessionFromList: true });
+      state.sessionKey = "agent:ops:main";
+      state.settings = {
+        ...state.settings,
+        sessionKey: "agent:ops:main",
+        lastActiveSessionKey: "agent:ops:main",
+      };
+      state.hello = {
+        snapshot: {
+          sessionDefaults: {
+            mainSessionKey: "main",
+          },
+        },
+      } as never;
+
+      const container = document.createElement("div");
+      render(renderChatSessionSelect(state), container);
+
+      const modelSelect = container.querySelector<HTMLSelectElement>(
+        'select[data-chat-model-select="true"]',
+      );
+      expect(modelSelect).not.toBeNull();
+
+      modelSelect!.value = "openai/gpt-5-mini";
+      modelSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushTasks();
+
+      expect(savePreferredModel).not.toHaveBeenCalled();
+    } finally {
+      if (previousLumina) {
+        window.__LUMINA__ = previousLumina;
+      } else {
+        delete window.__LUMINA__;
+      }
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("shows the default thinking level in the chat header picker", async () => {
     const { state } = createChatHeaderState({
       model: "gpt-5",

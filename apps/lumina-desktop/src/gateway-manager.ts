@@ -1,14 +1,52 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
 import net from "node:net";
+import path from "node:path";
 import type { LuminaConfig } from "./config.js";
 import { bootstrapLuminaRuntime } from "./bootstrap.js";
-import { resolveRuntimePaths } from "./runtime-paths.js";
+import { resolveRuntimePaths, type RuntimePaths } from "./runtime-paths.js";
 
 const POLL_INTERVAL_MS = 500;
 const READY_TIMEOUT_MS = 30_000;
 
-let gatewayProcess: ChildProcess | null = null;
-let proxyProcess: ChildProcess | null = null;
+let runtimeManagerProcess: ChildProcess | null = null;
+let runtimeManagerOutput = "";
+
+function appendRuntimeManagerOutput(chunk: string): void {
+  runtimeManagerOutput = `${runtimeManagerOutput}${chunk}`.slice(-12_000);
+}
+
+function findNodeOnPath(): string {
+  const pathValue = process.env.Path ?? process.env.PATH ?? "";
+  const segments = pathValue.split(path.delimiter).filter(Boolean);
+  const candidates = process.platform === "win32" ? ["node.exe", "node.cmd"] : ["node"];
+
+  for (const segment of segments) {
+    for (const candidate of candidates) {
+      const fullPath = path.join(segment, candidate);
+      if (fs.existsSync(fullPath)) {
+        return fullPath;
+      }
+    }
+  }
+
+  return "";
+}
+
+function resolveNodeRuntime(runtimePaths: RuntimePaths): string {
+  const explicitPath = process.env.LUMINA_NODE_BINARY?.trim();
+  if (explicitPath && fs.existsSync(explicitPath)) {
+    return explicitPath;
+  }
+  if (runtimePaths.nodeRuntimePath && fs.existsSync(runtimePaths.nodeRuntimePath)) {
+    return runtimePaths.nodeRuntimePath;
+  }
+  const nodeOnPath = findNodeOnPath();
+  if (nodeOnPath) {
+    return nodeOnPath;
+  }
+  return process.execPath;
+}
 
 function isPortReady(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -31,123 +69,202 @@ function isPortReady(port: number): Promise<boolean> {
   });
 }
 
-async function waitForPort(port: number): Promise<boolean> {
+async function waitForPortsOrManagerExit(
+  child: ChildProcess,
+  proxyPort: number,
+  gatewayPort: number,
+): Promise<void> {
   const deadline = Date.now() + READY_TIMEOUT_MS;
+  let spawnError: Error | null = null;
+  child.once("error", (error) => {
+    spawnError = error;
+  });
+
   while (Date.now() < deadline) {
-    if (await isPortReady(port)) {
-      return true;
+    if (spawnError) {
+      throw spawnError;
     }
+
+    if (child.exitCode !== null) {
+      const output = runtimeManagerOutput.trim();
+      throw new Error(
+        output
+          ? `Rust runtime manager exited before readiness. ${output}`
+          : `Rust runtime manager exited with code ${child.exitCode}.`,
+      );
+    }
+
+    if ((await isPortReady(proxyPort)) && (await isPortReady(gatewayPort))) {
+      return;
+    }
+
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
-  return false;
+
+  throw new Error(
+    runtimeManagerOutput.trim() ||
+      `Rust runtime manager did not open ports ${proxyPort}/${gatewayPort} within ${READY_TIMEOUT_MS / 1000}s.`,
+  );
 }
 
 function logChildOutput(child: ChildProcess, prefix: string): void {
   child.stdout?.on("data", (chunk: Buffer) => {
-    process.stdout.write(`[${prefix}] ${chunk.toString()}`);
+    const text = chunk.toString();
+    appendRuntimeManagerOutput(text);
+    process.stdout.write(`[${prefix}] ${text}`);
   });
 
   child.stderr?.on("data", (chunk: Buffer) => {
-    process.stderr.write(`[${prefix}] ${chunk.toString()}`);
+    const text = chunk.toString();
+    appendRuntimeManagerOutput(text);
+    process.stderr.write(`[${prefix}] ${text}`);
   });
 }
 
-function spawnBundledNodeProcess(
-  entryPath: string,
-  cwd: string,
-  env: NodeJS.ProcessEnv,
-  prefix: string,
-): ChildProcess {
-  const child = spawn(process.execPath, [entryPath], {
-    cwd,
-    env: {
-      ...process.env,
-      ...env,
-      ELECTRON_RUN_AS_NODE: "1",
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-    detached: false,
-  });
+function ensureRuntimeManagerBinary(runtimePaths: RuntimePaths): string {
+  const binaryPath = runtimePaths.runtimeManagerBinaryPath;
+  if (binaryPath && fs.existsSync(binaryPath)) {
+    return binaryPath;
+  }
+  throw new Error(
+    "Lumina runtime manager binary is missing. Run `pnpm --dir Lumina_PC desktop:bootstrapper:build` or rebuild the desktop package.",
+  );
+}
 
-  logChildOutput(child, prefix);
-  child.on("exit", (code, signal) => {
-    console.log(`[${prefix}] Exited â€” code=${code ?? "?"} signal=${signal ?? "none"}`);
-  });
+function buildRuntimeManagerStartArgs(
+  config: LuminaConfig,
+  runtimePaths: RuntimePaths,
+  nodeRuntimePath: string,
+): string[] {
+  const args = [
+    "start",
+    "--runtime-root",
+    runtimePaths.runtimeRoot,
+    "--node-executable-path",
+    nodeRuntimePath,
+    "--open-claw-root",
+    runtimePaths.openClawRoot,
+    "--open-claw-entry-path",
+    runtimePaths.openClawEntryPath,
+    "--openclaw-bundled-plugins-dir",
+    runtimePaths.openClawBundledPluginsDir,
+    "--proxy-root",
+    runtimePaths.proxyRoot,
+    "--proxy-entry-path",
+    runtimePaths.proxyEntryPath,
+    "--openclaw-config-path",
+    config.openclawConfigPath,
+    "--openclaw-state-dir",
+    config.openclawStateDir,
+    "--gateway-token",
+    config.gatewayToken,
+    "--gateway-port",
+    String(config.gatewayPort),
+    "--proxy-port",
+    String(config.proxyPort),
+    "--i24d-chat-url",
+    config.i24dChatUrl,
+    "--i24d-models-base-url",
+    config.i24dModelsBaseUrl,
+    "--skip-openclaw-channels",
+    String(config.skipOpenClawChannels),
+    "--i24d-token",
+    config.i24dToken,
+    "--remote-brain-timeout-ms",
+    String(config.remoteBrainTimeoutMs),
+    "--remote-brain-max-turns",
+    String(config.remoteBrainMaxTurns),
+    "--startup-timeout-ms",
+    String(READY_TIMEOUT_MS),
+  ];
 
-  return child;
+  if (config.remoteBrainEnabled) {
+    args.push("--remote-brain-enabled");
+  }
+  if (config.remoteBrainUrl.trim()) {
+    args.push("--remote-brain-url", config.remoteBrainUrl);
+  }
+  if (config.remoteBrainSecret.trim()) {
+    args.push("--remote-brain-secret", config.remoteBrainSecret);
+  }
+
+  return args;
 }
 
 export async function startGateway(config: LuminaConfig): Promise<void> {
+  if (runtimeManagerProcess && runtimeManagerProcess.exitCode === null) {
+    return;
+  }
+
   const runtimePaths = resolveRuntimePaths();
   bootstrapLuminaRuntime(config, runtimePaths);
 
-  const runtimeEnv: NodeJS.ProcessEnv = {
-    OPENCLAW_CONFIG_PATH: config.openclawConfigPath,
-    OPENCLAW_STATE_DIR: config.openclawStateDir,
-    OPENCLAW_BUNDLED_PLUGINS_DIR: runtimePaths.openClawBundledPluginsDir,
-    OPENCLAW_GATEWAY_TOKEN: config.gatewayToken,
-    OPENCLAW_GATEWAY_PORT: String(config.gatewayPort),
-    OPENCLAW_PORT: String(config.gatewayPort),
-    OPENCLAW_TOKEN: config.gatewayToken,
-  };
+  const nodeRuntimePath = resolveNodeRuntime(runtimePaths);
+  const runtimeManagerBinary = ensureRuntimeManagerBinary(runtimePaths);
 
-  if (!(await isPortReady(config.proxyPort))) {
-    console.log(`[proxy] Spawning bundled runtime on port ${config.proxyPort}`);
-    proxyProcess = spawnBundledNodeProcess(
-      runtimePaths.proxyEntryPath,
-      runtimePaths.proxyRoot,
-      {
-        ...runtimeEnv,
-        PROXY_PORT: String(config.proxyPort),
-        I24D_URL: config.i24dChatUrl,
-        I24D_MODELS_BASE: config.i24dModelsBaseUrl,
-        I24D_TOKEN: config.i24dToken,
-      },
-      "proxy",
-    );
-    const proxyReady = await waitForPort(config.proxyPort);
-    if (!proxyReady) {
-      proxyProcess.kill("SIGTERM");
-      proxyProcess = null;
-      throw new Error(
-        `Lumina proxy did not open port ${config.proxyPort} within ${READY_TIMEOUT_MS / 1000}s`,
-      );
-    }
+  console.log(`[runtime-manager] Using ${runtimeManagerBinary}`);
+  console.log(`[runtime-manager] Using Node runtime ${nodeRuntimePath}`);
+  if (config.remoteBrainEnabled) {
+    console.log(`[runtime-manager] Remote brain bridge enabled -> ${config.remoteBrainUrl}`);
   } else {
-    console.log("[proxy] Port already open â€” assuming Lumina proxy is running.");
+    console.log("[runtime-manager] Remote brain bridge disabled.");
   }
 
-  if (!(await isPortReady(config.gatewayPort))) {
-    console.log(`[gateway] Spawning bundled OpenClaw gateway on port ${config.gatewayPort}`);
-    gatewayProcess = spawnBundledNodeProcess(
-      runtimePaths.openClawEntryPath,
-      runtimePaths.openClawRoot,
-      runtimeEnv,
-      "openclaw",
-    );
+  runtimeManagerOutput = "";
+  runtimeManagerProcess = spawn(
+    runtimeManagerBinary,
+    buildRuntimeManagerStartArgs(config, runtimePaths, nodeRuntimePath),
+    {
+      cwd: runtimePaths.repoRoot,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: false,
+      windowsHide: true,
+    },
+  );
 
-    const gatewayReady = await waitForPort(config.gatewayPort);
-    if (!gatewayReady) {
-      gatewayProcess.kill("SIGTERM");
-      gatewayProcess = null;
-      throw new Error(
-        `Gateway did not open port ${config.gatewayPort} within ${READY_TIMEOUT_MS / 1000}s`,
-      );
-    }
-  } else {
-    console.log("[gateway] Port already open â€” assuming OpenClaw gateway is running.");
+  logChildOutput(runtimeManagerProcess, "runtime-manager");
+  runtimeManagerProcess.on("exit", (code, signal) => {
+    console.log(`[runtime-manager] Exited - code=${code ?? "?"} signal=${signal ?? "none"}`);
+    runtimeManagerProcess = null;
+  });
+
+  try {
+    await waitForPortsOrManagerExit(runtimeManagerProcess, config.proxyPort, config.gatewayPort);
+  } catch (error) {
+    stopGateway();
+    throw error;
   }
 
-  console.log(`[gateway] Ready on port ${config.gatewayPort}`);
+  console.log(`[runtime-manager] Ready on gateway port ${config.gatewayPort}`);
 }
 
 export function stopGateway(): void {
-  if (gatewayProcess) {
-    gatewayProcess.kill("SIGTERM");
-    gatewayProcess = null;
+  const runtimePaths = resolveRuntimePaths();
+  const managerBinaryPath = runtimePaths.runtimeManagerBinaryPath;
+  const activeManagerProcess = runtimeManagerProcess;
+  runtimeManagerProcess = null;
+
+  if (managerBinaryPath && fs.existsSync(managerBinaryPath)) {
+    const stopResult = spawnSync(managerBinaryPath, ["stop", "--timeout-ms", "15000"], {
+      cwd: runtimePaths.repoRoot,
+      env: process.env,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+
+    if (stopResult.error) {
+      console.error("[runtime-manager] Failed to request shutdown:", stopResult.error.message);
+    } else if ((stopResult.status ?? 0) !== 0) {
+      const stderr = stopResult.stderr?.toString().trim();
+      console.error(
+        "[runtime-manager] Runtime shutdown command failed:",
+        stderr || `exit code ${stopResult.status ?? 0}`,
+      );
+    }
   }
-  if (proxyProcess) {
-    proxyProcess.kill("SIGTERM");
-    proxyProcess = null;
+
+  if (activeManagerProcess && activeManagerProcess.exitCode === null && !activeManagerProcess.killed) {
+    activeManagerProcess.kill("SIGKILL");
   }
 }

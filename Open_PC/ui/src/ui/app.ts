@@ -100,13 +100,39 @@ import { type ChatAttachment, type ChatQueueItem, type CronFormState } from "./u
 import { generateUUID } from "./uuid.ts";
 import type { NostrProfileFormState } from "./views/channels.nostr-profile-form.ts";
 
-declare global {
-  interface Window {
-    __OPENCLAW_CONTROL_UI_BASE_PATH__?: string;
-  }
-}
-
 const bootAssistantIdentity = normalizeAssistantIdentity({});
+const DESKTOP_TABS: Tab[] = [
+  "agents",
+  "overview",
+  "channels",
+  "instances",
+  "sessions",
+  "usage",
+  "cron",
+  "skills",
+  "nodes",
+  "chat",
+  "config",
+  "communications",
+  "appearance",
+  "automation",
+  "infrastructure",
+  "aiAgents",
+  "debug",
+  "logs",
+  "dreams",
+];
+
+function resolveDefaultTab(): Tab {
+  if (typeof window === "undefined") {
+    return "instances";
+  }
+  const candidate = window.__LUMINA_DEFAULT_TAB__;
+  if (typeof candidate !== "string") {
+    return "instances";
+  }
+  return DESKTOP_TABS.includes(candidate as Tab) ? (candidate as Tab) : "instances";
+}
 
 function resolveOnboardingMode(): boolean {
   if (!window.location.search) {
@@ -136,7 +162,7 @@ export class OpenClawApp extends LitElement {
   @state() password = "";
   @state() loginShowGatewayToken = false;
   @state() loginShowGatewayPassword = false;
-  @state() tab: Tab = "instances";
+  @state() tab: Tab = resolveDefaultTab();
   @state() onboarding = resolveOnboardingMode();
   @state() connected = false;
   @state() theme: ThemeName = this.settings.theme ?? "claw";

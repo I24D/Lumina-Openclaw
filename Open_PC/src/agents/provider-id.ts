@@ -1,5 +1,8 @@
 export function normalizeProviderId(provider: string): string {
   const normalized = provider.trim().toLowerCase();
+  if (normalized === "custom-i24d-whatsapp-ai-onrender-com" || normalized === "lumina-ai") {
+    return "lumina";
+  }
   if (normalized === "modelstudio" || normalized === "qwencloud") {
     return "qwen";
   }

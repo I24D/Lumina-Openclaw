@@ -537,6 +537,17 @@ async function refreshSessionOptions(state: AppViewState) {
   });
 }
 
+function shouldPersistDesktopPreferredModel(state: AppViewState, sessionKey: string): boolean {
+  return sessionKey === resolveSidebarChatSessionKey(state);
+}
+
+async function persistDesktopPreferredModel(modelRef: string): Promise<void> {
+  if (typeof window === "undefined") {
+    return;
+  }
+  await window.__LUMINA__?.savePreferredModel?.(modelRef);
+}
+
 function renderChatModelSelect(state: AppViewState) {
   const { currentOverride, defaultLabel, options } = resolveChatModelSelectState(state);
   const busy =
@@ -713,8 +724,23 @@ async function switchChatModel(state: AppViewState, nextModel: string) {
       key: targetSessionKey,
       model: nextModel || null,
     });
+    let persistWarning: string | null = null;
+    if (nextModel && shouldPersistDesktopPreferredModel(state, targetSessionKey)) {
+      try {
+        await persistDesktopPreferredModel(nextModel);
+      } catch (err) {
+        persistWarning = `Model changed, but failed to save the desktop default: ${String(err)}`;
+      }
+    }
     void refreshVisibleToolsEffectiveForCurrentSession(state);
-    await refreshSessionOptions(state);
+    try {
+      await refreshSessionOptions(state);
+    } catch (err) {
+      persistWarning ??= `Model changed, but failed to refresh sessions: ${String(err)}`;
+    }
+    if (persistWarning) {
+      state.lastError = persistWarning;
+    }
   } catch (err) {
     // Roll back so the picker reflects the actual server model.
     state.chatModelOverrides = { ...state.chatModelOverrides, [targetSessionKey]: prevOverride };

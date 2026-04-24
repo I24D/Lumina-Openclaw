@@ -19,6 +19,7 @@ import { resolveControlUiRootSync } from "../../infra/control-ui-assets.js";
 import { GatewayLockError } from "../../infra/gateway-lock.js";
 import { formatPortDiagnostics, inspectPortUsage } from "../../infra/ports.js";
 import { cleanStaleGatewayProcessesSync } from "../../infra/restart-stale-pids.js";
+import { traceStartup } from "../../infra/startup-trace.js";
 import { detectRespawnSupervisor } from "../../infra/supervisor-markers.js";
 import { setConsoleSubsystemFilter, setConsoleTimestampPrefix } from "../../logging/console.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
@@ -232,6 +233,7 @@ function isHealthyGatewayLockError(err: unknown): boolean {
 }
 
 async function runGatewayCommand(opts: GatewayRunOpts) {
+  traceStartup("gateway.run.begin");
   const isDevProfile = process.env.OPENCLAW_PROFILE?.trim().toLowerCase() === "dev";
   const devMode = Boolean(opts.dev) || isDevProfile;
   if (opts.reset && !devMode) {
@@ -267,6 +269,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
     process.env.OPENCLAW_RAW_STREAM_PATH = rawStreamPath;
   }
 
+  traceStartup("gateway.run.import-server.begin");
   // The heaviest part of gateway startup is loading the server module tree
   // (channels, plugins, HTTP stack, etc.). Show a spinner so the user sees
   // progress instead of a silent 15-20 s pause (especially on Windows/NTFS).
@@ -274,6 +277,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
     { label: "Loading gateway modules…", indeterminate: true },
     async () => import("../../gateway/server.js"),
   );
+  traceStartup("gateway.run.import-server.ready");
 
   setConsoleTimestampPrefix(true);
 
@@ -282,7 +286,9 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
   }
 
   gatewayLog.info("loading configuration…");
+  traceStartup("gateway.run.load-config.begin");
   const cfg = loadConfig();
+  traceStartup("gateway.run.load-config.ready");
   maybeLogPendingControlUiBuild(cfg);
   const portOverride = parsePort(opts.port);
   if (opts.port !== undefined && portOverride === null) {
@@ -505,17 +511,22 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
       : undefined;
 
   gatewayLog.info("starting...");
+  traceStartup("gateway.run.start-loop.begin");
   const startLoop = async () =>
     await runGatewayLoop({
       runtime: defaultRuntime,
       lockPort: port,
-      start: async ({ startupStartedAt } = {}) =>
-        await startGatewayServer(port, {
+      start: async ({ startupStartedAt } = {}) => {
+        traceStartup("gateway.run.start-server.begin");
+        const server = await startGatewayServer(port, {
           bind,
           auth: authOverride,
           tailscale: tailscaleOverride,
           startupStartedAt,
-        }),
+        });
+        traceStartup("gateway.run.start-server.ready");
+        return server;
+      },
     });
 
   try {

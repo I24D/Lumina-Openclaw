@@ -20,3 +20,7 @@ claurst/
 # Build artifacts
 *.tgz
 LUMINA_DESKTOP_PHASES.md
+rust/**/target/
+.tmp/
+_openclaw-deploy-test/
+github-release-notes.md

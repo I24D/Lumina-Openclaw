@@ -11,6 +11,7 @@ import { buildCliRespawnPlan } from "./entry.respawn.js";
 import { isTruthyEnvValue, normalizeEnv } from "./infra/env.js";
 import { isMainModule } from "./infra/is-main.js";
 import { ensureOpenClawExecMarkerOnProcess } from "./infra/openclaw-exec-env.js";
+import { traceStartup } from "./infra/startup-trace.js";
 import { installProcessWarningFilter } from "./infra/warning-filter.js";
 import { attachChildProcessBridge } from "./process/child-process-bridge.js";
 
@@ -42,9 +43,12 @@ if (
 ) {
   // Imported as a dependency — skip all entry-point side effects.
 } else {
+  traceStartup("entry.main.begin");
+  traceStartup("entry.import.gaxios-fetch-compat.begin");
   const { installGaxiosFetchCompat } = await import("./infra/gaxios-fetch-compat.js");
-
+  traceStartup("entry.import.gaxios-fetch-compat.ready");
   await installGaxiosFetchCompat();
+  traceStartup("entry.import.gaxios-fetch-compat.installed");
   process.title = "openclaw";
   ensureOpenClawExecMarkerOnProcess();
   installProcessWarningFilter();
@@ -71,6 +75,7 @@ if (
     if (!plan) {
       return false;
     }
+    traceStartup("entry.respawn.spawn");
 
     const child = spawn(process.execPath, plan.argv, {
       stdio: "inherit",
@@ -151,6 +156,7 @@ if (
     }
 
     if (!tryHandleRootVersionFastPath(process.argv)) {
+      traceStartup("entry.run-main.dispatch");
       runMainOrRootHelp(process.argv);
     }
   }
@@ -201,8 +207,12 @@ function runMainOrRootHelp(argv: string[]): void {
   if (tryHandleRootHelpFastPath(argv)) {
     return;
   }
+  traceStartup("entry.import.run-main.begin");
   import("./cli/run-main.js")
-    .then(({ runCli }) => runCli(argv))
+    .then(({ runCli }) => {
+      traceStartup("entry.import.run-main.ready");
+      return runCli(argv);
+    })
     .catch((error) => {
       console.error(
         "[openclaw] Failed to start CLI:",

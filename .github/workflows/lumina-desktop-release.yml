@@ -1,0 +1,127 @@
+name: lumina-desktop-release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "lumina-desktop-v*"
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: "24.13.1"
+  LUMINA_AUTH_URL: "https://lumina-auth.onrender.com"
+  LUMINA_I24D_BASE_URL: "https://i24d-whatsapp-ai.onrender.com"
+  LUMINA_I24D_CHAT_URL: "https://i24d-whatsapp-ai.onrender.com/v1/chat/completions"
+  LUMINA_PROVIDER_ID: "lumina"
+  LUMINA_MODEL_ID: "I24D"
+  LUMINA_MODEL_NAME: "Lumina IA"
+  LUMINA_MODEL_CONTEXT_WINDOW: "16000"
+  LUMINA_MODEL_MAX_TOKENS: "4096"
+  LUMINA_DEFAULT_TAB: "instances"
+  LUMINA_REQUIRE_AUTH: "false"
+  LUMINA_EMBED_RUNTIME_SECRETS: "false"
+  LUMINA_REMOTE_BRAIN_ENABLED: "false"
+  LUMINA_FORCE_OPENCLAW_BUILD: "1"
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+  GZIP: "-1"
+
+jobs:
+  build:
+    name: build-${{ matrix.name }}
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            runs_on: windows-latest
+            script: desktop:dist:win:ci
+            artifact_glob: apps/lumina-desktop/release/*
+          - name: macos
+            runs_on: macos-latest
+            script: desktop:dist:mac:ci
+            artifact_glob: apps/lumina-desktop/release/*
+          - name: linux
+            runs_on: ubuntu-latest
+            script: desktop:dist:linux:ci
+            artifact_glob: apps/lumina-desktop/release/*
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install Linux packaging dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/lumina-bootstrapper -> target
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Rust bootstrapper
+        run: pnpm desktop:bootstrapper:build
+
+      - name: Build desktop package
+        env:
+          LUMINA_GITHUB_OWNER: ${{ github.repository_owner }}
+          LUMINA_GITHUB_REPO: ${{ github.event.repository.name }}
+        run: pnpm ${{ matrix.script }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumina-desktop-${{ matrix.name }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
+
+  release:
+    name: publish-release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download workflow artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Render GitHub release notes
+        run: node --experimental-strip-types scripts/render-github-release-notes.ts --artifacts-root release-artifacts --output github-release-notes.md
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/**/*
+          body_path: github-release-notes.md

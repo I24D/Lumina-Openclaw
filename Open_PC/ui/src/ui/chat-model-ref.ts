@@ -1,5 +1,7 @@
 import type { ModelCatalogEntry } from "./types.ts";
 
+const MODEL_DISPLAY_SEPARATOR = " \u00b7 ";
+
 export type ChatModelOverride =
   | {
       kind: "qualified";
@@ -25,8 +27,6 @@ export function buildQualifiedChatModelValue(model: string, provider?: string | 
   if (!trimmedModel) {
     return "";
   }
-  // Preserve already-qualified model refs (provider/model) as-is.
-  // This avoids prepending an unrelated/default provider.
   if (trimmedModel.includes("/")) {
     return trimmedModel;
   }
@@ -59,7 +59,7 @@ export function resolveChatModelOverride(
   if (!override) {
     return { value: "", source: "empty", reason: "empty" };
   }
-  const trimmed = override?.value.trim();
+  const trimmed = override.value.trim();
   if (!trimmed) {
     return { value: "", source: "empty", reason: "empty" };
   }
@@ -142,13 +142,36 @@ export function formatChatModelDisplay(value: string): string {
   if (separator <= 0) {
     return trimmed;
   }
-  return `${trimmed.slice(separator + 1)} · ${trimmed.slice(0, separator)}`;
+  return `${trimmed.slice(separator + 1)}${MODEL_DISPLAY_SEPARATOR}${trimmed.slice(0, separator)}`;
+}
+
+export function resolveChatModelDisplay(value: string, catalog: ModelCatalogEntry[]): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const separator = trimmed.indexOf("/");
+  if (separator <= 0) {
+    return trimmed;
+  }
+  const provider = trimmed.slice(0, separator).trim().toLowerCase();
+  const id = trimmed.slice(separator + 1).trim().toLowerCase();
+  const match = catalog.find(
+    (entry) =>
+      entry.provider.trim().toLowerCase() === provider && entry.id.trim().toLowerCase() === id,
+  );
+  if (!match) {
+    return formatChatModelDisplay(trimmed);
+  }
+  const name = match.name.trim() || match.id;
+  return `${name}${MODEL_DISPLAY_SEPARATOR}${match.provider.trim()}`;
 }
 
 export function buildChatModelOption(entry: ModelCatalogEntry): { value: string; label: string } {
   const provider = entry.provider?.trim();
+  const name = entry.name?.trim() || entry.id;
   return {
     value: buildQualifiedChatModelValue(entry.id, provider),
-    label: provider ? `${entry.id} · ${provider}` : entry.id,
+    label: provider ? `${name}${MODEL_DISPLAY_SEPARATOR}${provider}` : name,
   };
 }

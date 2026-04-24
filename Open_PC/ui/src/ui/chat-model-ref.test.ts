@@ -4,6 +4,7 @@ import {
   createChatModelOverride,
   formatChatModelDisplay,
   normalizeChatModelOverrideValue,
+  resolveChatModelDisplay,
   resolveChatModelOverride,
   resolvePreferredServerChatModel,
   resolveServerChatModelValue,
@@ -25,7 +26,7 @@ describe("chat-model-ref helpers", () => {
   it("builds provider-qualified option values and labels", () => {
     expect(buildChatModelOption(catalog[0])).toEqual({
       value: "openai/gpt-5-mini",
-      label: "gpt-5-mini · openai",
+      label: "GPT-5 Mini · openai",
     });
   });
 
@@ -53,6 +54,19 @@ describe("chat-model-ref helpers", () => {
   it("formats qualified model refs consistently for default labels", () => {
     expect(formatChatModelDisplay("openai/gpt-5-mini")).toBe("gpt-5-mini · openai");
     expect(formatChatModelDisplay("alias-only")).toBe("alias-only");
+  });
+
+  it("prefers catalog display names when formatting qualified model refs", () => {
+    expect(
+      resolveChatModelDisplay(
+        "lumina/I24D",
+        createModelCatalog({
+          id: "I24D",
+          name: "Lumina IA",
+          provider: "lumina",
+        }),
+      ),
+    ).toBe("Lumina IA · lumina");
   });
 
   it("resolves server session data to qualified option values", () => {

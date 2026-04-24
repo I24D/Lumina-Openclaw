@@ -234,6 +234,13 @@ function uniquePreserveOrder(values: string[]): string[] {
   return output;
 }
 
+function shouldRequireLuminaAuth(): boolean {
+  if (typeof window === "undefined") {
+    return true;
+  }
+  return window.__LUMINA_AUTH_REQUIRED__ !== false;
+}
+
 type DismissedUpdateBanner = {
   latestVersion: string;
   channel: string | null;
@@ -353,8 +360,8 @@ export function renderApp(state: AppViewState) {
       : undefined;
   _pendingUpdate = requestHostUpdate;
 
-  // Gate 1: Lumina account auth — must sign in before anything else.
-  if (!isLuminaAuthenticated()) {
+  // Gate 1: Optional Lumina account auth. Desktop mode can skip it for zero-setup installs.
+  if (shouldRequireLuminaAuth() && !isLuminaAuthenticated()) {
     // Store ephemeral form state directly on the component instance.
     // Mutations + requestUpdate() drive re-renders; no @state() decorator needed.
     type LuminaFormState = {

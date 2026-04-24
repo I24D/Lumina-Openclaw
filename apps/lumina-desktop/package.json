@@ -1,112 +1,26 @@
 {
   "name": "@lumina/desktop",
   "version": "1.0.0",
-  "description": "Lumina — Desktop app (Electron)",
+  "description": "Lumina - Desktop app (Tauri)",
   "private": true,
-  "main": "dist/main.js",
+  "author": "I24D",
   "scripts": {
-    "prepare:defaults": "node scripts/prepare-defaults.mjs",
-    "dev":       "node scripts/prepare-defaults.mjs && tsc && electron .",
-    "build":     "node scripts/prepare-defaults.mjs && tsc",
-    "pack":      "npm run build && electron-builder --dir",
-    "dist":      "npm run build && electron-builder",
-    "dist:win":  "npm run build && electron-builder --win",
-    "dist:mac":  "npm run build && electron-builder --mac",
-    "dist:linux":"npm run build && electron-builder --linux",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "electron-updater": "^6.3.4"
+    "clean:output": "node --experimental-strip-types scripts/clean-output.ts",
+    "prepare:defaults": "node --experimental-strip-types scripts/prepare-defaults.ts",
+    "prepare:assets": "node --experimental-strip-types scripts/prepare-platform-assets.ts",
+    "prepare:runtime-tools": "node --experimental-strip-types scripts/prepare-runtime-tools.ts",
+    "prepare:bundle": "node --experimental-strip-types ../../scripts/prepare-desktop-bundle.ts",
+    "build:shell": "npm run clean:output && node --experimental-strip-types scripts/prepare-defaults.ts && node --experimental-strip-types scripts/prepare-runtime-tools.ts && tsc",
+    "dev": "npm run tauri:dev",
+    "build": "npm run tauri:build",
+    "tauri:dev": "npm run build:shell && npm run prepare:assets && npm run prepare:bundle && node --experimental-strip-types ../../scripts/run-cargo-bootstrapper.ts run --manifest-path apps/lumina-desktop/src-tauri/Cargo.toml",
+    "tauri:build": "npm run build:shell && npm run prepare:assets && npm run prepare:bundle && node --experimental-strip-types ../../scripts/run-cargo-bootstrapper.ts build --manifest-path apps/lumina-desktop/src-tauri/Cargo.toml --release",
+    "tauri:archive": "npm run tauri:build && node --experimental-strip-types ../../scripts/archive-tauri-shell.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json"
   },
   "devDependencies": {
-    "electron":         "^31.0.0",
-    "electron-builder": "^24.13.3",
-    "@types/node":      "^22.0.0",
-    "typescript":       "^5.5.4"
-  },
-  "build": {
-    "appId":       "ai.lumina.desktop",
-    "productName": "Lumina",
-    "copyright":   "Copyright © 2026 Lumina AI",
-    "asar":        true,
-    "files": [
-      "dist/**/*",
-      "assets/**/*",
-      "!assets/ICONS_REQUIRED.md"
-    ],
-    "extraResources": [
-      {
-        "from": "build/lumina-defaults.json",
-        "to": "config/lumina-defaults.json"
-      },
-      {
-        "from":   "../../Open_PC/dist/control-ui",
-        "to":     "ui",
-        "filter": ["**/*"]
-      },
-      {
-        "from": "../../Open_PC/openclaw.mjs",
-        "to": "openclaw/openclaw.mjs"
-      },
-      {
-        "from": "../../Open_PC/package.json",
-        "to": "openclaw/package.json"
-      },
-      {
-        "from": "../../Open_PC/assets",
-        "to": "openclaw/assets",
-        "filter": ["**/*"]
-      },
-      {
-        "from": "../../Open_PC/dist",
-        "to": "openclaw/dist",
-        "filter": ["**/*"]
-      },
-      {
-        "from": "../../Open_PC/dist-runtime",
-        "to": "openclaw/dist-runtime",
-        "filter": ["**/*"]
-      },
-      {
-        "from": "../../Open_PC/node_modules",
-        "to": "openclaw/node_modules",
-        "filter": ["**/*"]
-      },
-      {
-        "from": "../../tool-proxy/server.mjs",
-        "to": "proxy/server.mjs"
-      },
-      {
-        "from": "../../tool-proxy/proxy-config.json",
-        "to": "proxy/proxy-config.json"
-      }
-    ],
-    "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
-      "icon": "assets/icon.ico"
-    },
-    "mac": {
-      "target":   [{ "target": "dmg", "arch": ["x64", "arm64"] }],
-      "icon":     "assets/icon.icns",
-      "category": "public.app-category.productivity"
-    },
-    "linux": {
-      "target":   [{ "target": "AppImage", "arch": ["x64"] }],
-      "icon":     "assets/icon.png",
-      "category": "Office"
-    },
-    "nsis": {
-      "oneClick":    false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut":    true,
-      "createStartMenuShortcut":  true
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "I24D",
-        "repo": "Lumina-I24D"
-      }
-    ]
+    "@tauri-apps/cli": "^2.10.1",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.4"
   }
 }
