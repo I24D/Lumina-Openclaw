@@ -729,9 +729,7 @@ fn create_main_window<R: Runtime>(
         });
 
     #[cfg(target_os = "macos")]
-    {
-        builder = builder.title_bar_style(TitleBarStyle::Transparent);
-    }
+    let builder = builder.title_bar_style(TitleBarStyle::Transparent);
 
     builder
         .build()
