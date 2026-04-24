@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -68,19 +67,53 @@ function ensureExists(targetPath, label) {
   }
 }
 
-function copyResource(sourcePath, targetPath) {
-  const stats = fs.statSync(sourcePath);
-  if (stats.isDirectory()) {
-    fs.cpSync(sourcePath, targetPath, {
-      recursive: true,
-      force: true,
-      dereference: true,
-    });
+function stageFile(sourcePath: string, targetPath: string) {
+  const sourceStats = fs.statSync(sourcePath);
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+
+  if (process.platform !== "win32") {
+    try {
+      fs.linkSync(sourcePath, targetPath);
+      fs.chmodSync(targetPath, sourceStats.mode);
+      return;
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !("code" in error) ||
+        !["EXDEV", "EMLINK", "EPERM", "EEXIST"].includes(String(error.code))
+      ) {
+        throw error;
+      }
+    }
+  }
+
+  fs.copyFileSync(sourcePath, targetPath);
+  fs.chmodSync(targetPath, sourceStats.mode);
+}
+
+function copyResource(sourcePath: string, targetPath: string) {
+  const stats = fs.lstatSync(sourcePath);
+  const resolvedSourcePath = stats.isSymbolicLink() ? fs.realpathSync(sourcePath) : sourcePath;
+  const resolvedStats = stats.isSymbolicLink() ? fs.statSync(resolvedSourcePath) : stats;
+
+  if (resolvedStats.isDirectory()) {
+    fs.mkdirSync(targetPath, { recursive: true });
+    const entries = fs
+      .readdirSync(resolvedSourcePath, { withFileTypes: true })
+      .slice()
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const entry of entries) {
+      copyResource(path.join(resolvedSourcePath, entry.name), path.join(targetPath, entry.name));
+    }
     return;
   }
 
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.copyFileSync(sourcePath, targetPath);
+  if (!resolvedStats.isFile()) {
+    fail(`Unsupported resource entry for archive staging: ${sourcePath}`);
+  }
+
+  stageFile(resolvedSourcePath, targetPath);
 }
 
 function archiveWithTar(sourceDir, archivePath) {
@@ -137,7 +170,7 @@ export function archiveTauriShell(options: ArchiveTauriShellOptions = {}) {
   fs.rmSync(archivePath, { force: true });
   fs.rmSync(metadataPath, { force: true });
 
-  const stageRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lumina-tauri-shell-"));
+  const stageRoot = fs.mkdtempSync(path.join(releaseRoot, ".lumina-tauri-shell-"));
   const stageDir = path.join(stageRoot, `${productName}-${version}-${platform}-${arch}`);
 
   try {
