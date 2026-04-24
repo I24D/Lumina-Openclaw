@@ -98,7 +98,7 @@ jobs:
 
       - name: Install Open_PC dependencies
         working-directory: Open_PC
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build OpenClaw runtime
         working-directory: Open_PC
