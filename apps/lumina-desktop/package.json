@@ -1,6 +1,6 @@
 {
   "name": "@lumina/desktop",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Lumina - Desktop app (Tauri)",
   "private": true,
   "author": "I24D",

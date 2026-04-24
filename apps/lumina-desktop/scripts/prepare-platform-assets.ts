@@ -42,7 +42,7 @@ function generateMacIcon() {
     throw new Error(`Missing source PNG icon: ${pngIconPath}`);
   }
 
-  const iconsetDir = path.join(os.tmpdir(), `lumina-iconset-${process.pid}`);
+  const iconsetDir = path.join(os.tmpdir(), `lumina-iconset-${process.pid}.iconset`);
   fs.rmSync(iconsetDir, { recursive: true, force: true });
   fs.mkdirSync(iconsetDir, { recursive: true });
 

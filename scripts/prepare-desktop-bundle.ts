@@ -63,8 +63,10 @@ function readPackageJson(targetPath) {
 
 function copyFileToStage(sourcePath, targetPath) {
   ensureExists(sourcePath, "bundle source file");
+  const sourceStats = fs.statSync(sourcePath);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.copyFileSync(sourcePath, targetPath);
+  fs.chmodSync(targetPath, sourceStats.mode);
 }
 
 function copyDirToStage(sourceDir, targetDir) {
@@ -109,6 +111,44 @@ function syncDirToStage(sourceDir, targetDir) {
 
   fs.rmSync(targetDir, { recursive: true, force: true });
   copyDirToStage(sourceDir, targetDir);
+}
+
+function copyPathResolvingSymlinks(sourcePath, targetPath, ancestors = new Set()) {
+  const sourceLstat = fs.lstatSync(sourcePath);
+  const resolvedSourcePath = sourceLstat.isSymbolicLink()
+    ? fs.realpathSync(sourcePath)
+    : sourcePath;
+  const sourceStats = sourceLstat.isSymbolicLink() ? fs.statSync(resolvedSourcePath) : sourceLstat;
+
+  if (sourceStats.isDirectory()) {
+    const realDirectoryPath = fs.realpathSync(resolvedSourcePath);
+    if (ancestors.has(realDirectoryPath)) {
+      fail(`Detected a cyclic symbolic link while materializing ${sourcePath}`);
+    }
+
+    fs.mkdirSync(targetPath, { recursive: true });
+    const nextAncestors = new Set(ancestors);
+    nextAncestors.add(realDirectoryPath);
+    const entries = fs
+      .readdirSync(resolvedSourcePath, { withFileTypes: true })
+      .slice()
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const entry of entries) {
+      copyPathResolvingSymlinks(
+        path.join(resolvedSourcePath, entry.name),
+        path.join(targetPath, entry.name),
+        nextAncestors,
+      );
+    }
+    return;
+  }
+
+  if (!sourceStats.isFile()) {
+    fail(`Unsupported staged runtime entry type: ${sourcePath}`);
+  }
+
+  copyFileToStage(resolvedSourcePath, targetPath);
 }
 
 function removeDistPluginNodeModulesSymlinks(rootDir) {
@@ -628,11 +668,7 @@ function sanitizeBundledExtensionPackageManifests() {
 
 function materializePackagedOpenClawRuntime() {
   fs.rmSync(packagedOpenClawDir, { recursive: true, force: true });
-  fs.cpSync(stagedOpenClawDir, packagedOpenClawDir, {
-    recursive: true,
-    force: true,
-    dereference: true,
-  });
+  copyPathResolvingSymlinks(stagedOpenClawDir, packagedOpenClawDir);
   log(`Materialized packaged OpenClaw runtime without symlinks: ${packagedOpenClawDir}`);
 }
 
