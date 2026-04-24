@@ -25,6 +25,7 @@ const canonicalBundlePayloadRoot = path.join(canonicalBundleRoot, "payload");
 const canonicalBundleManifestPath = path.join(canonicalBundleRoot, "bundle.manifest.json");
 const runtimeNodeDir = path.join(desktopRoot, "build", "runtime-node");
 const stagedOpenClawDir = path.join(desktopRoot, "build", "openclaw-deploy");
+const packagedOpenClawDir = path.join(desktopRoot, "build", "openclaw-package");
 const deployStampPath = path.join(desktopRoot, "build", "openclaw-deploy-stamp.json");
 const pnpmCmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const desktopPackageJsonPath = path.join(desktopRoot, "package.json");
@@ -261,14 +262,14 @@ function writeCanonicalBundleManifest() {
         kind: "config",
         bundleRelativePath: "payload/config/lumina-defaults.json",
         installRelativePath: "config/lumina-defaults.json",
-        sourcePath: path.join(canonicalBundlePayloadRoot, "config", "lumina-defaults.json"),
+        sourcePath: defaultsFilePath,
       }),
       createBundleEntry({
         id: "runtime-node",
         kind: "runtime",
         bundleRelativePath: "payload/node",
         installRelativePath: "node",
-        sourcePath: path.join(canonicalBundlePayloadRoot, "node"),
+        sourcePath: runtimeNodeDir,
         executable: true,
       }),
       createBundleEntry({
@@ -276,21 +277,28 @@ function writeCanonicalBundleManifest() {
         kind: "content",
         bundleRelativePath: "payload/openclaw",
         installRelativePath: "openclaw",
-        sourcePath: path.join(canonicalBundlePayloadRoot, "openclaw"),
+        sourcePath: packagedOpenClawDir,
       }),
       createBundleEntry({
         id: "openclaw-ui",
         kind: "ui",
         bundleRelativePath: "payload/ui",
         installRelativePath: "ui",
-        sourcePath: path.join(canonicalBundlePayloadRoot, "ui"),
+        sourcePath: path.join(packagedOpenClawDir, "dist", "control-ui"),
       }),
       createBundleEntry({
         id: "proxy-runtime",
         kind: "service",
-        bundleRelativePath: "payload/proxy",
-        installRelativePath: "proxy",
-        sourcePath: path.join(canonicalBundlePayloadRoot, "proxy"),
+        bundleRelativePath: "payload/proxy/server.mjs",
+        installRelativePath: "proxy/server.mjs",
+        sourcePath: proxyEntryPath,
+      }),
+      createBundleEntry({
+        id: "proxy-config",
+        kind: "config",
+        bundleRelativePath: "payload/proxy/proxy-config.json",
+        installRelativePath: "proxy/proxy-config.json",
+        sourcePath: proxyConfigPath,
       }),
     ],
   };
@@ -618,6 +626,16 @@ function sanitizeBundledExtensionPackageManifests() {
   }
 }
 
+function materializePackagedOpenClawRuntime() {
+  fs.rmSync(packagedOpenClawDir, { recursive: true, force: true });
+  fs.cpSync(stagedOpenClawDir, packagedOpenClawDir, {
+    recursive: true,
+    force: true,
+    dereference: true,
+  });
+  log(`Materialized packaged OpenClaw runtime without symlinks: ${packagedOpenClawDir}`);
+}
+
 ensureExists(openClawRoot, "OpenClaw workspace");
 ensureExists(toolProxyRoot, "tool-proxy directory");
 ensureExists(desktopRoot, "desktop application");
@@ -662,8 +680,10 @@ syncOpenClawRuntimeAssets();
 ensureOpenClawProductionDependencies();
 hoistBundledExtensionRuntimeDeps();
 sanitizeBundledExtensionPackageManifests();
+materializePackagedOpenClawRuntime();
 prepareBundledNodeRuntime();
-buildCanonicalRuntimeBundle();
+fs.rmSync(canonicalBundleRoot, { recursive: true, force: true });
+ensureDirectory(canonicalBundleRoot);
 
 if (!fs.existsSync(macIconPath)) {
   log("assets/icon.icns is missing. macOS builds will use the PNG icon fallback.");
@@ -671,4 +691,5 @@ if (!fs.existsSync(macIconPath)) {
 
 const canonicalBundleManifest = writeCanonicalBundleManifest();
 writeLegacyBundleSummary(canonicalBundleManifest);
+log("Deferred canonical runtime bundle payload assembly until the archive stage.");
 log("Desktop bundle inputs are ready.");

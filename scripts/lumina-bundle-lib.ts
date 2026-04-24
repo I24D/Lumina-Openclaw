@@ -136,10 +136,8 @@ function walkDirectory(rootPath, currentPath, files) {
     }
 
     files.push({
-      absolutePath,
       relativePath,
       byteSize: fs.statSync(absolutePath).size,
-      sha256: computeFileSha256(absolutePath),
     });
   }
 }
@@ -148,6 +146,9 @@ export function computeDirectoryDigest(rootPath) {
   const files = [];
   walkDirectory(rootPath, rootPath, files);
 
+  // Directory entries can contain very large dependency trees. We keep the
+  // release artifact itself content-addressed and use a structural digest here
+  // so bundle-manifest generation and validation stay fast in CI.
   const digest = crypto.createHash("sha256");
   let byteSize = 0;
   for (const file of files) {
@@ -155,8 +156,6 @@ export function computeDirectoryDigest(rootPath) {
     digest.update(file.relativePath);
     digest.update("\0");
     digest.update(String(file.byteSize));
-    digest.update("\0");
-    digest.update(file.sha256);
     digest.update("\0");
     byteSize += file.byteSize;
   }

@@ -21,6 +21,12 @@ const defaultCanonicalBundleManifestPath = path.join(
   "bundle.manifest.json",
 );
 const defaultReleaseRoot = path.join(desktopRoot, "release");
+const defaultsFilePath = path.join(desktopRoot, "build", "lumina-defaults.json");
+const runtimeNodeDir = path.join(desktopRoot, "build", "runtime-node");
+const packagedOpenClawDir = path.join(desktopRoot, "build", "openclaw-package");
+const toolProxyRoot = path.join(repoRoot, "tool-proxy");
+const proxyEntryPath = path.join(toolProxyRoot, "server.mjs");
+const proxyConfigPath = path.join(toolProxyRoot, "proxy-config.json");
 
 function log(message) {
   process.stdout.write(`[lumina-release] ${message}\n`);
@@ -67,6 +73,34 @@ function run(command, args, cwd) {
   }
 }
 
+function ensureExists(targetPath, label) {
+  if (!fs.existsSync(targetPath)) {
+    fail(`Missing ${label}: ${targetPath}`);
+  }
+}
+
+function copyFileToStage(sourcePath, targetPath) {
+  ensureExists(sourcePath, "bundle source file");
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.copyFileSync(sourcePath, targetPath);
+}
+
+function copyDirToStage(sourceDir, targetDir) {
+  ensureExists(sourceDir, "bundle source directory");
+  fs.cpSync(sourceDir, targetDir, {
+    recursive: true,
+    force: true,
+    dereference: true,
+  });
+}
+
+function syncDirToStage(sourceDir, targetDir) {
+  ensureExists(sourceDir, "bundle source directory");
+
+  fs.rmSync(targetDir, { recursive: true, force: true });
+  copyDirToStage(sourceDir, targetDir);
+}
+
 function sanitizeName(value) {
   return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
 }
@@ -76,6 +110,40 @@ function buildArtifactBaseName(bundleManifest) {
   const platform = sanitizeName(bundleManifest.platform);
   const arch = sanitizeName(bundleManifest.arch);
   return `lumina-openclaw-runtime-bundle-${version}-${platform}-${arch}`;
+}
+
+function assembleCanonicalRuntimeBundle(canonicalBundleRoot, canonicalBundleManifestPath) {
+  ensureExists(canonicalBundleManifestPath, "canonical bundle manifest");
+  ensureExists(defaultsFilePath, "Lumina defaults file");
+  ensureExists(runtimeNodeDir, "bundled Node runtime");
+  ensureExists(packagedOpenClawDir, "packaged OpenClaw runtime");
+  ensureExists(path.join(packagedOpenClawDir, "dist", "control-ui", "index.html"), "OpenClaw UI");
+  ensureExists(proxyEntryPath, "tool proxy entry");
+  ensureExists(proxyConfigPath, "tool proxy config");
+
+  const manifestJson = fs.readFileSync(canonicalBundleManifestPath, "utf8");
+  const canonicalPayloadRoot = path.join(canonicalBundleRoot, "payload");
+
+  fs.rmSync(canonicalBundleRoot, { recursive: true, force: true });
+  fs.mkdirSync(canonicalPayloadRoot, { recursive: true });
+
+  copyFileToStage(
+    defaultsFilePath,
+    path.join(canonicalPayloadRoot, "config", "lumina-defaults.json"),
+  );
+  syncDirToStage(runtimeNodeDir, path.join(canonicalPayloadRoot, "node"));
+  syncDirToStage(packagedOpenClawDir, path.join(canonicalPayloadRoot, "openclaw"));
+  syncDirToStage(
+    path.join(packagedOpenClawDir, "dist", "control-ui"),
+    path.join(canonicalPayloadRoot, "ui"),
+  );
+  copyFileToStage(proxyEntryPath, path.join(canonicalPayloadRoot, "proxy", "server.mjs"));
+  copyFileToStage(
+    proxyConfigPath,
+    path.join(canonicalPayloadRoot, "proxy", "proxy-config.json"),
+  );
+  fs.writeFileSync(canonicalBundleManifestPath, manifestJson, "utf8");
+  log(`Prepared canonical runtime bundle payload: ${canonicalBundleRoot}`);
 }
 
 const args = parseArgs(process.argv.slice(2));
@@ -90,6 +158,7 @@ if (!fs.existsSync(canonicalBundleManifestPath)) {
   fail(`Missing canonical bundle manifest: ${canonicalBundleManifestPath}`);
 }
 
+assembleCanonicalRuntimeBundle(canonicalBundleRoot, canonicalBundleManifestPath);
 const bundleManifest = validateBundleManifest(readJsonFile(canonicalBundleManifestPath));
 const artifactBaseName = buildArtifactBaseName(bundleManifest);
 const archiveFileName = `${artifactBaseName}.tar.gz`;

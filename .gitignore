@@ -21,6 +21,7 @@ claurst/
 *.tgz
 LUMINA_DESKTOP_PHASES.md
 rust/**/target/
+apps/lumina-desktop/src-tauri/target/
 .tmp/
 _openclaw-deploy-test/
 github-release-notes.md

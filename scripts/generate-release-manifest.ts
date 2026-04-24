@@ -17,6 +17,12 @@ import {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..");
 const desktopRoot = path.join(repoRoot, "apps", "lumina-desktop");
+const bootstrapperCargoTomlPath = path.join(
+  repoRoot,
+  "rust",
+  "lumina-bootstrapper",
+  "Cargo.toml",
+);
 const defaultCanonicalBundleManifestPath = path.join(
   desktopRoot,
   "build",
@@ -67,6 +73,16 @@ function safeJoinUrl(baseUrl, relativePath) {
   const normalizedBase = baseUrl.replace(/\/+$/, "");
   const normalizedRelative = relativePath.replace(/^\/+/, "");
   return `${normalizedBase}/${normalizedRelative}`;
+}
+
+function readBootstrapperVersion() {
+  try {
+    const cargoToml = fs.readFileSync(bootstrapperCargoTomlPath, "utf8");
+    const match = cargoToml.match(/^version\s*=\s*"([^"]+)"/m);
+    return match?.[1]?.trim() || "1.0.0";
+  } catch {
+    return "1.0.0";
+  }
 }
 
 function classifyArtifact(fileName) {
@@ -172,7 +188,7 @@ export function generateReleaseManifest(
   const minBootstrapVersion =
     options.minBootstrapVersion ??
     process.env.LUMINA_MIN_BOOTSTRAP_VERSION ??
-    "1.0.0";
+    readBootstrapperVersion();
 
   if (!fs.existsSync(canonicalBundleManifestPath)) {
     fail(`Missing canonical bundle manifest: ${canonicalBundleManifestPath}`);

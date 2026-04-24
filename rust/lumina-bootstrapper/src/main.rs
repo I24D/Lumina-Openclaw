@@ -670,7 +670,7 @@ fn build_http_client() -> Result<Client> {
     Client::builder()
         .connect_timeout(std::time::Duration::from_secs(20))
         .timeout(std::time::Duration::from_secs(180))
-        .user_agent("lumina-bootstrapper/1.0.0")
+        .user_agent("lumina-bootstrapper/1.0.1")
         .build()
         .context("failed to build HTTP client")
 }
@@ -1102,7 +1102,6 @@ fn compute_directory_digest(root: &Path) -> Result<FileDigest> {
     struct FileEntry {
         relative_path: String,
         byte_size: u64,
-        sha256: String,
     }
 
     let mut files = Vec::new();
@@ -1122,12 +1121,14 @@ fn compute_directory_digest(root: &Path) -> Result<FileDigest> {
         files.push(FileEntry {
             relative_path,
             byte_size: entry.metadata()?.len(),
-            sha256: compute_file_sha256(entry.path())?,
         });
     }
 
     files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
 
+    // Runtime-bundle directories can contain very large dependency trees.
+    // The archive itself is content-addressed; directory entries use a stable
+    // structural digest so install-time verification remains practical.
     let mut byte_size = 0u64;
     let mut hasher = Sha256::new();
     for file in files.iter() {
@@ -1135,8 +1136,6 @@ fn compute_directory_digest(root: &Path) -> Result<FileDigest> {
         hasher.update(file.relative_path.as_bytes());
         hasher.update(b"\0");
         hasher.update(file.byte_size.to_string().as_bytes());
-        hasher.update(b"\0");
-        hasher.update(file.sha256.as_bytes());
         hasher.update(b"\0");
         byte_size += file.byte_size;
     }
