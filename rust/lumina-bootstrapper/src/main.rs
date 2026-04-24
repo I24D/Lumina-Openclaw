@@ -670,7 +670,7 @@ fn build_http_client() -> Result<Client> {
     Client::builder()
         .connect_timeout(std::time::Duration::from_secs(20))
         .timeout(std::time::Duration::from_secs(180))
-        .user_agent("lumina-bootstrapper/1.0.2")
+        .user_agent("lumina-bootstrapper/1.0.3")
         .build()
         .context("failed to build HTTP client")
 }

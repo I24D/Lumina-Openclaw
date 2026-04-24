@@ -31,6 +31,13 @@ async function pathExists(targetPath) {
   }
 }
 
+async function writeStubBundle(message) {
+  await fs.mkdir(path.dirname(OUTPUT_FILE), { recursive: true });
+  await fs.writeFile(OUTPUT_FILE, "/* A2UI bundle unavailable in this build */\n", "utf8");
+  await fs.writeFile(HASH_FILE, "stub\n", "utf8");
+  log(message);
+}
+
 async function walk(entryPath, files) {
   const stats = await fs.stat(entryPath);
   if (stats.isDirectory()) {
@@ -111,7 +118,8 @@ async function main() {
       log("A2UI sources missing; keeping prebuilt bundle.");
       return;
     }
-    fail(`A2UI sources missing and no prebuilt bundle found at: ${OUTPUT_FILE}`);
+    await writeStubBundle("A2UI sources missing; wrote stub bundle for this build.");
+    return;
   }
 
   const inputs = [
