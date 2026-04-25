@@ -81,17 +81,31 @@ function ensureExists(targetPath, label) {
 
 function copyFileToStage(sourcePath, targetPath) {
   ensureExists(sourcePath, "bundle source file");
+  const sourceStats = fs.statSync(sourcePath);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  if (process.platform !== "win32") {
+    try {
+      fs.linkSync(sourcePath, targetPath);
+      fs.chmodSync(targetPath, sourceStats.mode);
+      return;
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !("code" in error) ||
+        !["EXDEV", "EMLINK", "EPERM", "EEXIST"].includes(String(error.code))
+      ) {
+        throw error;
+      }
+    }
+  }
+
   fs.copyFileSync(sourcePath, targetPath);
+  fs.chmodSync(targetPath, sourceStats.mode);
 }
 
 function copyDirToStage(sourceDir, targetDir) {
   ensureExists(sourceDir, "bundle source directory");
-  fs.cpSync(sourceDir, targetDir, {
-    recursive: true,
-    force: true,
-    dereference: true,
-  });
+  copyPathToStage(sourceDir, targetDir);
 }
 
 function syncDirToStage(sourceDir, targetDir) {
@@ -99,6 +113,44 @@ function syncDirToStage(sourceDir, targetDir) {
 
   fs.rmSync(targetDir, { recursive: true, force: true });
   copyDirToStage(sourceDir, targetDir);
+}
+
+function copyPathToStage(sourcePath, targetPath, ancestors = new Set<string>()) {
+  const sourceLstat = fs.lstatSync(sourcePath);
+  const resolvedSourcePath = sourceLstat.isSymbolicLink()
+    ? fs.realpathSync(sourcePath)
+    : sourcePath;
+  const sourceStats = sourceLstat.isSymbolicLink() ? fs.statSync(resolvedSourcePath) : sourceLstat;
+
+  if (sourceStats.isDirectory()) {
+    const realDirectoryPath = fs.realpathSync(resolvedSourcePath);
+    if (ancestors.has(realDirectoryPath)) {
+      fail(`Detected a cyclic symbolic link while staging ${sourcePath}`);
+    }
+
+    fs.mkdirSync(targetPath, { recursive: true });
+    const nextAncestors = new Set(ancestors);
+    nextAncestors.add(realDirectoryPath);
+    const entries = fs
+      .readdirSync(resolvedSourcePath, { withFileTypes: true })
+      .slice()
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const entry of entries) {
+      copyPathToStage(
+        path.join(resolvedSourcePath, entry.name),
+        path.join(targetPath, entry.name),
+        nextAncestors,
+      );
+    }
+    return;
+  }
+
+  if (!sourceStats.isFile()) {
+    fail(`Unsupported runtime bundle entry type: ${sourcePath}`);
+  }
+
+  copyFileToStage(resolvedSourcePath, targetPath);
 }
 
 function sanitizeName(value) {
@@ -112,8 +164,12 @@ function buildArtifactBaseName(bundleManifest) {
   return `lumina-openclaw-runtime-bundle-${version}-${platform}-${arch}`;
 }
 
-function assembleCanonicalRuntimeBundle(canonicalBundleRoot, canonicalBundleManifestPath) {
-  ensureExists(canonicalBundleManifestPath, "canonical bundle manifest");
+function assembleCanonicalRuntimeBundle(
+  canonicalBundleRoot,
+  sourceBundleManifestPath,
+  canonicalBundleManifestPath,
+) {
+  ensureExists(sourceBundleManifestPath, "canonical bundle manifest");
   ensureExists(defaultsFilePath, "Lumina defaults file");
   ensureExists(runtimeNodeDir, "bundled Node runtime");
   ensureExists(packagedOpenClawDir, "packaged OpenClaw runtime");
@@ -121,7 +177,7 @@ function assembleCanonicalRuntimeBundle(canonicalBundleRoot, canonicalBundleMani
   ensureExists(proxyEntryPath, "tool proxy entry");
   ensureExists(proxyConfigPath, "tool proxy config");
 
-  const manifestJson = fs.readFileSync(canonicalBundleManifestPath, "utf8");
+  const manifestJson = fs.readFileSync(sourceBundleManifestPath, "utf8");
   const canonicalPayloadRoot = path.join(canonicalBundleRoot, "payload");
 
   fs.rmSync(canonicalBundleRoot, { recursive: true, force: true });
@@ -147,50 +203,66 @@ function assembleCanonicalRuntimeBundle(canonicalBundleRoot, canonicalBundleMani
 }
 
 const args = parseArgs(process.argv.slice(2));
-const canonicalBundleRoot =
-  args.get("canonical-bundle-root") ?? defaultCanonicalBundleRoot;
-const canonicalBundleManifestPath =
-  args.get("bundle-manifest") ??
-  path.join(canonicalBundleRoot, "bundle.manifest.json");
 const releaseRoot = args.get("release-root") ?? defaultReleaseRoot;
+fs.mkdirSync(releaseRoot, { recursive: true });
 
-if (!fs.existsSync(canonicalBundleManifestPath)) {
-  fail(`Missing canonical bundle manifest: ${canonicalBundleManifestPath}`);
+const explicitCanonicalBundleRoot = args.get("canonical-bundle-root");
+const canonicalBundleRoot =
+  explicitCanonicalBundleRoot ??
+  fs.mkdtempSync(path.join(releaseRoot, ".lumina-runtime-bundle-"));
+const sourceBundleManifestPath =
+  args.get("bundle-manifest") ??
+  (explicitCanonicalBundleRoot
+    ? path.join(explicitCanonicalBundleRoot, "bundle.manifest.json")
+    : defaultCanonicalBundleManifestPath);
+const canonicalBundleManifestPath = path.join(canonicalBundleRoot, "bundle.manifest.json");
+
+if (!fs.existsSync(sourceBundleManifestPath)) {
+  fail(`Missing canonical bundle manifest: ${sourceBundleManifestPath}`);
 }
 
-assembleCanonicalRuntimeBundle(canonicalBundleRoot, canonicalBundleManifestPath);
-const bundleManifest = validateBundleManifest(readJsonFile(canonicalBundleManifestPath));
-const artifactBaseName = buildArtifactBaseName(bundleManifest);
-const archiveFileName = `${artifactBaseName}.tar.gz`;
-const manifestFileName = `${artifactBaseName}.manifest.json`;
-const metadataFileName = `${artifactBaseName}.artifact.json`;
-const archivePath = path.join(releaseRoot, archiveFileName);
-const releaseManifestCopyPath = path.join(releaseRoot, manifestFileName);
-const metadataPath = path.join(releaseRoot, metadataFileName);
+try {
+  assembleCanonicalRuntimeBundle(
+    canonicalBundleRoot,
+    sourceBundleManifestPath,
+    canonicalBundleManifestPath,
+  );
+  const bundleManifest = validateBundleManifest(readJsonFile(canonicalBundleManifestPath));
+  const artifactBaseName = buildArtifactBaseName(bundleManifest);
+  const archiveFileName = `${artifactBaseName}.tar.gz`;
+  const manifestFileName = `${artifactBaseName}.manifest.json`;
+  const metadataFileName = `${artifactBaseName}.artifact.json`;
+  const archivePath = path.join(releaseRoot, archiveFileName);
+  const releaseManifestCopyPath = path.join(releaseRoot, manifestFileName);
+  const metadataPath = path.join(releaseRoot, metadataFileName);
 
-fs.mkdirSync(releaseRoot, { recursive: true });
-fs.rmSync(archivePath, { force: true });
-fs.rmSync(releaseManifestCopyPath, { force: true });
-fs.rmSync(metadataPath, { force: true });
+  fs.rmSync(archivePath, { force: true });
+  fs.rmSync(releaseManifestCopyPath, { force: true });
+  fs.rmSync(metadataPath, { force: true });
 
-log(`Archiving runtime bundle to ${archivePath}`);
-run("tar", ["-czf", archivePath, "-C", canonicalBundleRoot, "."], repoRoot);
-fs.copyFileSync(canonicalBundleManifestPath, releaseManifestCopyPath);
+  log(`Archiving runtime bundle to ${archivePath}`);
+  run("tar", ["-czf", archivePath, "-C", canonicalBundleRoot, "."], repoRoot);
+  fs.copyFileSync(canonicalBundleManifestPath, releaseManifestCopyPath);
 
-const metadata = {
-  artifactId: artifactBaseName,
-  role: "runtime-bundle",
-  format: "tar.gz",
-  platform: bundleManifest.platform,
-  arch: bundleManifest.arch,
-  fileName: archiveFileName,
-  relativePath: archiveFileName,
-  byteSize: computeFileByteSize(archivePath),
-  sha256: computeFileSha256(archivePath),
-  bundleManifestFileName: manifestFileName,
-  bundleManifestRelativePath: manifestFileName,
-  bundleManifestSha256: computeFileSha256(releaseManifestCopyPath),
-};
+  const metadata = {
+    artifactId: artifactBaseName,
+    role: "runtime-bundle",
+    format: "tar.gz",
+    platform: bundleManifest.platform,
+    arch: bundleManifest.arch,
+    fileName: archiveFileName,
+    relativePath: archiveFileName,
+    byteSize: computeFileByteSize(archivePath),
+    sha256: computeFileSha256(archivePath),
+    bundleManifestFileName: manifestFileName,
+    bundleManifestRelativePath: manifestFileName,
+    bundleManifestSha256: computeFileSha256(releaseManifestCopyPath),
+  };
 
-writeJsonFile(metadataPath, metadata);
-log(`Wrote runtime bundle archive metadata: ${metadataPath}`);
+  writeJsonFile(metadataPath, metadata);
+  log(`Wrote runtime bundle archive metadata: ${metadataPath}`);
+} finally {
+  if (!explicitCanonicalBundleRoot) {
+    fs.rmSync(canonicalBundleRoot, { recursive: true, force: true });
+  }
+}
