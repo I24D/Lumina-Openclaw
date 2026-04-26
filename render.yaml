@@ -3,7 +3,7 @@ services:
     name: lumina-auth
     env: node
     rootDir: .
-    buildCommand: corepack enable && pnpm install --frozen-lockfile=false && pnpm --filter @lumina/auth build
+    buildCommand: corepack enable && pnpm install --frozen-lockfile=false --filter @lumina/auth... && pnpm --filter @lumina/auth build
     startCommand: pnpm --filter @lumina/auth start
     healthCheckPath: /health
     envVars:
@@ -24,7 +24,7 @@ services:
     name: lumina-brain
     env: node
     rootDir: .
-    buildCommand: corepack enable && pnpm install --frozen-lockfile=false && pnpm --filter @lumina/protocol build && pnpm --filter @lumina/brain build
+    buildCommand: corepack enable && pnpm install --frozen-lockfile=false --filter @lumina/brain... && pnpm --filter @lumina/protocol build && pnpm --filter @lumina/brain build
     startCommand: pnpm --filter @lumina/brain start
     healthCheckPath: /health
     envVars:
