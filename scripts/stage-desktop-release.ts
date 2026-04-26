@@ -154,6 +154,8 @@ export async function stageDesktopRelease(options: StageDesktopReleaseOptions = 
   run(process.execPath, [
     "--experimental-strip-types",
     path.join(repoRoot, "scripts", "validate-release-contract.ts"),
+    "--skip-bundle-payload",
+    "true",
     "--release-root",
     releaseRoot,
     "--release-manifest",

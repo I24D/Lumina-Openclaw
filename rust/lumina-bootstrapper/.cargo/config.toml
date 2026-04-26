@@ -1,0 +1,9 @@
+[build]
+incremental = true
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+incremental = true
+opt-level = 2

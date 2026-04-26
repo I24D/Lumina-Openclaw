@@ -1,6 +1,6 @@
 {
   "name": "lumina-monorepo",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "private": true,
   "packageManager": "pnpm@10.33.0",
   "description": "Lumina — AI brain + OpenClaw execution runtime monorepo",
@@ -20,6 +20,7 @@
     "runtime:start":  "pnpm --filter @lumina/openclaw-runtime start",
     "ui:build":       "pnpm --dir Open_PC ui:build",
     "ui:dev":         "pnpm --dir Open_PC ui:dev",
+    "desktop:preflight": "node --experimental-strip-types scripts/preflight-check.ts",
     "desktop:prepare": "node --experimental-strip-types scripts/prepare-desktop-bundle.ts",
     "desktop:bundle:archive": "node --experimental-strip-types scripts/archive-runtime-bundle.ts",
     "desktop:bootstrapper:build": "node --experimental-strip-types scripts/run-cargo-bootstrapper.ts build --manifest-path rust/lumina-bootstrapper/Cargo.toml --release",

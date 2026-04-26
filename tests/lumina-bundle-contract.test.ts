@@ -325,6 +325,36 @@ test("validate-release-contract script accepts a matching bundle and release fix
   });
 });
 
+test("validate-release-contract can skip canonical payload validation when requested", () => {
+  withTempDir((tempDir) => {
+    const fixture = createReleaseFixture(tempDir);
+    const releaseManifestPath = path.join(
+      fixture.releaseRoot,
+      buildReleaseManifestFileName(
+        fixture.bundleManifest.bundleVersion,
+        fixture.bundleManifest.platform,
+        fixture.bundleManifest.arch,
+      ),
+    );
+    writeJsonFile(releaseManifestPath, fixture.releaseManifest);
+    fs.rmSync(path.join(fixture.canonicalBundleRoot, "payload"), {
+      recursive: true,
+      force: true,
+    });
+
+    const result = validateReleaseContract({
+      canonicalBundleRoot: fixture.canonicalBundleRoot,
+      bundleManifestPath: fixture.bundleManifestPath,
+      releaseRoot: fixture.releaseRoot,
+      releaseManifestPath,
+      skipBundlePayload: true,
+    });
+
+    assert.equal(result.bundleManifest.bundleId, fixture.bundleManifest.bundleId);
+    assert.equal(result.releaseManifest.bundle.bundleVersion, fixture.bundleManifest.bundleVersion);
+  });
+});
+
 test("generate-release-manifest script produces a valid target-specific release manifest", () => {
   withTempDir((tempDir) => {
     const fixture = createReleaseFixture(tempDir);

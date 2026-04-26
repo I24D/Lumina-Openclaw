@@ -24,6 +24,7 @@ const defaultReleaseRoot = path.join(desktopRoot, "release");
 
 type ValidateReleaseContractOptions = {
   bundleOnly?: boolean;
+  skipBundlePayload?: boolean;
   canonicalBundleRoot?: string;
   bundleManifestPath?: string;
   releaseRoot?: string;
@@ -157,6 +158,7 @@ export function validateReleaseContract(
   options: ValidateReleaseContractOptions = {},
 ) {
   const bundleOnly = options.bundleOnly ?? false;
+  const skipBundlePayload = options.skipBundlePayload ?? false;
   const canonicalBundleRoot =
     options.canonicalBundleRoot ?? defaultCanonicalBundleRoot;
   const canonicalBundleManifestPath =
@@ -173,8 +175,12 @@ export function validateReleaseContract(
   }
 
   const bundleManifest = validateBundleManifest(readJsonFile(canonicalBundleManifestPath));
-  validateBundlePayload(canonicalBundleRoot, bundleManifest);
-  log("Bundle manifest structure and payload digests are valid.");
+  if (!skipBundlePayload) {
+    validateBundlePayload(canonicalBundleRoot, bundleManifest);
+    log("Bundle manifest structure and payload digests are valid.");
+  } else {
+    log("Bundle manifest structure is valid. Payload digest validation was skipped.");
+  }
 
   if (bundleOnly) {
     return { bundleManifest, releaseManifest: null };
@@ -207,6 +213,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const args = parseArgs(process.argv.slice(2));
   validateReleaseContract({
     bundleOnly: args.get("bundle-only") === "true",
+    skipBundlePayload: args.get("skip-bundle-payload") === "true",
     canonicalBundleRoot: args.get("canonical-bundle-root"),
     bundleManifestPath: args.get("bundle-manifest"),
     releaseRoot: args.get("release-root"),
