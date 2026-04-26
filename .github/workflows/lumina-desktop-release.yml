@@ -121,6 +121,7 @@ jobs:
             Open_PC/skills
           if-no-files-found: error
           retention-days: 1
+          overwrite: true
 
   # ── Job 2: Platform builds — depend on the shared OpenClaw artifact ───────────
   build:
@@ -243,8 +244,8 @@ jobs:
           name: lumina-desktop-${{ matrix.name }}
           path: ${{ matrix.artifact_glob }}
           if-no-files-found: error
-          # 7 days: keeps artifacts available for release-only reruns
-          retention-days: 7
+          retention-days: 1
+          overwrite: true
 
   # ── Job 3: Release — runs only when at least one build succeeded ──────────────
   # On tag push: waits for all 3 platform builds.
