@@ -204,11 +204,16 @@ jobs:
       # ── 6. Restore pre-built OpenClaw artifact (built once in build-openclaw) ──
       # No need to run pnpm build:docker or ui:build here — the output is already
       # compiled and platform-agnostic. Saves 5–10 min per platform job.
+      #
+      # IMPORTANT: path must be "." (workspace root), NOT "Open_PC".
+      # The artifact was uploaded with paths like "Open_PC/dist/...", so extracting
+      # to "." restores them to "Open_PC/dist/...". Extracting to "Open_PC" would
+      # produce "Open_PC/Open_PC/dist/..." which breaks prepare-desktop-bundle.ts.
       - name: Download OpenClaw build output
         uses: actions/download-artifact@v4
         with:
           name: openclaw-build
-          path: Open_PC
+          path: .
 
       # ── 7. Pre-flight: validate bundle inputs BEFORE Tauri compiles ──────────
       # Fails fast if openclaw-package, ui, or proxy are missing.

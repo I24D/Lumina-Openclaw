@@ -184,50 +184,56 @@ function checkSourceLayout() {
 
 // ── Bundle inputs check ───────────────────────────────────────────────────────
 // Verifies that OpenClaw build output exists BEFORE Tauri compilation.
-// These are the files that caused late-stage failures previously.
+//
+// In CI this runs AFTER the openclaw-build artifact is downloaded to Open_PC/.
+// The artifact provides: Open_PC/dist/, Open_PC/openclaw.mjs, Open_PC/assets/, Open_PC/skills/
+//
+// apps/lumina-desktop/build/openclaw-package/ is created by prepare-desktop-bundle.ts
+// which runs INSIDE the desktop build step — so it does NOT exist at this point.
+// We check it as optional (warn) so it doesn't block CI.
 
 function checkBundleInputs() {
   section("Bundle inputs (OpenClaw build output)");
 
-  const buildDir        = path.join(desktopRoot, "build");
-  const openClawPkg     = path.join(buildDir, "openclaw-package");
-  const openClawDeploy  = path.join(buildDir, "openclaw-deploy");
-  const runtimeNodeDir  = path.join(buildDir, "runtime-node");
-  const defaultsFile    = path.join(buildDir, "lumina-defaults.json");
-  const controlUiDir    = path.join(openClawPkg, "dist", "control-ui");
-  const controlUiIndex  = path.join(controlUiDir, "index.html");
+  // ── Primary checks: Open_PC/dist/ from the openclaw-build artifact ──────────
+  // These files are required. If missing, the OpenClaw artifact download failed
+  // or went to the wrong path.
+  const openClawDist       = path.join(openClawRoot, "dist");
+  const openClawMjs        = path.join(openClawRoot, "openclaw.mjs");
+  const controlUiDir       = path.join(openClawDist, "control-ui");
+  const controlUiIndex     = path.join(controlUiDir, "index.html");
 
-  // openclaw-package must exist and have the UI built
-  const pkgExists = checkExists(openClawPkg, "openclaw-package dir");
-  if (pkgExists) {
-    checkExists(controlUiDir,    "openclaw control-ui dir");
-    checkFileNotEmpty(controlUiIndex, "control-ui/index.html");
-    checkExists(
-      path.join(openClawPkg, "dist", "index.js"),
-      "openclaw dist/index.js",
-      false,
-    );
-  }
+  checkExists(openClawDist, "Open_PC/dist dir (artifact output)");
+  checkExists(openClawMjs,  "Open_PC/openclaw.mjs (artifact output)");
+  checkExists(controlUiDir, "Open_PC/dist/control-ui dir");
+  checkFileNotEmpty(controlUiIndex, "Open_PC/dist/control-ui/index.html");
+  checkExists(path.join(openClawDist, "index.js"), "Open_PC/dist/index.js", false);
 
-  // openclaw-deploy is optional (only required for --refresh-openclaw-deploy path)
-  checkExists(openClawDeploy, "openclaw-deploy dir", false);
+  // ── Secondary checks: post-prepare-desktop-bundle paths (optional in CI) ────
+  // These only exist after prepare-desktop-bundle.ts runs (inside the build step).
+  // Warn if missing — never fail, since they don't exist at pre-build time.
+  const buildDir       = path.join(desktopRoot, "build");
+  const openClawPkg    = path.join(buildDir, "openclaw-package");
+  const openClawDeploy = path.join(buildDir, "openclaw-deploy");
+  const runtimeNodeDir = path.join(buildDir, "runtime-node");
+  const defaultsFile   = path.join(buildDir, "lumina-defaults.json");
 
-  // Node runtime must be embedded
-  const nodeExeWin   = path.join(runtimeNodeDir, "node.exe");
-  const nodeExeUnix  = path.join(runtimeNodeDir, "node");
-  const nodeExists   = fs.existsSync(nodeExeWin) || fs.existsSync(nodeExeUnix);
-  if (nodeExists) {
+  checkExists(openClawPkg,    "openclaw-package dir (post-prepare)", false);
+  checkExists(openClawDeploy, "openclaw-deploy dir (post-prepare)", false);
+
+  const nodeExeWin  = path.join(runtimeNodeDir, "node.exe");
+  const nodeExeUnix = path.join(runtimeNodeDir, "node");
+  if (fs.existsSync(nodeExeWin) || fs.existsSync(nodeExeUnix)) {
     ok("bundled Node runtime binary found");
   } else {
-    warn(`Bundled Node runtime not found at ${runtimeNodeDir}/node[.exe] — may be embedded by build`);
+    warn(`Bundled Node runtime not found — will be embedded during desktop build`);
   }
 
-  // Defaults file
-  checkJsonParseable(defaultsFile, "lumina-defaults.json");
-
-  // Open_PC dist (OpenClaw runtime output) must have been built
-  const openClawMjs = path.join(openClawRoot, "openclaw.mjs");
-  checkExists(openClawMjs, "openclaw.mjs entry point", false);
+  if (fs.existsSync(defaultsFile)) {
+    checkJsonParseable(defaultsFile, "lumina-defaults.json");
+  } else {
+    warn(`lumina-defaults.json not found — will be created during desktop build`);
+  }
 }
 
 // ── Release artifacts check ───────────────────────────────────────────────────
