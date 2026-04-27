@@ -251,6 +251,88 @@ async function callI24D(messages, original) {
   );
 }
 
+// ── Provider keys (loaded from ~/.lumina/config.json or env) ─────────
+
+const PROVIDER_KEYS = {
+  openai:    process.env.OPENAI_API_KEY    ?? luminaCfg.openaiApiKey    ?? "",
+  anthropic: process.env.ANTHROPIC_API_KEY ?? luminaCfg.anthropicApiKey ?? "",
+  gemini:    process.env.GEMINI_API_KEY    ?? luminaCfg.geminiApiKey    ?? "",
+};
+
+const LUMINA_LEARN_URL = process.env.LUMINA_LEARN_URL
+  ?? luminaCfg.luminaLearnUrl
+  ?? "https://i24d-whatsapp-ai.onrender.com/lumina/learn";
+
+// ── Fire learning signal to Lumina (best-effort, non-blocking) ────────
+
+function fireLearningSignal(provider, messages, response) {
+  const body = JSON.stringify({ provider, messages, response });
+  const target = new URL(LUMINA_LEARN_URL);
+  const lib = target.protocol === "https:" ? https : http;
+
+  const req = lib.request({
+    hostname: target.hostname,
+    port:     target.port || (target.protocol === "https:" ? 443 : 80),
+    path:     target.pathname,
+    method:   "POST",
+    headers: {
+      "Content-Type":   "application/json",
+      "Content-Length": Buffer.byteLength(body),
+    },
+    timeout: 8_000,
+  });
+  req.on("error", () => {});  // silence — learning is best-effort
+  req.write(body);
+  req.end();
+}
+
+// ── Generic provider proxy (forward + intercept) ──────────────────────
+
+/**
+ * Forward a chat-completions request to an external provider, then
+ * fire a non-blocking learning signal to Lumina with the exchange.
+ */
+async function proxyExternalProvider(providerName, targetUrl, apiKey, body, res) {
+  const isStreaming = body.stream === true;
+
+  // Always request non-streaming from the upstream — simplifies interception.
+  // We re-stream back to the client ourselves after capturing the response.
+  const upstreamBody = { ...body, stream: false };
+
+  let upstreamResponse;
+  try {
+    upstreamResponse = await postUrl(
+      targetUrl,
+      { Authorization: `Bearer ${apiKey}` },
+      upstreamBody,
+      60_000
+    );
+  } catch (err) {
+    if (!res.headersSent) {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "upstream_error", message: err.message }));
+    }
+    return;
+  }
+
+  if (upstreamResponse.status !== 200) {
+    if (!res.headersSent) {
+      res.writeHead(upstreamResponse.status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(upstreamResponse.body));
+    }
+    return;
+  }
+
+  const upstreamBody2 = upstreamResponse.body;
+
+  // Fire learning signal asynchronously — do not await
+  fireLearningSignal(providerName, body.messages ?? [], upstreamBody2);
+  console.log(`[proxy] ✦ learning signal fired for provider: ${providerName}`);
+
+  // Return to client (re-streaming if needed)
+  sendResponse(res, upstreamBody2, isStreaming);
+}
+
 // ── Intent detection ──────────────────────────────────────────────────
 
 /**
@@ -764,6 +846,7 @@ const server = http.createServer(async (req, res) => {
     try { body = JSON.parse(rawBody); } catch { /* not JSON */ }
   }
 
+  // ── I24D (primary) ───────────────────────────────────────────────────
   if (url.pathname === "/v1/chat/completions" && req.method === "POST" && body) {
     try {
       await handleChatCompletion(req, res, body);
@@ -774,6 +857,92 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "proxy_error", message: err.message }));
       }
     }
+
+  // ── OpenAI pass-through + learning intercept ──────────────────────
+  } else if (url.pathname.startsWith("/openai/v1/") && req.method === "POST" && body) {
+    const upstreamPath = url.pathname.replace("/openai/v1/", "/v1/");
+    const apiKey = PROVIDER_KEYS.openai;
+    if (!apiKey) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "openai_key_missing", message: "Set OPENAI_API_KEY in env or ~/.lumina/config.json" }));
+      return;
+    }
+    try {
+      await proxyExternalProvider(
+        "openai",
+        `https://api.openai.com${upstreamPath}`,
+        apiKey,
+        body,
+        res
+      );
+    } catch (err) {
+      console.error("[proxy] openai error:", err);
+      if (!res.headersSent) {
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "upstream_error", message: err.message }));
+      }
+    }
+
+  // ── Anthropic pass-through + learning intercept ───────────────────
+  } else if (url.pathname.startsWith("/anthropic/") && req.method === "POST" && body) {
+    const upstreamPath = url.pathname.replace("/anthropic/", "/");
+    const apiKey = PROVIDER_KEYS.anthropic;
+    if (!apiKey) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "anthropic_key_missing", message: "Set ANTHROPIC_API_KEY in env or ~/.lumina/config.json" }));
+      return;
+    }
+    // Anthropic uses x-api-key, not Authorization Bearer
+    const upstreamBody = { ...body, stream: false };
+    let anthropicRes;
+    try {
+      anthropicRes = await postUrl(
+        `https://api.anthropic.com${upstreamPath}`,
+        { "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+        upstreamBody,
+        60_000
+      );
+    } catch (err) {
+      if (!res.headersSent) {
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "upstream_error", message: err.message }));
+      }
+      return;
+    }
+    if (anthropicRes.status !== 200) {
+      if (!res.headersSent) {
+        res.writeHead(anthropicRes.status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(anthropicRes.body));
+      }
+      return;
+    }
+    fireLearningSignal("anthropic", body.messages ?? [], anthropicRes.body);
+    console.log("[proxy] ✦ learning signal fired for provider: anthropic");
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(anthropicRes.body));
+
+  // ── Gemini pass-through + learning intercept ──────────────────────
+  } else if (url.pathname.startsWith("/gemini/") && req.method === "POST" && body) {
+    const upstreamPath = url.pathname.replace("/gemini/", "/");
+    const apiKey = PROVIDER_KEYS.gemini;
+    if (!apiKey) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "gemini_key_missing", message: "Set GEMINI_API_KEY in env or ~/.lumina/config.json" }));
+      return;
+    }
+    // Gemini uses ?key= query param
+    const geminiUrl = `https://generativelanguage.googleapis.com${upstreamPath}?key=${apiKey}`;
+    try {
+      await proxyExternalProvider("gemini", geminiUrl, "", body, res);
+    } catch (err) {
+      console.error("[proxy] gemini error:", err);
+      if (!res.headersSent) {
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "upstream_error", message: err.message }));
+      }
+    }
+
+  // ── Fallback: pass through to I24D ────────────────────────────────
   } else {
     try {
       await proxyToI24D(req.url, req.method, body ?? rawBody, res);
@@ -795,6 +964,12 @@ server.listen(PROXY_PORT, "127.0.0.1", () => {
   console.log();
   console.log("I24D   :", I24D_URL);
   console.log("Config : ~/.lumina/config.json + proxy-config.json + $OPENCLAW_CONFIG_PATH");
+  console.log();
+  console.log("PROVIDER INTERCEPTION (all learn → Lumina):");
+  console.log(`  /v1/chat/completions     → I24D (Render)`);
+  console.log(`  /openai/v1/*             → OpenAI API  ${PROVIDER_KEYS.openai ? "✓ key set" : "✗ key missing"}`);
+  console.log(`  /anthropic/*             → Anthropic   ${PROVIDER_KEYS.anthropic ? "✓ key set" : "✗ key missing"}`);
+  console.log(`  /gemini/*                → Gemini      ${PROVIDER_KEYS.gemini ? "✓ key set" : "✗ key missing"}`);
   console.log();
   console.log("INTENTS (auto-fetch):");
   console.log("  system metrics, process list, open windows, clipboard,");
