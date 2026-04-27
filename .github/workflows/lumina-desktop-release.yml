@@ -112,6 +112,7 @@ jobs:
       # retention-days: 1 — only needs to survive until the 3 platform jobs complete.
       - name: Upload OpenClaw build output
         uses: actions/upload-artifact@v4
+        continue-on-error: true   # quota exhaustion must not block platform jobs
         with:
           name: openclaw-build
           path: |
@@ -192,7 +193,8 @@ jobs:
             rust/lumina-bootstrapper -> target
             apps/lumina-desktop/src-tauri -> target
           shared-key: "lumina-rust-${{ runner.os }}"
-          cache-on-failure: true   # persist cache even on failed builds
+          cache-on-failure: false   # don't persist on failure — avoids quota accumulation
+          save-if: ${{ github.ref_type == 'tag' }}   # only save cache on tag builds
 
       # ── 4. Pre-flight validation (FAST — runs before any compilation) ─────────
       - name: "Pre-flight: validate source layout"
@@ -211,10 +213,21 @@ jobs:
       # to "." restores them to "Open_PC/dist/...". Extracting to "Open_PC" would
       # produce "Open_PC/Open_PC/dist/..." which breaks prepare-desktop-bundle.ts.
       - name: Download OpenClaw build output
+        id: download-openclaw
         uses: actions/download-artifact@v4
+        continue-on-error: true   # fallback to local build if artifact unavailable
         with:
           name: openclaw-build
           path: .
+
+      # Fallback: build OpenClaw locally if artifact wasn't available
+      - name: Build OpenClaw locally (artifact fallback)
+        if: steps.download-openclaw.outcome == 'failure'
+        run: |
+          cd Open_PC
+          pnpm install --no-frozen-lockfile
+          pnpm build:docker
+          pnpm ui:build
 
       # ── 7. Pre-flight: validate bundle inputs BEFORE Tauri compiles ──────────
       # Fails fast if openclaw-package, ui, or proxy are missing.
