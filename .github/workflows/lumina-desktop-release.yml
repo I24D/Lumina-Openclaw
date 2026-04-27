@@ -39,6 +39,10 @@ env:
 
 jobs:
   # ── 1 of 5 ────────────────────────────────────────────────────────────────────
+  # Builds OpenClaw (pure JS/CSS — platform-agnostic).
+  # On tag builds: creates a draft GitHub Release and uploads openclaw-build.tar.gz
+  # as a release asset (~30-50 MB compressed). Release assets have a 2 GB limit
+  # and do NOT count against the 500 MB Actions artifact quota.
   build-openclaw:
     name: "1/5 build-openclaw"
     if: ${{ github.event.inputs.release_only != 'true' }}
@@ -77,21 +81,7 @@ jobs:
         working-directory: Open_PC
         run: pnpm ui:build
 
-      - name: Upload OpenClaw artifact
-        uses: actions/upload-artifact@v4
-        continue-on-error: true
-        with:
-          name: openclaw-build
-          path: |
-            Open_PC/dist
-            Open_PC/openclaw.mjs
-            Open_PC/assets
-            Open_PC/skills
-          if-no-files-found: error
-          retention-days: 3
-          overwrite: true
-
-      # Draft release created here so platform jobs can upload assets to it directly.
+      # Create the draft release first so we can immediately upload openclaw-build.tar.gz to it.
       - name: Create draft GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -101,6 +91,20 @@ jobs:
             --title "Lumina Desktop ${{ github.ref_name }}" \
             --draft \
             --notes "Assembling release assets…" || true
+
+      # Pack and upload OpenClaw output as a release asset.
+      # Platform jobs download this via gh release download — no artifact quota used.
+      - name: Upload OpenClaw build to release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tar -czf openclaw-build.tar.gz \
+            Open_PC/dist \
+            Open_PC/openclaw.mjs \
+            Open_PC/assets \
+            Open_PC/skills
+          gh release upload "${{ github.ref_name }}" openclaw-build.tar.gz --clobber
 
   # ── 2 of 5 ────────────────────────────────────────────────────────────────────
   build-windows:
@@ -139,16 +143,24 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Download OpenClaw artifact
+      # Download openclaw-build.tar.gz from the release (no artifact quota).
+      # Falls back to building locally if the release asset is unavailable.
+      - name: Download OpenClaw from release
         id: dl-openclaw-win
-        uses: actions/download-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/')
         continue-on-error: true
-        with:
-          name: openclaw-build
-          path: .
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release download "${{ github.ref_name }}" \
+            --pattern "openclaw-build.tar.gz"
+          tar -xzf openclaw-build.tar.gz
+          rm openclaw-build.tar.gz
 
       - name: Build OpenClaw locally (fallback)
-        if: steps.dl-openclaw-win.outcome == 'failure'
+        if: steps.dl-openclaw-win.outcome == 'failure' || steps.dl-openclaw-win.outcome == 'skipped'
+        shell: bash
         run: |
           cd Open_PC
           pnpm install --no-frozen-lockfile
@@ -215,16 +227,20 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Download OpenClaw artifact
+      - name: Download OpenClaw from release
         id: dl-openclaw-mac
-        uses: actions/download-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/')
         continue-on-error: true
-        with:
-          name: openclaw-build
-          path: .
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ github.ref_name }}" \
+            --pattern "openclaw-build.tar.gz"
+          tar -xzf openclaw-build.tar.gz
+          rm openclaw-build.tar.gz
 
       - name: Build OpenClaw locally (fallback)
-        if: steps.dl-openclaw-mac.outcome == 'failure'
+        if: steps.dl-openclaw-mac.outcome == 'failure' || steps.dl-openclaw-mac.outcome == 'skipped'
         run: |
           cd Open_PC
           pnpm install --no-frozen-lockfile
@@ -305,16 +321,20 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Download OpenClaw artifact
+      - name: Download OpenClaw from release
         id: dl-openclaw-linux
-        uses: actions/download-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/')
         continue-on-error: true
-        with:
-          name: openclaw-build
-          path: .
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ github.ref_name }}" \
+            --pattern "openclaw-build.tar.gz"
+          tar -xzf openclaw-build.tar.gz
+          rm openclaw-build.tar.gz
 
       - name: Build OpenClaw locally (fallback)
-        if: steps.dl-openclaw-linux.outcome == 'failure'
+        if: steps.dl-openclaw-linux.outcome == 'failure' || steps.dl-openclaw-linux.outcome == 'skipped'
         run: |
           cd Open_PC
           pnpm install --no-frozen-lockfile
@@ -373,6 +393,13 @@ jobs:
 
       - name: List release assets
         run: find release-artifacts -type f | sort
+
+      # Remove the internal openclaw build asset — users don't need it.
+      - name: Remove openclaw-build.tar.gz from release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete-asset "${{ github.ref_name }}" openclaw-build.tar.gz --yes || true
 
       - name: Render release notes
         run: |
