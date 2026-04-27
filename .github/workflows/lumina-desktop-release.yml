@@ -3,8 +3,16 @@ name: lumina-desktop-release
 on:
   workflow_dispatch:
     inputs:
+      build_openclaw_only:
+        description: "STEP 1 — Build OpenClaw only. Run this first, fix any errors, then use the run ID for step 2."
+        type: boolean
+        default: false
+      openclaw_run_id:
+        description: "STEP 2 — Run ID from a successful 'build_openclaw_only' run (skip OpenClaw rebuild)."
+        type: string
+        default: ""
       release_only:
-        description: "Re-run only the release step (skip re-building). Downloads assets already on the release."
+        description: "Re-run only the release step. Downloads assets already on the release."
         type: boolean
         default: false
       platform:
@@ -44,12 +52,14 @@ env:
 
 jobs:
   # ── Job 1: Build OpenClaw + create draft release ───────────────────────────────
-  # OpenClaw output is pure JS/CSS — platform-agnostic.
-  # Uploaded as a small artifact (~50 MB) shared by the 3 platform jobs.
-  # Also creates the draft GitHub Release so platform jobs can upload assets to it.
+  # Skipped when openclaw_run_id is provided (reuse artifact from a prior run).
+  # Set build_openclaw_only=true to run ONLY this job, verify it works, then
+  # pass its run ID to the next dispatch as openclaw_run_id.
   build-openclaw:
     name: build-openclaw
-    if: ${{ github.event.inputs.release_only != 'true' }}
+    if: |
+      github.event.inputs.release_only != 'true' &&
+      github.event.inputs.openclaw_run_id == ''
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -108,9 +118,9 @@ jobs:
           overwrite: true
 
       # Create the draft release NOW so platform jobs can upload assets to it in parallel.
-      # Uses || true so a duplicate-tag error on re-runs doesn't fail the job.
+      # Skipped when build_openclaw_only=true — the user will trigger the full release separately.
       - name: Create draft GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') && github.event.inputs.build_openclaw_only != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -123,9 +133,17 @@ jobs:
   # Each job compiles Tauri for its platform and uploads the installer directly to
   # the GitHub Release (draft). This avoids storing 3 × ~200 MB in Actions artifact
   # storage, which would exceed the 500 MB free-tier quota.
+  #
+  # Two trigger modes:
+  #  A) Normal tag push — needs build-openclaw (which ran in this same workflow)
+  #  B) workflow_dispatch with openclaw_run_id — skips build-openclaw entirely,
+  #     downloads the OpenClaw artifact from the specified prior run ID
   build:
     name: build-${{ matrix.name }}
-    if: ${{ github.event.inputs.release_only != 'true' }}
+    if: |
+      github.event.inputs.release_only != 'true' &&
+      github.event.inputs.build_openclaw_only != 'true' &&
+      (needs.build-openclaw.result == 'success' || needs.build-openclaw.result == 'skipped')
     needs: build-openclaw
     runs-on: ${{ matrix.runs_on }}
     timeout-minutes: 90
@@ -193,6 +211,8 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
+      # If openclaw_run_id is provided, download from that prior run (skips rebuild).
+      # Otherwise download from the current run (built by build-openclaw above).
       - name: Download OpenClaw build output
         id: download-openclaw
         uses: actions/download-artifact@v4
@@ -200,6 +220,7 @@ jobs:
         with:
           name: openclaw-build
           path: .
+          run-id: ${{ github.event.inputs.openclaw_run_id || github.run_id }}
 
       - name: Build OpenClaw locally (artifact fallback)
         if: steps.download-openclaw.outcome == 'failure'
@@ -247,8 +268,9 @@ jobs:
   release:
     name: publish-release
     if: |
-      startsWith(github.ref, 'refs/tags/') ||
-      github.event.inputs.release_only == 'true'
+      (startsWith(github.ref, 'refs/tags/') || github.event.inputs.release_only == 'true') &&
+      github.event.inputs.build_openclaw_only != 'true' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
     needs: build
     runs-on: ubuntu-latest
 
