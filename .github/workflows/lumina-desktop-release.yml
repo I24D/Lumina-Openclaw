@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_only:
-        description: "Re-run only the release step (skip re-building). Requires artifacts from a previous run."
+        description: "Re-run only the release step (skip re-building). Downloads assets already on the release."
         type: boolean
         default: false
       platform:
@@ -34,24 +34,19 @@ env:
   LUMINA_REQUIRE_AUTH: "false"
   LUMINA_EMBED_RUNTIME_SECRETS: "false"
   LUMINA_REMOTE_BRAIN_ENABLED: "false"
-  # OpenClaw is built in the dedicated build-openclaw job; tell prepare-desktop-bundle.ts to skip it
   LUMINA_SKIP_OPENCLAW_BUILD: "1"
   LUMINA_SKIP_OPENCLAW_UI_BUILD: "1"
-  # Required: tells build.rs to embed runtime resources into the Tauri bundle
   LUMINA_TAURI_EMBED_RESOURCES: "1"
   CSC_IDENTITY_AUTO_DISCOVERY: "false"
-  # Fast gzip (level 1) — speeds up tar.gz archiving of the runtime bundle
   GZIP: "-1"
-  # Incremental Rust compilation — cuts 40–70% off Rust build time after first run
   CARGO_INCREMENTAL: "1"
-  # Keep Cargo output clean in CI
   CARGO_TERM_COLOR: "always"
 
-# ── Job 1: Build OpenClaw once on Linux, share artifact with all platform jobs ─
-# OpenClaw output (dist/, openclaw.mjs, assets/) is pure JS/CSS — platform-agnostic.
-# Building it 3× (one per platform) wasted 5–10 min per platform run.
-# Now: 1 build on ubuntu → artifact → 3 platform jobs download it.
 jobs:
+  # ── Job 1: Build OpenClaw + create draft release ───────────────────────────────
+  # OpenClaw output is pure JS/CSS — platform-agnostic.
+  # Uploaded as a small artifact (~50 MB) shared by the 3 platform jobs.
+  # Also creates the draft GitHub Release so platform jobs can upload assets to it.
   build-openclaw:
     name: build-openclaw
     if: ${{ github.event.inputs.release_only != 'true' }}
@@ -71,17 +66,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-
-      # Cache Open_PC node_modules keyed on its own lockfile.
-      # Lives only in this job — platform jobs no longer need to install Open_PC deps.
-      - name: Cache OpenClaw node_modules
-        uses: actions/cache@v4
-        with:
-          path: Open_PC/node_modules
-          key: openclaw-node-Linux-${{ hashFiles('Open_PC/pnpm-lock.yaml', 'Open_PC/package.json') }}
-          restore-keys: |
-            openclaw-node-Linux-
 
       - name: Install Open_PC dependencies
         working-directory: Open_PC
@@ -92,9 +76,9 @@ jobs:
           echo "=== Disk space before OpenClaw build ==="
           df -h
           AVAIL_KB=$(df --output=avail / | tail -1 | tr -d ' ')
-          REQUIRED_KB=5242880   # 5 GB minimum
+          REQUIRED_KB=5242880
           if [ "$AVAIL_KB" -lt "$REQUIRED_KB" ]; then
-            echo "::error::Insufficient disk space: ${AVAIL_KB}KB available, ${REQUIRED_KB}KB required."
+            echo "::error::Insufficient disk space: ${AVAIL_KB}KB available."
             exit 1
           fi
           echo "Disk OK: ${AVAIL_KB}KB available."
@@ -107,12 +91,11 @@ jobs:
         working-directory: Open_PC
         run: pnpm ui:build
 
-      # Upload built output as a shared artifact.
-      # Platform jobs download this instead of re-running the build.
-      # retention-days: 1 — only needs to survive until the 3 platform jobs complete.
+      # Only the OpenClaw artifact is stored in Actions storage (~50 MB, well within free quota).
+      # Platform installers bypass artifact storage entirely — they upload directly to the Release.
       - name: Upload OpenClaw build output
         uses: actions/upload-artifact@v4
-        continue-on-error: true   # quota exhaustion must not block platform jobs
+        continue-on-error: true
         with:
           name: openclaw-build
           path: |
@@ -124,7 +107,22 @@ jobs:
           retention-days: 1
           overwrite: true
 
-  # ── Job 2: Platform builds — depend on the shared OpenClaw artifact ───────────
+      # Create the draft release NOW so platform jobs can upload assets to it in parallel.
+      # Uses || true so a duplicate-tag error on re-runs doesn't fail the job.
+      - name: Create draft GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "Lumina Desktop ${{ github.ref_name }}" \
+            --draft \
+            --notes "Assembling release assets…" || true
+
+  # ── Job 2: Platform builds ─────────────────────────────────────────────────────
+  # Each job compiles Tauri for its platform and uploads the installer directly to
+  # the GitHub Release (draft). This avoids storing 3 × ~200 MB in Actions artifact
+  # storage, which would exceed the 500 MB free-tier quota.
   build:
     name: build-${{ matrix.name }}
     if: ${{ github.event.inputs.release_only != 'true' }}
@@ -132,28 +130,23 @@ jobs:
     runs-on: ${{ matrix.runs_on }}
     timeout-minutes: 90
     strategy:
-      fail-fast: false   # ← a macOS failure does NOT cancel Linux/Windows
+      fail-fast: false
       matrix:
         include:
           - name: windows
             runs_on: windows-latest
             script: desktop:dist:win:ci
-            artifact_glob: apps/lumina-desktop/release/*
           - name: macos
             runs_on: macos-latest
             script: desktop:dist:mac:ci
-            artifact_glob: apps/lumina-desktop/release/*
           - name: linux
             runs_on: ubuntu-latest
             script: desktop:dist:linux:ci
-            artifact_glob: apps/lumina-desktop/release/*
 
     steps:
-      # ── 1. Source ─────────────────────────────────────────────────────────────
       - name: Check out repository
         uses: actions/checkout@v4
 
-      # ── 2. Toolchain setup ────────────────────────────────────────────────────
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -163,7 +156,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm   # caches the workspace pnpm store keyed on pnpm-lock.yaml
 
       - name: Install Linux system dependencies (Tauri 2.x)
         if: runner.os == 'Linux'
@@ -183,9 +175,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      # ── 3. Aggressive Rust caching ────────────────────────────────────────────
-      # Caches ~/.cargo/registry, ~/.cargo/git, and compiled target/ dirs.
-      # shared-key ensures the same cache is reused across tags of the same branch.
+      # Rust cache disabled (save-if: false) to prevent the ~500 MB/platform Rust
+      # cache from consuming the Actions cache quota on every tag build.
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
@@ -193,34 +184,23 @@ jobs:
             rust/lumina-bootstrapper -> target
             apps/lumina-desktop/src-tauri -> target
           shared-key: "lumina-rust-${{ runner.os }}"
-          cache-on-failure: false   # don't persist on failure — avoids quota accumulation
-          save-if: ${{ github.ref_type == 'tag' }}   # only save cache on tag builds
+          cache-on-failure: false
+          save-if: "false"
 
-      # ── 4. Pre-flight validation (FAST — runs before any compilation) ─────────
       - name: "Pre-flight: validate source layout"
         run: node --experimental-strip-types scripts/preflight-check.ts --mode=source
 
-      # ── 5. Install workspace dependencies ─────────────────────────────────────
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
-      # ── 6. Restore pre-built OpenClaw artifact (built once in build-openclaw) ──
-      # No need to run pnpm build:docker or ui:build here — the output is already
-      # compiled and platform-agnostic. Saves 5–10 min per platform job.
-      #
-      # IMPORTANT: path must be "." (workspace root), NOT "Open_PC".
-      # The artifact was uploaded with paths like "Open_PC/dist/...", so extracting
-      # to "." restores them to "Open_PC/dist/...". Extracting to "Open_PC" would
-      # produce "Open_PC/Open_PC/dist/..." which breaks prepare-desktop-bundle.ts.
       - name: Download OpenClaw build output
         id: download-openclaw
         uses: actions/download-artifact@v4
-        continue-on-error: true   # fallback to local build if artifact unavailable
+        continue-on-error: true
         with:
           name: openclaw-build
           path: .
 
-      # Fallback: build OpenClaw locally if artifact wasn't available
       - name: Build OpenClaw locally (artifact fallback)
         if: steps.download-openclaw.outcome == 'failure'
         run: |
@@ -229,40 +209,41 @@ jobs:
           pnpm build:docker
           pnpm ui:build
 
-      # ── 7. Pre-flight: validate bundle inputs BEFORE Tauri compiles ──────────
-      # Fails fast if openclaw-package, ui, or proxy are missing.
       - name: "Pre-flight: validate bundle inputs"
         run: node --experimental-strip-types scripts/preflight-check.ts --mode=bundle-inputs
 
-      # ── 8. Build Rust bootstrapper ────────────────────────────────────────────
       - name: Build Rust bootstrapper
         run: pnpm desktop:bootstrapper:build
 
-      # ── 9. Build Desktop (Tauri) + stage release artifacts ───────────────────
       - name: Build desktop package
         env:
           LUMINA_GITHUB_OWNER: ${{ github.repository_owner }}
           LUMINA_GITHUB_REPO: ${{ github.event.repository.name }}
         run: pnpm ${{ matrix.script }}
 
-      # ── 10. Post-build disk check (Linux only) ────────────────────────────────
-      - name: "Post-build: disk space after archiving (Linux)"
+      - name: "Post-build: disk space (Linux)"
         if: runner.os == 'Linux'
         run: df -h
 
-      # ── 11. Upload platform artifacts ─────────────────────────────────────────
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: lumina-desktop-${{ matrix.name }}
-          path: ${{ matrix.artifact_glob }}
-          if-no-files-found: error
-          retention-days: 1
-          overwrite: true
+      # Upload directly to the GitHub Release — no Actions artifact storage used.
+      # Release assets are stored separately and do not count against the 500 MB quota.
+      - name: Upload release assets to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          cd apps/lumina-desktop/release
+          for f in *; do
+            if [ -f "$f" ]; then
+              echo "Uploading: $f"
+              gh release upload "${{ github.ref_name }}" "$f" --clobber
+            fi
+          done
 
-  # ── Job 3: Release — runs only when at least one build succeeded ──────────────
-  # On tag push: waits for all 3 platform builds.
-  # On workflow_dispatch with release_only=true: downloads artifacts from a previous run.
+  # ── Job 3: Finalize release ─────────────────────────────────────────────────────
+  # Downloads all assets already uploaded to the draft release, generates release
+  # notes, then publishes the release. No artifact storage used.
   release:
     name: publish-release
     if: |
@@ -280,23 +261,28 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # Download artifacts from the current run (or fail if they are missing).
-      # When release_only=true this pulls the most recently uploaded artifacts.
-      - name: Download workflow artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-artifacts
-          pattern: lumina-desktop-*
-          merge-multiple: false
+      # Download assets from the release itself (not from Actions artifacts).
+      - name: Download release assets for release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p release-artifacts/lumina-desktop-all
+          gh release download "${{ github.ref_name }}" \
+            --dir release-artifacts/lumina-desktop-all
 
-      - name: List downloaded artifacts
+      - name: List downloaded assets
         run: find release-artifacts -type f | sort
 
       - name: Render GitHub release notes
-        run: node --experimental-strip-types scripts/render-github-release-notes.ts --artifacts-root release-artifacts --output github-release-notes.md
+        run: |
+          node --experimental-strip-types scripts/render-github-release-notes.ts \
+            --artifacts-root release-artifacts \
+            --output github-release-notes.md
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release-artifacts/**/*
-          body_path: github-release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ github.ref_name }}" \
+            --draft=false \
+            --notes-file github-release-notes.md
