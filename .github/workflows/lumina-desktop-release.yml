@@ -36,6 +36,7 @@ env:
   GZIP: "-1"
   CARGO_INCREMENTAL: "1"
   CARGO_TERM_COLOR: "always"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   # ── 1 of 5 ────────────────────────────────────────────────────────────────────
@@ -103,7 +104,8 @@ jobs:
             Open_PC/dist \
             Open_PC/openclaw.mjs \
             Open_PC/assets \
-            Open_PC/skills
+            Open_PC/skills \
+            Open_PC/pnpm-lock.yaml
           gh release upload "${{ github.ref_name }}" openclaw-build.tar.gz --clobber
 
   # ── 2 of 5 ────────────────────────────────────────────────────────────────────
