@@ -286,10 +286,15 @@ function parseArgs(argv: string[]) {
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
     if (!token.startsWith("--")) continue;
-    const key = token.slice(2);
+    const stripped = token.slice(2);
+    const eqIdx = stripped.indexOf("=");
+    if (eqIdx !== -1) {
+      args.set(stripped.slice(0, eqIdx), stripped.slice(eqIdx + 1));
+      continue;
+    }
     const next = argv[i + 1];
-    if (!next || next.startsWith("--")) { args.set(key, "true"); continue; }
-    args.set(key, next);
+    if (!next || next.startsWith("--")) { args.set(stripped, "true"); continue; }
+    args.set(stripped, next);
     i++;
   }
   return args;
