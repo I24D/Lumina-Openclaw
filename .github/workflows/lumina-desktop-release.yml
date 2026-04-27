@@ -3,22 +3,10 @@ name: lumina-desktop-release
 on:
   workflow_dispatch:
     inputs:
-      build_openclaw_only:
-        description: "STEP 1 — Build OpenClaw only. Run this first, fix any errors, then use the run ID for step 2."
-        type: boolean
-        default: false
-      openclaw_run_id:
-        description: "STEP 2 — Run ID from a successful 'build_openclaw_only' run (skip OpenClaw rebuild)."
-        type: string
-        default: ""
       release_only:
-        description: "Re-run only the release step. Downloads assets already on the release."
+        description: "Re-run only the publish-release step. Assets must already be on the draft release."
         type: boolean
         default: false
-      platform:
-        description: "Build only one platform (leave blank = all). Options: windows | macos | linux"
-        type: string
-        default: ""
   push:
     tags:
       - "lumina-desktop-v*"
@@ -26,7 +14,6 @@ on:
 permissions:
   contents: write
 
-# ── Global env shared across all jobs ─────────────────────────────────────────
 env:
   NODE_VERSION: "24.13.1"
   PNPM_VERSION: "10.33.0"
@@ -51,29 +38,21 @@ env:
   CARGO_TERM_COLOR: "always"
 
 jobs:
-  # ── Job 1: Build OpenClaw + create draft release ───────────────────────────────
-  # Skipped when openclaw_run_id is provided (reuse artifact from a prior run).
-  # Set build_openclaw_only=true to run ONLY this job, verify it works, then
-  # pass its run ID to the next dispatch as openclaw_run_id.
+  # ── 1 of 5 ────────────────────────────────────────────────────────────────────
   build-openclaw:
-    name: build-openclaw
-    if: |
-      github.event.inputs.release_only != 'true' &&
-      github.event.inputs.openclaw_run_id == ''
+    name: "1/5 build-openclaw"
+    if: ${{ github.event.inputs.release_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -81,17 +60,14 @@ jobs:
         working-directory: Open_PC
         run: pnpm install --no-frozen-lockfile
 
-      - name: "Pre-flight: check disk space"
+      - name: "Pre-flight: disk space"
         run: |
-          echo "=== Disk space before OpenClaw build ==="
           df -h
           AVAIL_KB=$(df --output=avail / | tail -1 | tr -d ' ')
-          REQUIRED_KB=5242880
-          if [ "$AVAIL_KB" -lt "$REQUIRED_KB" ]; then
-            echo "::error::Insufficient disk space: ${AVAIL_KB}KB available."
+          if [ "$AVAIL_KB" -lt 5242880 ]; then
+            echo "::error::Less than 5 GB free."
             exit 1
           fi
-          echo "Disk OK: ${AVAIL_KB}KB available."
 
       - name: Build OpenClaw runtime
         working-directory: Open_PC
@@ -101,11 +77,10 @@ jobs:
         working-directory: Open_PC
         run: pnpm ui:build
 
-      # Only the OpenClaw artifact is stored in Actions storage (~50 MB, well within free quota).
-      # Platform installers bypass artifact storage entirely — they upload directly to the Release.
-      - name: Upload OpenClaw build output
+      # Small artifact (~50 MB) — well within the 500 MB Actions quota.
+      # Platform jobs download this instead of rebuilding OpenClaw.
+      - name: Upload OpenClaw artifact
         uses: actions/upload-artifact@v4
-        continue-on-error: true
         with:
           name: openclaw-build
           path: |
@@ -114,13 +89,12 @@ jobs:
             Open_PC/assets
             Open_PC/skills
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 3
           overwrite: true
 
-      # Create the draft release NOW so platform jobs can upload assets to it in parallel.
-      # Skipped when build_openclaw_only=true — the user will trigger the full release separately.
+      # Draft release created here so platform jobs can upload assets to it directly.
       - name: Create draft GitHub release
-        if: startsWith(github.ref, 'refs/tags/') && github.event.inputs.build_openclaw_only != 'true'
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -129,54 +103,158 @@ jobs:
             --draft \
             --notes "Assembling release assets…" || true
 
-  # ── Job 2: Platform builds ─────────────────────────────────────────────────────
-  # Each job compiles Tauri for its platform and uploads the installer directly to
-  # the GitHub Release (draft). This avoids storing 3 × ~200 MB in Actions artifact
-  # storage, which would exceed the 500 MB free-tier quota.
-  #
-  # Two trigger modes:
-  #  A) Normal tag push — needs build-openclaw (which ran in this same workflow)
-  #  B) workflow_dispatch with openclaw_run_id — skips build-openclaw entirely,
-  #     downloads the OpenClaw artifact from the specified prior run ID
-  build:
-    name: build-${{ matrix.name }}
-    if: |
-      github.event.inputs.release_only != 'true' &&
-      github.event.inputs.build_openclaw_only != 'true' &&
-      (needs.build-openclaw.result == 'success' || needs.build-openclaw.result == 'skipped')
+  # ── 2 of 5 ────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: "2/5 build-windows"
+    if: ${{ github.event.inputs.release_only != 'true' }}
     needs: build-openclaw
-    runs-on: ${{ matrix.runs_on }}
+    runs-on: windows-latest
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: windows
-            runs_on: windows-latest
-            script: desktop:dist:win:ci
-          - name: macos
-            runs_on: macos-latest
-            script: desktop:dist:mac:ci
-          - name: linux
-            runs_on: ubuntu-latest
-            script: desktop:dist:linux:ci
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust/lumina-bootstrapper -> target
+            apps/lumina-desktop/src-tauri -> target
+          shared-key: "lumina-rust-windows"
+          cache-on-failure: false
+          save-if: "false"
+
+      - name: "Pre-flight: source layout"
+        run: node --experimental-strip-types scripts/preflight-check.ts --mode=source
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download OpenClaw artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: openclaw-build
+          path: .
+
+      - name: "Pre-flight: bundle inputs"
+        run: node --experimental-strip-types scripts/preflight-check.ts --mode=bundle-inputs
+
+      - name: Build Rust bootstrapper
+        run: pnpm desktop:bootstrapper:build
+
+      - name: Build desktop (Windows)
+        env:
+          LUMINA_GITHUB_OWNER: ${{ github.repository_owner }}
+          LUMINA_GITHUB_REPO: ${{ github.event.repository.name }}
+        run: pnpm desktop:dist:win:ci
+
+      - name: Upload Windows assets to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          cd apps/lumina-desktop/release
+          for f in *; do
+            [ -f "$f" ] && gh release upload "${{ github.ref_name }}" "$f" --clobber
+          done
+
+  # ── 3 of 5 ────────────────────────────────────────────────────────────────────
+  build-macos:
+    name: "3/5 build-macos"
+    if: ${{ github.event.inputs.release_only != 'true' }}
+    needs: build-windows
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust/lumina-bootstrapper -> target
+            apps/lumina-desktop/src-tauri -> target
+          shared-key: "lumina-rust-macos"
+          cache-on-failure: false
+          save-if: "false"
+
+      - name: "Pre-flight: source layout"
+        run: node --experimental-strip-types scripts/preflight-check.ts --mode=source
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download OpenClaw artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: openclaw-build
+          path: .
+
+      - name: "Pre-flight: bundle inputs"
+        run: node --experimental-strip-types scripts/preflight-check.ts --mode=bundle-inputs
+
+      - name: Build Rust bootstrapper
+        run: pnpm desktop:bootstrapper:build
+
+      - name: Build desktop (macOS)
+        env:
+          LUMINA_GITHUB_OWNER: ${{ github.repository_owner }}
+          LUMINA_GITHUB_REPO: ${{ github.event.repository.name }}
+        run: pnpm desktop:dist:mac:ci
+
+      - name: Upload macOS assets to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          cd apps/lumina-desktop/release
+          for f in *; do
+            [ -f "$f" ] && gh release upload "${{ github.ref_name }}" "$f" --clobber
+          done
+
+  # ── 4 of 5 ────────────────────────────────────────────────────────────────────
+  build-linux:
+    name: "4/5 build-linux"
+    if: ${{ github.event.inputs.release_only != 'true' }}
+    needs: build-macos
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install Linux system dependencies (Tauri 2.x)
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
@@ -190,65 +268,46 @@ jobs:
             libxdo-dev \
             libglib2.0-dev
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
 
-      # Rust cache disabled (save-if: false) to prevent the ~500 MB/platform Rust
-      # cache from consuming the Actions cache quota on every tag build.
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             rust/lumina-bootstrapper -> target
             apps/lumina-desktop/src-tauri -> target
-          shared-key: "lumina-rust-${{ runner.os }}"
+          shared-key: "lumina-rust-linux"
           cache-on-failure: false
           save-if: "false"
 
-      - name: "Pre-flight: validate source layout"
+      - name: "Pre-flight: source layout"
         run: node --experimental-strip-types scripts/preflight-check.ts --mode=source
 
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
-      # If openclaw_run_id is provided, download from that prior run (skips rebuild).
-      # Otherwise download from the current run (built by build-openclaw above).
-      - name: Download OpenClaw build output
-        id: download-openclaw
+      - name: Download OpenClaw artifact
         uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
           name: openclaw-build
           path: .
-          run-id: ${{ github.event.inputs.openclaw_run_id || github.run_id }}
 
-      - name: Build OpenClaw locally (artifact fallback)
-        if: steps.download-openclaw.outcome == 'failure'
-        run: |
-          cd Open_PC
-          pnpm install --no-frozen-lockfile
-          pnpm build:docker
-          pnpm ui:build
-
-      - name: "Pre-flight: validate bundle inputs"
+      - name: "Pre-flight: bundle inputs"
         run: node --experimental-strip-types scripts/preflight-check.ts --mode=bundle-inputs
 
       - name: Build Rust bootstrapper
         run: pnpm desktop:bootstrapper:build
 
-      - name: Build desktop package
+      - name: Build desktop (Linux)
         env:
           LUMINA_GITHUB_OWNER: ${{ github.repository_owner }}
           LUMINA_GITHUB_REPO: ${{ github.event.repository.name }}
-        run: pnpm ${{ matrix.script }}
+        run: pnpm desktop:dist:linux:ci
 
-      - name: "Post-build: disk space (Linux)"
-        if: runner.os == 'Linux'
+      - name: "Post-build: disk space"
         run: df -h
 
-      # Upload directly to the GitHub Release — no Actions artifact storage used.
-      # Release assets are stored separately and do not count against the 500 MB quota.
-      - name: Upload release assets to GitHub Release
+      - name: Upload Linux assets to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -256,35 +315,26 @@ jobs:
         run: |
           cd apps/lumina-desktop/release
           for f in *; do
-            if [ -f "$f" ]; then
-              echo "Uploading: $f"
-              gh release upload "${{ github.ref_name }}" "$f" --clobber
-            fi
+            [ -f "$f" ] && gh release upload "${{ github.ref_name }}" "$f" --clobber
           done
 
-  # ── Job 3: Finalize release ─────────────────────────────────────────────────────
-  # Downloads all assets already uploaded to the draft release, generates release
-  # notes, then publishes the release. No artifact storage used.
-  release:
-    name: publish-release
+  # ── 5 of 5 ────────────────────────────────────────────────────────────────────
+  publish-release:
+    name: "5/5 publish-release"
     if: |
-      (startsWith(github.ref, 'refs/tags/') || github.event.inputs.release_only == 'true') &&
-      github.event.inputs.build_openclaw_only != 'true' &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped')
-    needs: build
+      startsWith(github.ref, 'refs/tags/') ||
+      github.event.inputs.release_only == 'true'
+    needs: build-linux
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # Download assets from the release itself (not from Actions artifacts).
-      - name: Download release assets for release notes
+      - name: Download release assets for notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -292,16 +342,16 @@ jobs:
           gh release download "${{ github.ref_name }}" \
             --dir release-artifacts/lumina-desktop-all
 
-      - name: List downloaded assets
+      - name: List release assets
         run: find release-artifacts -type f | sort
 
-      - name: Render GitHub release notes
+      - name: Render release notes
         run: |
           node --experimental-strip-types scripts/render-github-release-notes.ts \
             --artifacts-root release-artifacts \
             --output github-release-notes.md
 
-      - name: Publish GitHub release
+      - name: Publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
