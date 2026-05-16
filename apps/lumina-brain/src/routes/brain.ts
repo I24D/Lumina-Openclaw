@@ -105,7 +105,11 @@ brainRouter.post("/turn", async (req: Request, res: Response) => {
   }
 
   // Use Lumina user_id for memory isolation; fall back to session_id
-  const luminaUserId = user?.user_id ?? session_id;
+  const metadataUserId =
+    typeof turnReq.metadata?.user_id === "string" && turnReq.metadata.user_id.trim()
+      ? turnReq.metadata.user_id.trim()
+      : undefined;
+  const luminaUserId = user?.user_id ?? metadataUserId ?? session_id;
 
   let content: string;
   try {

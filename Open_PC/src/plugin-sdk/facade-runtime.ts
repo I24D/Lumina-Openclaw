@@ -26,11 +26,6 @@ import {
   shouldPreferNativeJiti,
 } from "../plugins/sdk-alias.js";
 
-const OPENCLAW_PACKAGE_ROOT =
-  resolveLoaderPackageRoot({
-    modulePath: fileURLToPath(import.meta.url),
-    moduleUrl: import.meta.url,
-  }) ?? fileURLToPath(new URL("../..", import.meta.url));
 const CURRENT_MODULE_PATH = fileURLToPath(import.meta.url);
 const PUBLIC_SURFACE_SOURCE_EXTENSIONS = [".ts", ".mts", ".js", ".mjs", ".cts", ".cjs"] as const;
 const ALWAYS_ALLOWED_RUNTIME_DIR_NAMES = new Set([
@@ -52,6 +47,16 @@ let cachedBoundaryResolvedConfig:
       autoEnabledReasons: Record<string, string[]>;
     }
   | undefined;
+let cachedOpenClawPackageRoot: string | undefined;
+
+function getOpenClawPackageRoot(): string {
+  cachedOpenClawPackageRoot ??=
+    resolveLoaderPackageRoot({
+      modulePath: fileURLToPath(import.meta.url),
+      moduleUrl: import.meta.url,
+    }) ?? fileURLToPath(new URL("../..", import.meta.url));
+  return cachedOpenClawPackageRoot;
+}
 
 function resolveSourceFirstPublicSurfacePath(params: {
   bundledPluginsDir?: string;
@@ -59,7 +64,8 @@ function resolveSourceFirstPublicSurfacePath(params: {
   artifactBasename: string;
 }): string | null {
   const sourceBaseName = params.artifactBasename.replace(/\.js$/u, "");
-  const sourceRoot = params.bundledPluginsDir ?? path.resolve(OPENCLAW_PACKAGE_ROOT, "extensions");
+  const sourceRoot =
+    params.bundledPluginsDir ?? path.resolve(getOpenClawPackageRoot(), "extensions");
   for (const ext of PUBLIC_SURFACE_SOURCE_EXTENSIONS) {
     const candidate = path.resolve(sourceRoot, params.dirName, `${sourceBaseName}${ext}`);
     if (fs.existsSync(candidate)) {
@@ -83,7 +89,7 @@ function resolveFacadeModuleLocation(params: {
       }) ??
       resolveSourceFirstPublicSurfacePath(params) ??
       resolveBundledPluginPublicSurfacePath({
-        rootDir: OPENCLAW_PACKAGE_ROOT,
+        rootDir: getOpenClawPackageRoot(),
         ...(bundledPluginsDir ? { bundledPluginsDir } : {}),
         dirName: params.dirName,
         artifactBasename: params.artifactBasename,
@@ -96,11 +102,11 @@ function resolveFacadeModuleLocation(params: {
       boundaryRoot:
         bundledPluginsDir && modulePath.startsWith(path.resolve(bundledPluginsDir) + path.sep)
           ? path.resolve(bundledPluginsDir)
-          : OPENCLAW_PACKAGE_ROOT,
+          : getOpenClawPackageRoot(),
     };
   }
   const modulePath = resolveBundledPluginPublicSurfacePath({
-    rootDir: OPENCLAW_PACKAGE_ROOT,
+    rootDir: getOpenClawPackageRoot(),
     ...(bundledPluginsDir ? { bundledPluginsDir } : {}),
     dirName: params.dirName,
     artifactBasename: params.artifactBasename,
@@ -113,7 +119,7 @@ function resolveFacadeModuleLocation(params: {
     boundaryRoot:
       bundledPluginsDir && modulePath.startsWith(path.resolve(bundledPluginsDir) + path.sep)
         ? path.resolve(bundledPluginsDir)
-        : OPENCLAW_PACKAGE_ROOT,
+        : getOpenClawPackageRoot(),
   };
 }
 
@@ -323,7 +329,7 @@ export function loadBundledPluginPublicSurfaceModuleSync<T extends object>(param
     absolutePath: location.modulePath,
     rootPath: location.boundaryRoot,
     boundaryLabel:
-      location.boundaryRoot === OPENCLAW_PACKAGE_ROOT
+      location.boundaryRoot === getOpenClawPackageRoot()
         ? "OpenClaw package root"
         : "bundled plugin directory",
     rejectHardlinks: false,

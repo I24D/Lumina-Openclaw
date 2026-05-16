@@ -47,6 +47,9 @@ function shouldBypassConfigGuard(commandPath: string[]): boolean {
   if (!primary) {
     return false;
   }
+  if (primary === "gateway" && secondary === "run") {
+    return true;
+  }
   if (CONFIG_GUARD_BYPASS_COMMANDS.has(primary)) {
     return true;
   }

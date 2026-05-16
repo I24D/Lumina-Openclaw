@@ -20,7 +20,7 @@ healthRouter.get("/", (_req: import("express").Request, res: import("express").R
     uptime_seconds: Math.floor((Date.now() - START_TIME) / 1000),
     active_sessions: sessionStore.count(),
     llm_provider: process.env.BRAIN_LLM_PROVIDER ?? "anthropic",
-    llm_model:    process.env.BRAIN_LLM_MODEL    ?? "claude-sonnet-4-6",
+    llm_model:    process.env.BRAIN_LLM_MODEL    ?? "claude-opus-4-7",
     timestamp: new Date().toISOString(),
   });
 });

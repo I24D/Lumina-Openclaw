@@ -32,7 +32,15 @@ export async function callLuminaCore(message: string, userId: string): Promise<s
         "Content-Type":        "application/json",
         "x-lumina-brain-key":  LUMINA_BRAIN_SECRET,
       },
-      body:   JSON.stringify({ message, userId }),
+      body:   JSON.stringify({
+        message,
+        userId,
+        channel: "openclaw",
+        context: {
+          client: "lumina-openclaw",
+          source: "lumina-brain",
+        },
+      }),
       signal: controller.signal,
     });
   } catch (err) {

@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
   buildReleaseManifestFileName,
   computeFileByteSize,
+  computeDirectoryDigest,
   computeFileSha256,
   createBundleEntry,
   validateBundleManifest,
@@ -212,6 +214,35 @@ test("validateBundleManifest accepts the canonical desktop runtime contract", ()
   withTempDir((tempDir) => {
     const manifest = buildValidBundleManifest(tempDir);
     assert.equal(validateBundleManifest(manifest), manifest);
+  });
+});
+
+test("computeDirectoryDigest uses stable lexicographic path ordering", () => {
+  withTempDir((tempDir) => {
+    fs.writeFileSync(path.join(tempDir, "a.txt"), "a\n", "utf8");
+    fs.writeFileSync(path.join(tempDir, "B.txt"), "b\n", "utf8");
+    fs.writeFileSync(path.join(tempDir, "+plus.txt"), "plus\n", "utf8");
+
+    const digest = computeDirectoryDigest(tempDir);
+    const orderedFiles = ["+plus.txt", "B.txt", "a.txt"].map((relativePath) => ({
+      relativePath,
+      byteSize: fs.statSync(path.join(tempDir, relativePath)).size,
+    }));
+    const expected = crypto.createHash("sha256");
+    for (const file of orderedFiles) {
+      expected.update("file\0");
+      expected.update(file.relativePath);
+      expected.update("\0");
+      expected.update(String(file.byteSize));
+      expected.update("\0");
+    }
+
+    assert.equal(digest.fileCount, orderedFiles.length);
+    assert.equal(
+      digest.byteSize,
+      orderedFiles.reduce((total, file) => total + file.byteSize, 0),
+    );
+    assert.equal(digest.sha256, expected.digest("hex"));
   });
 });
 

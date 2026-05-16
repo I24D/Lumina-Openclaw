@@ -4,7 +4,7 @@ import type { Command } from "commander";
 import { findBundledPluginSource } from "../plugins/bundled-sources.js";
 import { loadPluginManifest } from "../plugins/manifest.js";
 import { resolveUserPath } from "../utils.js";
-import { resolveFileNpmSpecToLocalPath } from "./plugins-command-helpers.js";
+import { resolveFileNpmSpecToLocalPath } from "./file-npm-spec.js";
 
 export type PluginInstallInvalidConfigPolicy = "deny" | "allow-bundled-recovery";
 

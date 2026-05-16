@@ -29,6 +29,7 @@ import { createWatcherService } from "./src/services/watcher.js";
 type LuminaConfig = {
   enabled?: boolean;
   shellApprovalRequired?: boolean;
+  heartbeatEnabled?: boolean;
   heartbeatIntervalMs?: number;
   screenshotDir?: string;
   watchedPaths?: string[];
@@ -48,6 +49,7 @@ export default definePluginEntry({
     const cfg: Required<LuminaConfig> = {
       enabled: raw.enabled ?? true,
       shellApprovalRequired: raw.shellApprovalRequired ?? true,
+      heartbeatEnabled: raw.heartbeatEnabled ?? true,
       heartbeatIntervalMs: raw.heartbeatIntervalMs ?? 30_000,
       screenshotDir: raw.screenshotDir ?? "",
       watchedPaths: raw.watchedPaths ?? [],
@@ -86,12 +88,14 @@ export default definePluginEntry({
 
     // ── BACKGROUND SERVICES ───────────────────────────────────────
     // System heartbeat — reports health metrics periodically
-    api.registerService(
-      createHeartbeatService({
-        enabled: cfg.enabled,
-        intervalMs: cfg.heartbeatIntervalMs,
-      }),
-    );
+    if (cfg.heartbeatEnabled) {
+      api.registerService(
+        createHeartbeatService({
+          enabled: cfg.enabled,
+          intervalMs: cfg.heartbeatIntervalMs,
+        }),
+      );
+    }
 
     // File-system watcher — notifies I24D of changes in watched paths
     api.registerService(

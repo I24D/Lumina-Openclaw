@@ -20,7 +20,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -28,6 +28,10 @@ const repoRoot = path.resolve(here, "..");
 const openClawRoot = path.join(repoRoot, "Open_PC");
 const desktopRoot = path.join(repoRoot, "apps", "lumina-desktop");
 const toolProxyRoot = path.join(repoRoot, "tool-proxy");
+const workspaceRoot = path.resolve(repoRoot, "..");
+const luminaCodeVsixPath =
+  process.env.LUMINA_CODE_VSIX_PATH ??
+  path.join(workspaceRoot, "src", "lumina-code", "official", "extensions", "vscode", "build", "lumina-code-0.1.0.vsix");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -77,6 +81,37 @@ function checkFileNotEmpty(p: string, label: string) {
   }
   ok(`${label} — ${size} bytes`);
   return true;
+}
+
+function readVsixPackageJson(p: string, label: string) {
+  try {
+    const raw = execFileSync("tar", ["-xOf", p, "extension/package.json"], {
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    return JSON.parse(raw);
+  } catch (err: any) {
+    fail(`Could not read ${label} package.json from VSIX: ${err?.message ?? String(err)}`);
+    return null;
+  }
+}
+
+function checkLuminaCodeVsixManifest(p: string) {
+  if (!fs.existsSync(p)) return;
+  const manifest = readVsixPackageJson(p, "Lumina Code VSIX");
+  if (!manifest) return;
+  const serialized = JSON.stringify(manifest);
+  const forbidden = ["Lumina Studio", "lumina.autonomousTask", "Deploy Changelog"];
+  const foundForbidden = forbidden.filter((needle) => serialized.includes(needle));
+  if (foundForbidden.length > 0) {
+    fail(`Lumina Code VSIX is the experimental Studio build, not the official Continue-based build: ${foundForbidden.join(", ")}`);
+    return;
+  }
+  if (!serialized.includes("continue.continueGUIView")) {
+    fail("Lumina Code VSIX does not expose continue.continueGUIView; refusing to package the wrong extension.");
+    return;
+  }
+  ok("Lumina Code VSIX manifest is official Continue-based build");
 }
 
 function checkJsonParseable(p: string, label: string) {
@@ -163,6 +198,9 @@ function checkSourceLayout() {
   checkExists(path.join(toolProxyRoot, "server.mjs"),        "tool-proxy entry");
   checkExists(path.join(toolProxyRoot, "proxy-config.json"), "tool-proxy config");
   checkJsonParseable(path.join(toolProxyRoot, "proxy-config.json"), "proxy-config.json");
+  if (checkFileNotEmpty(luminaCodeVsixPath, "Lumina Code VSIX")) {
+    checkLuminaCodeVsixManifest(luminaCodeVsixPath);
+  }
 
   // Schemas
   checkExists(

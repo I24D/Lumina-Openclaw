@@ -45,15 +45,19 @@
 
 import http from "node:http";
 import https from "node:https";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 // ── Config loading ────────────────────────────────────────────────────
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const luminaConfigPath = join(os.homedir(), ".lumina", "config.json");
+const luminaHomeDir = join(os.homedir(), ".lumina");
+const luminaConfigPath = join(luminaHomeDir, "config.json");
+const luminaInstallationPath = join(luminaHomeDir, "installation.json");
 const fallbackOpenclawConfigPath = join(os.homedir(), ".openclaw", "openclaw.json");
 
 function loadJson(filePath) {
@@ -80,9 +84,17 @@ const I24D_MODELS_BASE = process.env.I24D_MODELS_BASE
   ?? proxyCfg.i24d?.modelsBase
   ?? "https://i24d-whatsapp-ai.onrender.com";
 
-const I24D_TOKEN       = process.env.I24D_TOKEN
-  ?? luminaCfg.i24dToken
+const I24D_STATIC_TOKEN = process.env.I24D_TOKEN
   ?? proxyCfg.i24d?.token
+  ?? "";
+
+const I24D_DESKTOP_SESSION_URL = process.env.LUMINA_DESKTOP_SESSION_URL
+  ?? luminaCfg.desktopSessionUrl
+  ?? proxyCfg.i24d?.desktopSessionUrl
+  ?? resolveI24DPath("/api/desktop/session");
+
+const I24D_DESKTOP_ACTIVATION_KEY = process.env.LUMINA_DESKTOP_ACTIVATION_KEY
+  ?? proxyCfg.i24d?.desktopActivationKey
   ?? "";
 
 const PROXY_PORT       = parseInt(
@@ -100,7 +112,37 @@ const OPENCLAW_TOKEN   = process.env.OPENCLAW_TOKEN
   ?? openclawCfg.gateway?.auth?.token
   ?? "";
 
-const I24D_TIMEOUT_MS  = parseInt(process.env.I24D_TIMEOUT_MS ?? "45000", 10);
+const I24D_TIMEOUT_MS  = parseInt(process.env.I24D_TIMEOUT_MS ?? "75000", 10);
+const I24D_WARMUP_TIMEOUT_MS = parseInt(process.env.I24D_WARMUP_TIMEOUT_MS ?? "8000", 10);
+const I24D_RETRY_COUNT = Math.max(0, parseInt(process.env.I24D_RETRY_COUNT ?? "2", 10));
+const I24D_KEEPWARM_INTERVAL_MS = Math.max(
+  0,
+  parseInt(process.env.I24D_KEEPWARM_INTERVAL_MS ?? "240000", 10),
+);
+const I24D_DEFAULT_MAX_TOKENS = Math.max(
+  128,
+  parseInt(process.env.I24D_DEFAULT_MAX_TOKENS ?? "1024", 10),
+);
+const I24D_WARMUP_ENABLED = (process.env.I24D_WARMUP_ENABLED ?? "1") !== "0";
+
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 32 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 32 });
+
+const proxyHealth = {
+  startedAt: new Date().toISOString(),
+  i24dAuthMode: String(I24D_STATIC_TOKEN).trim() ? "static" : "desktop-session",
+  i24dConfigured: Boolean(String(I24D_STATIC_TOKEN).trim() || I24D_DESKTOP_SESSION_URL),
+  desktopSession: {
+    url: I24D_DESKTOP_SESSION_URL,
+    expiresAt: null,
+    lastRefreshAt: null,
+    lastError: null,
+  },
+  lastWarmup: null,
+  keepWarmIntervalMs: I24D_KEEPWARM_INTERVAL_MS,
+  lastChat: null,
+  lastError: null,
+};
 
 // ── Tool result cache ─────────────────────────────────────────────────
 
@@ -147,25 +189,48 @@ function setCache(toolName, args, result) {
 
 // ── HTTP helpers ──────────────────────────────────────────────────────
 
-/**
- * POST to a full URL (http or https). Respects I24D_TIMEOUT_MS for I24D calls.
- */
-function postUrl(url, headers, body, timeoutMs = 15_000) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseBody(data) {
+  if (!data) return null;
+  try {
+    return JSON.parse(data);
+  } catch {
+    return data;
+  }
+}
+
+function authHeaders(token) {
+  const trimmed = String(token ?? "").trim();
+  return trimmed ? { Authorization: `Bearer ${trimmed}` } : {};
+}
+
+function requestUrl(url, options = {}) {
   return new Promise((resolve, reject) => {
-    const bodyStr = typeof body === "string" ? body : JSON.stringify(body);
+    const method = options.method ?? "GET";
+    const body = options.body;
+    const bodyStr = body === undefined || body === null
+      ? ""
+      : typeof body === "string"
+        ? body
+        : JSON.stringify(body);
+    const timeoutMs = options.timeoutMs ?? 15_000;
     const parsed  = new URL(url);
     const lib     = parsed.protocol === "https:" ? https : http;
+    const started = Date.now();
 
     const req = lib.request(
       {
         hostname: parsed.hostname,
         port:     parsed.port || (parsed.protocol === "https:" ? 443 : 80),
         path:     parsed.pathname + parsed.search,
-        method:   "POST",
+        method,
+        agent:    parsed.protocol === "https:" ? httpsAgent : httpAgent,
         headers:  {
-          "Content-Type":   "application/json",
-          "Content-Length": Buffer.byteLength(bodyStr),
-          ...headers,
+          ...(bodyStr ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(bodyStr) } : {}),
+          ...(options.headers ?? {}),
         },
         timeout: timeoutMs,
       },
@@ -173,11 +238,12 @@ function postUrl(url, headers, body, timeoutMs = 15_000) {
         let data = "";
         res.on("data", (c) => (data += c));
         res.on("end", () => {
-          try {
-            resolve({ status: res.statusCode, body: JSON.parse(data) });
-          } catch {
-            resolve({ status: res.statusCode, body: data });
-          }
+          resolve({
+            status: res.statusCode,
+            headers: res.headers,
+            body: parseBody(data),
+            durationMs: Date.now() - started,
+          });
         });
       }
     );
@@ -186,9 +252,145 @@ function postUrl(url, headers, body, timeoutMs = 15_000) {
       req.destroy(new Error(`Request timed out after ${timeoutMs}ms`));
     });
     req.on("error", reject);
-    req.write(bodyStr);
+    if (bodyStr) req.write(bodyStr);
     req.end();
   });
+}
+
+/**
+ * POST to a full URL (http or https). Respects the supplied timeout.
+ */
+function postUrl(url, headers, body, timeoutMs = 15_000) {
+  return requestUrl(url, { method: "POST", headers, body, timeoutMs });
+}
+
+function getUrl(url, headers = {}, timeoutMs = 15_000) {
+  return requestUrl(url, { method: "GET", headers, timeoutMs });
+}
+
+function readOrCreateInstallationId() {
+  try {
+    const current = loadJson(luminaInstallationPath);
+    if (typeof current?.installationId === "string" && current.installationId.trim()) {
+      return current.installationId.trim();
+    }
+  } catch {
+    // fall through and create a new non-secret installation id
+  }
+
+  const installationId = crypto.randomUUID
+    ? crypto.randomUUID()
+    : crypto.randomBytes(16).toString("hex");
+  try {
+    fs.mkdirSync(luminaHomeDir, { recursive: true });
+    fs.writeFileSync(
+      luminaInstallationPath,
+      `${JSON.stringify({ installationId, createdAt: new Date().toISOString() }, null, 2)}\n`,
+      "utf8",
+    );
+  } catch {
+    // The id is not secret; if persistence fails, the in-memory id is still safe.
+  }
+  return installationId;
+}
+
+const DESKTOP_INSTALLATION_ID = readOrCreateInstallationId();
+const DESKTOP_DEVICE_HASH = crypto
+  .createHash("sha256")
+  .update([os.hostname(), os.userInfo().username, os.platform(), os.arch()].join("|"))
+  .digest("hex");
+const DESKTOP_APP_VERSION = String(luminaCfg.version ?? proxyCfg.version ?? "1.0.8");
+const SESSION_REFRESH_SKEW_MS = 90_000;
+let desktopSession = {
+  token: "",
+  expiresAtMs: 0,
+  inFlight: null,
+};
+
+function extractBearer(headers = {}) {
+  const auth = String(headers.authorization ?? headers.Authorization ?? "");
+  return auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
+}
+
+function isPlaceholderProviderKey(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return !normalized ||
+    normalized === "dummy" ||
+    normalized === "placeholder" ||
+    normalized === "set-in-settings" ||
+    normalized === "lumina-local-proxy";
+}
+
+async function refreshDesktopSessionToken() {
+  if (!I24D_DESKTOP_SESSION_URL) {
+    throw new Error("Lumina desktop session endpoint is not configured");
+  }
+
+  const headers = I24D_DESKTOP_ACTIVATION_KEY
+    ? { "x-lumina-desktop-key": I24D_DESKTOP_ACTIVATION_KEY }
+    : {};
+  const response = await postUrl(
+    I24D_DESKTOP_SESSION_URL,
+    headers,
+    {
+      installationId: DESKTOP_INSTALLATION_ID,
+      deviceHash: DESKTOP_DEVICE_HASH,
+      appVersion: DESKTOP_APP_VERSION,
+    },
+    15_000,
+  );
+
+  if (response.status !== 200 || !response.body?.token) {
+    const message =
+      typeof response.body === "string"
+        ? response.body.slice(0, 240)
+        : response.body?.error ?? response.body?.message ?? "desktop session request failed";
+    throw new Error(`HTTP ${response.status}: ${message}`);
+  }
+
+  let expiresAtMs = response.body.expiresAt
+    ? Date.parse(response.body.expiresAt)
+    : Date.now() + Math.max(300, Number(response.body.expiresInSeconds ?? 3600)) * 1000;
+  if (!Number.isFinite(expiresAtMs)) {
+    expiresAtMs = Date.now() + 3600 * 1000;
+  }
+  desktopSession = {
+    token: String(response.body.token),
+    expiresAtMs,
+    inFlight: null,
+  };
+  proxyHealth.desktopSession.expiresAt = new Date(expiresAtMs).toISOString();
+  proxyHealth.desktopSession.lastRefreshAt = new Date().toISOString();
+  proxyHealth.desktopSession.lastError = null;
+  return desktopSession.token;
+}
+
+async function getDesktopSessionToken() {
+  if (desktopSession.token && Date.now() + SESSION_REFRESH_SKEW_MS < desktopSession.expiresAtMs) {
+    return desktopSession.token;
+  }
+  if (!desktopSession.inFlight) {
+    desktopSession.inFlight = refreshDesktopSessionToken()
+      .catch((err) => {
+        proxyHealth.desktopSession.lastError = {
+          at: new Date().toISOString(),
+          message: err instanceof Error ? err.message : String(err),
+        };
+        throw err;
+      })
+      .finally(() => {
+        desktopSession.inFlight = null;
+      });
+  }
+  return desktopSession.inFlight;
+}
+
+async function getI24DAuthorizationHeaders() {
+  if (String(I24D_STATIC_TOKEN).trim()) {
+    return authHeaders(I24D_STATIC_TOKEN);
+  }
+  const token = await getDesktopSessionToken();
+  return authHeaders(token);
 }
 
 // ── Invoke a lumina tool via OpenClaw /tools/invoke ───────────────────
@@ -238,17 +440,67 @@ async function callI24D(messages, original) {
   const payload = {
     model:      original.model ?? "I24D",
     messages,
-    max_tokens: original.max_tokens ?? 2048,
+    max_tokens: original.max_tokens ?? I24D_DEFAULT_MAX_TOKENS,
     stream:     false,
   };
   if (original.temperature !== undefined) payload.temperature = original.temperature;
 
-  return postUrl(
-    I24D_URL,
-    { Authorization: `Bearer ${I24D_TOKEN}` },
-    payload,
-    I24D_TIMEOUT_MS
-  );
+  let lastError = null;
+  let lastResponse = null;
+  for (let attempt = 0; attempt <= I24D_RETRY_COUNT; attempt += 1) {
+    try {
+      const response = await postUrl(I24D_URL, await getI24DAuthorizationHeaders(), payload, I24D_TIMEOUT_MS);
+      proxyHealth.lastChat = {
+        at: new Date().toISOString(),
+        status: response.status ?? null,
+        durationMs: response.durationMs ?? null,
+        attempt: attempt + 1,
+      };
+      lastResponse = response;
+      if (!shouldRetryI24D(response.status) || attempt >= I24D_RETRY_COUNT) {
+        if (response.status !== 200) {
+          proxyHealth.lastError = describeI24DError(response);
+        }
+        return response;
+      }
+    } catch (err) {
+      lastError = err;
+      proxyHealth.lastChat = {
+        at: new Date().toISOString(),
+        status: 0,
+        durationMs: null,
+        attempt: attempt + 1,
+      };
+      proxyHealth.lastError = {
+        at: new Date().toISOString(),
+        status: 0,
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+    await sleep(300 * (attempt + 1));
+  }
+
+  if (lastResponse) return lastResponse;
+  const message = lastError instanceof Error ? lastError.message : "I24D request failed";
+  return { status: 0, body: { error: "network_error", message } };
+}
+
+function shouldRetryI24D(status) {
+  return [408, 409, 425, 429, 500, 502, 503, 504, 522, 523, 524].includes(Number(status));
+}
+
+function describeI24DError(response) {
+  const body = response?.body;
+  const message =
+    typeof body === "string"
+      ? body.slice(0, 300)
+      : body?.error?.message ?? body?.message ?? body?.error ?? "upstream error";
+  return {
+    at: new Date().toISOString(),
+    status: response?.status ?? null,
+    durationMs: response?.durationMs ?? null,
+    message: String(message),
+  };
 }
 
 // ── Provider keys (loaded from ~/.lumina/config.json or env) ─────────
@@ -257,11 +509,460 @@ const PROVIDER_KEYS = {
   openai:    process.env.OPENAI_API_KEY    ?? luminaCfg.openaiApiKey    ?? "",
   anthropic: process.env.ANTHROPIC_API_KEY ?? luminaCfg.anthropicApiKey ?? "",
   gemini:    process.env.GEMINI_API_KEY    ?? luminaCfg.geminiApiKey    ?? "",
+  deepseek:  process.env.DEEPSEEK_API_KEY  ?? luminaCfg.deepseekApiKey  ?? "",
 };
+
+const FALLBACK_PROVIDER = (
+  process.env.LUMINA_FALLBACK_PROVIDER
+  ?? luminaCfg.fallbackProvider
+  ?? "anthropic"
+).toString().trim().toLowerCase();
+const ANTHROPIC_FALLBACK_MODEL = (
+  process.env.LUMINA_ANTHROPIC_MODEL
+  ?? process.env.ANTHROPIC_MODEL
+  ?? luminaCfg.anthropicModel
+  ?? "claude-haiku-4-5-20251001"
+).toString().trim();
 
 const LUMINA_LEARN_URL = process.env.LUMINA_LEARN_URL
   ?? luminaCfg.luminaLearnUrl
   ?? "https://i24d-whatsapp-ai.onrender.com/lumina/learn";
+
+function resolveI24DPath(pathname) {
+  const base = I24D_MODELS_BASE.endsWith("/") ? I24D_MODELS_BASE : `${I24D_MODELS_BASE}/`;
+  return new URL(pathname.replace(/^\/+/, ""), base).toString();
+}
+
+async function warmI24D(reason = "startup") {
+  const started = Date.now();
+  let headers = {};
+  try {
+    headers = await getI24DAuthorizationHeaders();
+  } catch (err) {
+    proxyHealth.lastError = {
+      at: new Date().toISOString(),
+      status: 0,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+  const checks = await Promise.allSettled([
+    getUrl(resolveI24DPath("/health"), headers, I24D_WARMUP_TIMEOUT_MS),
+    getUrl(resolveI24DPath("/v1/models"), headers, I24D_WARMUP_TIMEOUT_MS),
+  ]);
+  const normalized = checks.map((entry) => {
+    if (entry.status === "fulfilled") {
+      return {
+        ok: Number(entry.value.status) >= 200 && Number(entry.value.status) < 500,
+        status: entry.value.status ?? null,
+        durationMs: entry.value.durationMs ?? null,
+      };
+    }
+    return {
+      ok: false,
+      status: 0,
+      durationMs: null,
+      error: entry.reason instanceof Error ? entry.reason.message : String(entry.reason),
+    };
+  });
+  const ok = normalized.some((entry) => entry.ok);
+  proxyHealth.lastWarmup = {
+    at: new Date().toISOString(),
+    reason,
+    ok,
+    durationMs: Date.now() - started,
+    checks: normalized,
+  };
+  if (!ok) {
+    proxyHealth.lastError = {
+      at: new Date().toISOString(),
+      status: 0,
+      message: "I24D warmup failed",
+    };
+  }
+  return proxyHealth.lastWarmup;
+}
+
+function startI24DKeepWarm() {
+  if (!I24D_WARMUP_ENABLED || I24D_KEEPWARM_INTERVAL_MS <= 0) {
+    return;
+  }
+  setInterval(() => {
+    void warmI24D("keepwarm")
+      .then((result) => {
+        if (!result.ok) {
+          console.warn(`[proxy] I24D keepwarm failed in ${result.durationMs}ms`);
+        }
+      })
+      .catch((err) => {
+        console.warn(`[proxy] I24D keepwarm error: ${err instanceof Error ? err.message : String(err)}`);
+      });
+  }, I24D_KEEPWARM_INTERVAL_MS).unref?.();
+}
+
+function healthPayload() {
+  return {
+    ok: true,
+    proxy: {
+      port: PROXY_PORT,
+      startedAt: proxyHealth.startedAt,
+    },
+    openclaw: {
+      port: OPENCLAW_PORT,
+      tokenConfigured: Boolean(String(OPENCLAW_TOKEN).trim()),
+    },
+    i24d: {
+      url: I24D_URL,
+      modelsBase: I24D_MODELS_BASE,
+      desktopSessionUrl: I24D_DESKTOP_SESSION_URL,
+      authMode: proxyHealth.i24dAuthMode,
+      tokenConfigured: proxyHealth.i24dConfigured,
+      session: {
+        active: Boolean(desktopSession.token && Date.now() < desktopSession.expiresAtMs),
+        expiresAt: proxyHealth.desktopSession.expiresAt,
+        lastRefreshAt: proxyHealth.desktopSession.lastRefreshAt,
+        lastError: proxyHealth.desktopSession.lastError,
+      },
+      timeoutMs: I24D_TIMEOUT_MS,
+      retryCount: I24D_RETRY_COUNT,
+      lastWarmup: proxyHealth.lastWarmup,
+      lastChat: proxyHealth.lastChat,
+      lastError: proxyHealth.lastError,
+    },
+    providers: {
+      openaiConfigured: Boolean(PROVIDER_KEYS.openai),
+      anthropicConfigured: Boolean(PROVIDER_KEYS.anthropic),
+      geminiConfigured: Boolean(PROVIDER_KEYS.gemini),
+      deepseekConfigured: Boolean(PROVIDER_KEYS.deepseek),
+      fallbackProvider: FALLBACK_PROVIDER,
+      anthropicFallbackModel: ANTHROPIC_FALLBACK_MODEL,
+    },
+  };
+}
+
+function sendJson(res, status, body) {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(body));
+}
+
+const TRUSTED_LUMINA_LOCAL_HOSTS = new Set([
+  "",
+  "localhost",
+  "127.0.0.1",
+  "::1",
+  "[::1]",
+  "lumina.localhost",
+  "tauri.localhost",
+]);
+
+function isTrustedLuminaLocalHost(host) {
+  const normalized = String(host ?? "").trim().toLowerCase();
+  return TRUSTED_LUMINA_LOCAL_HOSTS.has(normalized) || normalized.endsWith(".localhost");
+}
+
+function isTrustedLuminaOrigin(origin) {
+  if (!origin) {
+    return true;
+  }
+  if (origin === "null") {
+    // Some desktop WebViews/file-backed previews send the literal null origin.
+    return true;
+  }
+  try {
+    const parsed = new URL(origin);
+    const host = parsed.hostname.toLowerCase();
+    if (parsed.protocol === "lumina:" || parsed.protocol === "tauri:") {
+      return isTrustedLuminaLocalHost(host);
+    }
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      isTrustedLuminaLocalHost(host)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function luminaCorsHeaders(req) {
+  const origin = String(req.headers.origin ?? "");
+  if (!origin || !isTrustedLuminaOrigin(origin)) {
+    return {};
+  }
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Accept",
+    "Access-Control-Max-Age": "600",
+    Vary: "Origin",
+  };
+}
+
+function sendLuminaJson(req, res, status, body) {
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    ...luminaCorsHeaders(req),
+  });
+  res.end(JSON.stringify(body));
+}
+
+function rejectUntrustedLuminaOrigin(req, res) {
+  const origin = String(req.headers.origin ?? "");
+  if (isTrustedLuminaOrigin(origin)) {
+    return false;
+  }
+  sendLuminaJson(req, res, 403, {
+    ok: false,
+    error: "origin_not_allowed",
+    message: "Lumina Code can only be launched from the local Lumina desktop UI.",
+  });
+  return true;
+}
+
+const LUMINA_CODE_EXTENSION_ID = "i24d.lumina-code";
+const LUMINA_CODE_EXTENSION_NAME = "Lumina Code";
+
+function existingPath(candidates) {
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function resolveWhereCandidates(commandName) {
+  if (process.platform !== "win32") {
+    return [];
+  }
+  const result = spawnSync("where.exe", [commandName], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 5_000,
+  });
+  if ((result.status ?? 1) !== 0) {
+    return [];
+  }
+  return String(result.stdout ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function normalizeWindowsExecutableCandidates(candidates) {
+  if (process.platform !== "win32") {
+    return candidates;
+  }
+  const normalized = [];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    normalized.push(candidate);
+    if (/\.[a-z0-9]+$/i.test(candidate)) continue;
+    normalized.push(`${candidate}.cmd`, `${candidate}.exe`, `${candidate}.bat`);
+  }
+  return normalized;
+}
+
+function resolveVsCodeExecutable() {
+  const localAppData = process.env.LOCALAPPDATA ?? "";
+  const programFiles = process.env.ProgramFiles ?? "";
+  const programFilesX86 = process.env["ProgramFiles(x86)"] ?? "";
+  const knownInstallCandidates = [
+    process.env.LUMINA_VSCODE_PATH,
+    process.env.VSCODE_PATH,
+    localAppData && join(localAppData, "Programs", "Microsoft VS Code", "Code.exe"),
+    localAppData && join(localAppData, "Programs", "Microsoft VS Code", "bin", "code.cmd"),
+    programFiles && join(programFiles, "Microsoft VS Code", "Code.exe"),
+    programFiles && join(programFiles, "Microsoft VS Code", "bin", "code.cmd"),
+    programFilesX86 && join(programFilesX86, "Microsoft VS Code", "Code.exe"),
+    programFilesX86 && join(programFilesX86, "Microsoft VS Code", "bin", "code.cmd"),
+  ];
+  return existingPath([
+    ...normalizeWindowsExecutableCandidates(knownInstallCandidates),
+    ...normalizeWindowsExecutableCandidates(resolveWhereCandidates("code")),
+    ...normalizeWindowsExecutableCandidates(resolveWhereCandidates("code-insiders")),
+  ]);
+}
+
+function resolveLuminaCodeVsixPath() {
+  return existingPath([
+    process.env.LUMINA_CODE_VSIX_PATH,
+    join(__dir, "..", "lumina-code", "lumina-code-0.1.0.vsix"),
+    join(__dir, "..", "..", "src", "lumina-code", "extension", "lumina-code-0.1.0.vsix"),
+  ]);
+}
+
+function resolveVsCodeRoot(vscodePath) {
+  const normalized = String(vscodePath ?? "");
+  if (!normalized) return null;
+  if (/[\\/]bin[\\/]code(?:\.cmd)?$/i.test(normalized)) {
+    return dirname(dirname(normalized));
+  }
+  if (/[\\/]Code\.exe$/i.test(normalized)) {
+    return dirname(normalized);
+  }
+  return dirname(normalized);
+}
+
+function resolveVsCodeGuiExecutable(vscodePath) {
+  const normalized = String(vscodePath ?? "");
+  if (/[\\/]Code\.exe$/i.test(normalized) && fs.existsSync(normalized)) {
+    return normalized;
+  }
+  const root = resolveVsCodeRoot(vscodePath);
+  return root ? existingPath([join(root, "Code.exe")]) : null;
+}
+
+function resolveVsCodeCliPath(vscodePath) {
+  const root = resolveVsCodeRoot(vscodePath);
+  if (!root) return null;
+  const direct = join(root, "resources", "app", "out", "cli.js");
+  const versioned = [];
+  try {
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      versioned.push(join(root, entry.name, "resources", "app", "out", "cli.js"));
+    }
+  } catch {
+    // Fall back to direct path only.
+  }
+  return existingPath([direct, ...versioned]);
+}
+
+function inferLuminaCodeVersion(vsixPath) {
+  const fileName = vsixPath ? vsixPath.split(/[\\/]/).pop() ?? "" : "";
+  const match = fileName.match(/^lumina-code-(.+)\.vsix$/i);
+  return match?.[1] ?? "0.1.0";
+}
+
+function resolveLuminaCodeWorkspace(body) {
+  const requested =
+    body && typeof body.workspacePath === "string" ? body.workspacePath.trim() : "";
+  return requested || process.env.LUMINA_CODE_WORKSPACE || join(os.homedir(), ".lumina", "workspace");
+}
+
+function luminaCodeStatus(body = null) {
+  const vscodePath = resolveVsCodeExecutable();
+  const vsixPath = resolveLuminaCodeVsixPath();
+  const workspacePath = resolveLuminaCodeWorkspace(body);
+  let message = "Lumina Code esta listo para abrirse en VS Code.";
+  if (!vscodePath) {
+    message = "No encontre VS Code. Instala VS Code 1.85 o superior y vuelve a intentar.";
+  } else if (!vsixPath) {
+    message = "No encontre el paquete VSIX de Lumina Code dentro del runtime.";
+  }
+  return {
+    ok: Boolean(vscodePath && vsixPath),
+    platform: process.platform,
+    vscode: {
+      available: Boolean(vscodePath),
+      executablePath: vscodePath,
+      displayName: "VS Code",
+    },
+    extension: {
+      id: LUMINA_CODE_EXTENSION_ID,
+      version: inferLuminaCodeVersion(vsixPath),
+      vsixAvailable: Boolean(vsixPath),
+      vsixPath,
+    },
+    workspace: {
+      path: workspacePath,
+      exists: fs.existsSync(workspacePath),
+    },
+    message,
+  };
+}
+
+function quoteWindowsArg(value) {
+  const text = String(value);
+  if (!/[ \t"&|<>^]/.test(text)) {
+    return text;
+  }
+  return `"${text.replace(/(\\*)"/g, '$1$1\\"').replace(/\\+$/g, "$&$&")}"`;
+}
+
+function runCommandSync(command, args, options = {}) {
+  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
+    return spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/c", command, ...args], {
+      ...options,
+      windowsHide: true,
+    });
+  }
+  return spawnSync(command, args, { ...options, windowsHide: true });
+}
+
+function spawnCommandDetached(command, args) {
+  let child;
+  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
+    child = spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/c", command, ...args], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+  } else {
+    child = spawn(command, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+  }
+  child.unref();
+}
+
+function runVsCodeCli(vscodePath, args, options = {}) {
+  const guiExecutable = resolveVsCodeGuiExecutable(vscodePath);
+  const cliPath = resolveVsCodeCliPath(vscodePath);
+  if (guiExecutable && cliPath) {
+    return spawnSync(guiExecutable, [cliPath, ...args], {
+      ...options,
+      env: {
+        ...process.env,
+        ...(options.env ?? {}),
+        ELECTRON_RUN_AS_NODE: "1",
+      },
+      windowsHide: true,
+    });
+  }
+  return runCommandSync(vscodePath, args, options);
+}
+
+function installLuminaCodeExtension(vscodePath, vsixPath) {
+  const result = runVsCodeCli(vscodePath, ["--install-extension", vsixPath, "--force"], {
+    encoding: "utf8",
+    timeout: 180_000,
+  });
+  if (result.error) {
+    throw new Error(`No pude iniciar VS Code para instalar Lumina Code: ${result.error.message}`);
+  }
+  if ((result.status ?? 1) !== 0) {
+    const details = [result.stderr, result.stdout]
+      .map((value) => String(value ?? "").trim())
+      .filter(Boolean)
+      .join("\n");
+    throw new Error(
+      `VS Code no pudo instalar Lumina Code (exit ${result.status ?? 1}).${details ? ` ${details}` : ""}`,
+    );
+  }
+}
+
+function openLuminaCode(body = null) {
+  const status = luminaCodeStatus(body);
+  if (!status.vscode.available || !status.vscode.executablePath) {
+    return { statusCode: 404, body: status };
+  }
+  if (!status.extension.vsixAvailable || !status.extension.vsixPath) {
+    return { statusCode: 404, body: status };
+  }
+  fs.mkdirSync(status.workspace.path, { recursive: true });
+  installLuminaCodeExtension(status.vscode.executablePath, status.extension.vsixPath);
+  spawnCommandDetached(status.vscode.executablePath, ["--reuse-window", status.workspace.path]);
+  return {
+    statusCode: 200,
+    body: {
+      ok: true,
+      status: luminaCodeStatus(body),
+      message: `${LUMINA_CODE_EXTENSION_NAME} fue instalado/verificado y VS Code se esta abriendo.`,
+    },
+  };
+}
 
 // ── Fire learning signal to Lumina (best-effort, non-blocking) ────────
 
@@ -303,7 +1004,7 @@ async function proxyExternalProvider(providerName, targetUrl, apiKey, body, res)
   try {
     upstreamResponse = await postUrl(
       targetUrl,
-      { Authorization: `Bearer ${apiKey}` },
+      authHeaders(apiKey),
       upstreamBody,
       60_000
     );
@@ -626,6 +1327,152 @@ function makeResponse(content, original) {
   };
 }
 
+function makeI24DDiagnosticResponse(i24d, original) {
+  const status = Number(i24d?.status ?? 0);
+  const body = i24d?.body;
+  const upstreamMessage =
+    typeof body === "string"
+      ? body.slice(0, 240)
+      : body?.error?.message ?? body?.message ?? body?.error ?? "";
+
+  if (status === 401 || status === 403) {
+    return makeResponse(
+      [
+        "Lumina OpenClaw esta abierto y el gateway local esta funcionando.",
+        "",
+        "Lumina IA no pudo iniciar la sesion segura con el cerebro central.",
+        "Revisa tu conexion a internet o reinicia Lumina. No necesitas instalar ni configurar tokens manualmente.",
+        "",
+        `Detalle tecnico: HTTP ${status}${upstreamMessage ? ` - ${upstreamMessage}` : ""}`,
+      ].join("\n"),
+      original,
+    );
+  }
+
+  return makeResponse(
+    [
+      "Lumina OpenClaw esta funcionando, pero el cerebro I24D no respondio correctamente.",
+      "El proxy local ya intento reconectar y calentar el backend.",
+      "",
+      `Detalle tecnico: ${status ? `HTTP ${status}` : "sin respuesta de red"}${upstreamMessage ? ` - ${upstreamMessage}` : ""}`,
+    ].join("\n"),
+    original,
+  );
+}
+
+function messageContentToText(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part?.type === "text" && typeof part.text === "string") return part.text;
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (content == null) return "";
+  return String(content);
+}
+
+function normalizeMessagesForAnthropic(messages) {
+  const system = [];
+  const out = [];
+  for (const message of messages ?? []) {
+    const role = message?.role;
+    const text = messageContentToText(message?.content).trim();
+    if (!text) continue;
+    if (role === "system" || role === "developer") {
+      system.push(text);
+      continue;
+    }
+    if (role !== "user" && role !== "assistant") continue;
+    const last = out[out.length - 1];
+    if (last?.role === role) {
+      last.content += `\n\n${text}`;
+    } else {
+      out.push({ role, content: text });
+    }
+  }
+  if (out.length === 0 || out[0].role !== "user") {
+    out.unshift({ role: "user", content: "Continue." });
+  }
+  return { system: system.join("\n\n"), messages: out };
+}
+
+async function callAnthropicFallback(messages, original) {
+  if (FALLBACK_PROVIDER !== "anthropic" || !PROVIDER_KEYS.anthropic || !ANTHROPIC_FALLBACK_MODEL) {
+    return null;
+  }
+
+  const normalized = normalizeMessagesForAnthropic(messages);
+  const payload = {
+    model: ANTHROPIC_FALLBACK_MODEL,
+    max_tokens: Math.max(128, Math.min(original.max_tokens ?? I24D_DEFAULT_MAX_TOKENS, 4096)),
+    messages: normalized.messages,
+  };
+  if (normalized.system) payload.system = normalized.system;
+  if (original.temperature !== undefined) payload.temperature = original.temperature;
+
+  const response = await postUrl(
+    "https://api.anthropic.com/v1/messages",
+    { "x-api-key": PROVIDER_KEYS.anthropic, "anthropic-version": "2023-06-01" },
+    payload,
+    Math.max(60_000, I24D_TIMEOUT_MS),
+  );
+  if (response.status !== 200) {
+    console.warn(`[proxy] Anthropic fallback failed with status ${response.status}`);
+    proxyHealth.lastError = describeI24DError({
+      ...response,
+      body: {
+        error: "anthropic_fallback_failed",
+        message:
+          typeof response.body === "string"
+            ? response.body
+            : response.body?.error?.message ?? response.body?.message ?? "Anthropic fallback failed",
+      },
+    });
+    return null;
+  }
+
+  const text = Array.isArray(response.body?.content)
+    ? response.body.content
+        .map((part) => (part?.type === "text" && typeof part.text === "string" ? part.text : ""))
+        .filter(Boolean)
+        .join("\n")
+    : "";
+  if (!text.trim()) return null;
+
+  const body = makeResponse(text, {
+    ...original,
+    model: `anthropic/${ANTHROPIC_FALLBACK_MODEL}`,
+  });
+  fireLearningSignal("anthropic-fallback", messages, body);
+  console.log("[proxy] fallback answered via Anthropic");
+  return body;
+}
+
+async function resolvePrimaryCompletion(messages, body) {
+  const i24d = await callI24D(messages, body);
+  if (i24d.status === 200 && i24d.body?.choices?.[0]) {
+    return i24d.body;
+  }
+
+  const canFallback =
+    FALLBACK_PROVIDER === "anthropic" &&
+    PROVIDER_KEYS.anthropic &&
+    [0, 401, 403, 429, 500, 502, 503, 504].includes(Number(i24d.status ?? 0));
+  if (canFallback) {
+    const fallback = await callAnthropicFallback(messages, body);
+    if (fallback?.choices?.[0]) {
+      return fallback;
+    }
+  }
+
+  return makeI24DDiagnosticResponse(i24d, body);
+}
+
 function sendResponse(res, body, isStreaming) {
   if (!isStreaming) {
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -794,34 +1641,33 @@ async function handleChatCompletion(req, res, body) {
 
   // ── 4. Pass through to I24D unchanged ───────────────────────────────
   console.log(`[proxy] → pass-through`);
-  const i24d = await callI24D(messages, body);
-  if (i24d.status === 200)
-    return sendResponse(res, i24d.body, isStreaming);
-
-  res.writeHead(i24d.status ?? 502, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(i24d.body ?? { error: "upstream error" }));
+  const completion = await resolvePrimaryCompletion(messages, body);
+  return sendResponse(res, completion, isStreaming);
 }
 
 // ── Pass-through proxy for non-chat routes (e.g. /v1/models) ─────────
 
-function proxyToI24D(reqPath, method, body, res) {
+async function proxyToI24D(reqPath, method, body, res) {
+  const authorizationHeaders = await getI24DAuthorizationHeaders();
   return new Promise((resolve, reject) => {
     const bodyStr = body && typeof body === "object" ? JSON.stringify(body) : body ?? "";
     const target  = new URL(reqPath, I24D_MODELS_BASE);
+    const lib = target.protocol === "https:" ? https : http;
 
     const opts = {
       hostname: target.hostname,
-      port:     443,
+      port:     target.port || (target.protocol === "https:" ? 443 : 80),
       path:     target.pathname + target.search,
       method,
+      agent:    target.protocol === "https:" ? httpsAgent : httpAgent,
       headers:  {
         "Content-Type":  "application/json",
-        Authorization:   `Bearer ${I24D_TOKEN}`,
+        ...authorizationHeaders,
       },
     };
     if (bodyStr) opts.headers["Content-Length"] = Buffer.byteLength(bodyStr);
 
-    const pr = https.request(opts, (proxyRes) => {
+    const pr = lib.request(opts, (proxyRes) => {
       res.writeHead(proxyRes.statusCode, proxyRes.headers);
       proxyRes.pipe(res);
       proxyRes.on("end", resolve);
@@ -846,25 +1692,83 @@ const server = http.createServer(async (req, res) => {
     try { body = JSON.parse(rawBody); } catch { /* not JSON */ }
   }
 
+  if ((url.pathname === "/health" || url.pathname === "/__lumina/health") && req.method === "GET") {
+    return sendJson(res, 200, healthPayload());
+  }
+
+  if (url.pathname === "/__lumina/warmup" && (req.method === "GET" || req.method === "POST")) {
+    const warmup = await warmI24D("manual");
+    return sendJson(res, warmup.ok ? 200 : 502, healthPayload());
+  }
+
+  if (url.pathname.startsWith("/__lumina/code/") && req.method === "OPTIONS") {
+    if (rejectUntrustedLuminaOrigin(req, res)) {
+      return;
+    }
+    res.writeHead(204, luminaCorsHeaders(req));
+    res.end();
+    return;
+  }
+
+  if (url.pathname === "/__lumina/code/status" && req.method === "GET") {
+    if (rejectUntrustedLuminaOrigin(req, res)) {
+      return;
+    }
+    return sendLuminaJson(req, res, 200, luminaCodeStatus());
+  }
+
+  if (url.pathname === "/__lumina/code/open" && req.method === "POST") {
+    if (rejectUntrustedLuminaOrigin(req, res)) {
+      return;
+    }
+    try {
+      const result = openLuminaCode(body);
+      return sendLuminaJson(req, res, result.statusCode, result.body);
+    } catch (err) {
+      return sendLuminaJson(req, res, 502, {
+        ok: false,
+        error: "lumina_code_open_failed",
+        message: err instanceof Error ? err.message : String(err),
+        status: luminaCodeStatus(body),
+      });
+    }
+  }
+
   // ── I24D (primary) ───────────────────────────────────────────────────
+  if (url.pathname === "/__lumina/tools/invoke" && req.method === "POST" && body) {
+    const tool = String(body.tool ?? "").trim();
+    if (!tool) {
+      return sendJson(res, 400, { ok: false, error: "tool_required" });
+    }
+    const result = await invokeTool(tool, body.args ?? {});
+    return sendJson(res, result?.ok === false ? 502 : 200, { ok: result?.ok !== false, result });
+  }
+
   if (url.pathname === "/v1/chat/completions" && req.method === "POST" && body) {
     try {
       await handleChatCompletion(req, res, body);
     } catch (err) {
       console.error("[proxy] error:", err);
       if (!res.headersSent) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "proxy_error", message: err.message }));
+        sendResponse(
+          res,
+          makeResponse(
+            `Lumina proxy error: ${err instanceof Error ? err.message : String(err)}`,
+            body,
+          ),
+          body?.stream === true,
+        );
       }
     }
 
   // ── OpenAI pass-through + learning intercept ──────────────────────
   } else if (url.pathname.startsWith("/openai/v1/") && req.method === "POST" && body) {
     const upstreamPath = url.pathname.replace("/openai/v1/", "/v1/");
-    const apiKey = PROVIDER_KEYS.openai;
+    const inboundKey = extractBearer(req.headers);
+    const apiKey = PROVIDER_KEYS.openai || (isPlaceholderProviderKey(inboundKey) ? "" : inboundKey);
     if (!apiKey) {
       res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "openai_key_missing", message: "Set OPENAI_API_KEY in env or ~/.lumina/config.json" }));
+      res.end(JSON.stringify({ error: "openai_key_missing", message: "Configure tu API key de OpenAI en los ajustes del proveedor." }));
       return;
     }
     try {
@@ -886,10 +1790,11 @@ const server = http.createServer(async (req, res) => {
   // ── Anthropic pass-through + learning intercept ───────────────────
   } else if (url.pathname.startsWith("/anthropic/") && req.method === "POST" && body) {
     const upstreamPath = url.pathname.replace("/anthropic/", "/");
-    const apiKey = PROVIDER_KEYS.anthropic;
+    const inboundKey = String(req.headers["x-api-key"] ?? "").trim() || extractBearer(req.headers);
+    const apiKey = PROVIDER_KEYS.anthropic || (isPlaceholderProviderKey(inboundKey) ? "" : inboundKey);
     if (!apiKey) {
       res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "anthropic_key_missing", message: "Set ANTHROPIC_API_KEY in env or ~/.lumina/config.json" }));
+      res.end(JSON.stringify({ error: "anthropic_key_missing", message: "Configure tu API key de Anthropic en los ajustes del proveedor." }));
       return;
     }
     // Anthropic uses x-api-key, not Authorization Bearer
@@ -924,10 +1829,11 @@ const server = http.createServer(async (req, res) => {
   // ── Gemini pass-through + learning intercept ──────────────────────
   } else if (url.pathname.startsWith("/gemini/") && req.method === "POST" && body) {
     const upstreamPath = url.pathname.replace("/gemini/", "/");
-    const apiKey = PROVIDER_KEYS.gemini;
+    const inboundKey = String(req.headers["x-goog-api-key"] ?? "").trim() || extractBearer(req.headers);
+    const apiKey = PROVIDER_KEYS.gemini || (isPlaceholderProviderKey(inboundKey) ? "" : inboundKey);
     if (!apiKey) {
       res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "gemini_key_missing", message: "Set GEMINI_API_KEY in env or ~/.lumina/config.json" }));
+      res.end(JSON.stringify({ error: "gemini_key_missing", message: "Configure tu API key de Gemini en los ajustes del proveedor." }));
       return;
     }
     // Gemini uses ?key= query param
@@ -943,6 +1849,31 @@ const server = http.createServer(async (req, res) => {
     }
 
   // ── Fallback: pass through to I24D ────────────────────────────────
+  } else if (url.pathname.startsWith("/deepseek/v1/") && req.method === "POST" && body) {
+    const upstreamPath = url.pathname.replace("/deepseek/v1/", "/v1/");
+    const inboundKey = extractBearer(req.headers);
+    const apiKey = PROVIDER_KEYS.deepseek || (isPlaceholderProviderKey(inboundKey) ? "" : inboundKey);
+    if (!apiKey) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "deepseek_key_missing", message: "Configure tu API key de DeepSeek en los ajustes del proveedor." }));
+      return;
+    }
+    try {
+      await proxyExternalProvider(
+        "deepseek",
+        `https://api.deepseek.com${upstreamPath}`,
+        apiKey,
+        body,
+        res,
+      );
+    } catch (err) {
+      console.error("[proxy] deepseek error:", err);
+      if (!res.headersSent) {
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "upstream_error", message: err.message }));
+      }
+    }
+
   } else {
     try {
       await proxyToI24D(req.url, req.method, body ?? rawBody, res);
@@ -970,6 +1901,7 @@ server.listen(PROXY_PORT, "127.0.0.1", () => {
   console.log(`  /openai/v1/*             → OpenAI API  ${PROVIDER_KEYS.openai ? "✓ key set" : "✗ key missing"}`);
   console.log(`  /anthropic/*             → Anthropic   ${PROVIDER_KEYS.anthropic ? "✓ key set" : "✗ key missing"}`);
   console.log(`  /gemini/*                → Gemini      ${PROVIDER_KEYS.gemini ? "✓ key set" : "✗ key missing"}`);
+  console.log(`  /deepseek/v1/*           → DeepSeek    ${PROVIDER_KEYS.deepseek ? "✓ key set" : "✗ key missing"}`);
   console.log();
   console.log("INTENTS (auto-fetch):");
   console.log("  system metrics, process list, open windows, clipboard,");
@@ -985,6 +1917,17 @@ server.listen(PROXY_PORT, "127.0.0.1", () => {
   for (const [k, v] of Object.entries(CACHE_TTL))
     if (v > 0) console.log(`  ${k}: ${v / 1000}s`);
   console.log();
+
+  if (I24D_WARMUP_ENABLED) {
+    void warmI24D("startup")
+      .then((result) => {
+        console.log(`[proxy] I24D warmup ${result.ok ? "ok" : "failed"} in ${result.durationMs}ms`);
+      })
+      .catch((err) => {
+        console.warn(`[proxy] I24D warmup error: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    startI24DKeepWarm();
+  }
 });
 
 server.on("error", (err) => {

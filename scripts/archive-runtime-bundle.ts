@@ -15,6 +15,7 @@ import {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..");
 const desktopRoot = path.join(repoRoot, "apps", "lumina-desktop");
+const workspaceRoot = path.resolve(repoRoot, "..");
 const defaultCanonicalBundleRoot = path.join(desktopRoot, "build", "runtime-bundle");
 const defaultCanonicalBundleManifestPath = path.join(
   defaultCanonicalBundleRoot,
@@ -27,6 +28,9 @@ const packagedOpenClawDir = path.join(desktopRoot, "build", "openclaw-package");
 const toolProxyRoot = path.join(repoRoot, "tool-proxy");
 const proxyEntryPath = path.join(toolProxyRoot, "server.mjs");
 const proxyConfigPath = path.join(toolProxyRoot, "proxy-config.json");
+const luminaCodeVsixPath =
+  process.env.LUMINA_CODE_VSIX_PATH ??
+  path.join(workspaceRoot, "src", "lumina-code", "official", "extensions", "vscode", "build", "lumina-code-0.1.0.vsix");
 
 function log(message) {
   process.stdout.write(`[lumina-release] ${message}\n`);
@@ -115,6 +119,17 @@ function syncDirToStage(sourceDir, targetDir) {
   copyDirToStage(sourceDir, targetDir);
 }
 
+function listArchiveEntries(sourceDir) {
+  const entries = fs
+    .readdirSync(sourceDir, { withFileTypes: true })
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right));
+  if (entries.length === 0) {
+    fail(`Cannot archive an empty directory: ${sourceDir}`);
+  }
+  return entries;
+}
+
 function copyPathToStage(sourcePath, targetPath, ancestors = new Set<string>()) {
   const sourceLstat = fs.lstatSync(sourcePath);
   const resolvedSourcePath = sourceLstat.isSymbolicLink()
@@ -176,6 +191,7 @@ function assembleCanonicalRuntimeBundle(
   ensureExists(path.join(packagedOpenClawDir, "dist", "control-ui", "index.html"), "OpenClaw UI");
   ensureExists(proxyEntryPath, "tool proxy entry");
   ensureExists(proxyConfigPath, "tool proxy config");
+  ensureExists(luminaCodeVsixPath, "Lumina Code VSIX");
 
   const manifestJson = fs.readFileSync(sourceBundleManifestPath, "utf8");
   const canonicalPayloadRoot = path.join(canonicalBundleRoot, "payload");
@@ -197,6 +213,10 @@ function assembleCanonicalRuntimeBundle(
   copyFileToStage(
     proxyConfigPath,
     path.join(canonicalPayloadRoot, "proxy", "proxy-config.json"),
+  );
+  copyFileToStage(
+    luminaCodeVsixPath,
+    path.join(canonicalPayloadRoot, "lumina-code", "lumina-code-0.1.0.vsix"),
   );
   fs.writeFileSync(canonicalBundleManifestPath, manifestJson, "utf8");
   log(`Prepared canonical runtime bundle payload: ${canonicalBundleRoot}`);
@@ -241,7 +261,7 @@ try {
   fs.rmSync(metadataPath, { force: true });
 
   log(`Archiving runtime bundle to ${archivePath}`);
-  run("tar", ["-czf", archivePath, "-C", canonicalBundleRoot, "."], repoRoot);
+  run("tar", ["-czf", archivePath, "-C", canonicalBundleRoot, ...listArchiveEntries(canonicalBundleRoot)], repoRoot);
   fs.copyFileSync(canonicalBundleManifestPath, releaseManifestCopyPath);
 
   const metadata = {

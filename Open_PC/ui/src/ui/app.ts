@@ -63,6 +63,11 @@ import type { DevicePairingList } from "./controllers/devices.ts";
 import type { DreamingStatus } from "./controllers/dreaming.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
+import {
+  loadLuminaCodeStatus,
+  openLuminaCode,
+  type LuminaCodeStatus,
+} from "./controllers/lumina-code.ts";
 import type {
   ClawHubSearchResult,
   ClawHubSkillDetail,
@@ -111,6 +116,7 @@ const DESKTOP_TABS: Tab[] = [
   "cron",
   "skills",
   "nodes",
+  "luminaCode",
   "chat",
   "config",
   "communications",
@@ -488,6 +494,11 @@ export class OpenClawApp extends LitElement {
   @state() logsLimit = 500;
   @state() logsMaxBytes = 250_000;
   @state() logsAtBottom = true;
+  @state() luminaCodeStatusLoading = false;
+  @state() luminaCodeOpening = false;
+  @state() luminaCodeStatus: LuminaCodeStatus | null = null;
+  @state() luminaCodeError: string | null = null;
+  @state() luminaCodeMessage: string | null = null;
 
   client: GatewayBrowserClient | null = null;
   private chatScrollFrame: number | null = null;
@@ -546,6 +557,9 @@ export class OpenClawApp extends LitElement {
 
   protected firstUpdated() {
     handleFirstUpdated(this as unknown as Parameters<typeof handleFirstUpdated>[0]);
+    if (this.tab === "luminaCode") {
+      void loadLuminaCodeStatus(this);
+    }
   }
 
   disconnectedCallback() {
@@ -556,6 +570,14 @@ export class OpenClawApp extends LitElement {
 
   protected updated(changed: Map<PropertyKey, unknown>) {
     handleUpdated(this as unknown as Parameters<typeof handleUpdated>[0], changed);
+    if (
+      changed.has("tab") &&
+      this.tab === "luminaCode" &&
+      !this.luminaCodeStatus &&
+      !this.luminaCodeStatusLoading
+    ) {
+      void loadLuminaCodeStatus(this);
+    }
     if (!changed.has("sessionKey") || this.agentsPanel !== "tools") {
       return;
     }
@@ -659,6 +681,14 @@ export class OpenClawApp extends LitElement {
 
   async loadCron() {
     await loadCronInternal(this as unknown as Parameters<typeof loadCronInternal>[0]);
+  }
+
+  async loadLuminaCodeStatus() {
+    await loadLuminaCodeStatus(this);
+  }
+
+  async openLuminaCode() {
+    await openLuminaCode(this);
   }
 
   async handleAbortChat() {

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import renderPreset from "../config/render-preset.json";
+import renderPreset from "../config/render-preset.json" with { type: "json" };
 import { resolveRuntimePaths } from "./runtime-paths.js";
 
 const CONFIG_DIR = path.join(os.homedir(), ".lumina");
@@ -12,6 +12,7 @@ const OPENCLAW_STATE_DIR = path.join(CONFIG_DIR, "openclaw-state");
 const WORKSPACE_DIR = path.join(CONFIG_DIR, "workspace");
 const CANONICAL_LUMINA_PROVIDER_ID = "lumina";
 const LEGACY_LUMINA_PROVIDER_IDS = ["custom-i24d-whatsapp-ai-onrender-com"];
+const DEFAULT_DESKTOP_TAB = "chat";
 
 interface GeneratedDefaults {
   authServiceUrl?: string;
@@ -114,10 +115,7 @@ const DEFAULTS: Omit<LuminaConfig, "gatewayToken" | "i24dToken" | "remoteBrainSe
   authServiceUrl: renderPreset.authServiceUrl,
   i24dChatUrl: renderPreset.i24dChatUrl,
   i24dModelsBaseUrl: renderPreset.i24dModelsBaseUrl,
-  remoteBrainEnabled:
-    (typeof renderPreset.remoteBrainEnabled === "boolean"
-      ? renderPreset.remoteBrainEnabled
-      : Boolean(renderPreset.remoteBrainUrl)) && Boolean(renderPreset.remoteBrainUrl),
+  remoteBrainEnabled: false,
   remoteBrainUrl: renderPreset.remoteBrainUrl,
   remoteBrainTimeoutMs: renderPreset.remoteBrainTimeoutMs,
   remoteBrainMaxTurns: renderPreset.remoteBrainMaxTurns,
@@ -130,7 +128,7 @@ const DEFAULTS: Omit<LuminaConfig, "gatewayToken" | "i24dToken" | "remoteBrainSe
   modelName: renderPreset.modelName,
   modelContextWindow: renderPreset.modelContextWindow,
   modelMaxTokens: renderPreset.modelMaxTokens,
-  defaultTab: renderPreset.defaultTab,
+  defaultTab: DEFAULT_DESKTOP_TAB,
   requireLuminaAuth: renderPreset.requireLuminaAuth,
   updateRepoOwner: renderPreset.updateRepoOwner,
   updateRepoName: renderPreset.updateRepoName,
@@ -186,8 +184,6 @@ export function loadConfig(): LuminaConfig {
 
   const i24dToken =
     readString(process.env.LUMINA_I24D_TOKEN) ??
-    storedConfig.i24dToken ??
-    readLegacyI24dToken(legacyConfig, providerId) ??
     generatedDefaults.i24dToken ??
     "";
 
@@ -199,17 +195,16 @@ export function loadConfig(): LuminaConfig {
 
   const remoteBrainSecret =
     readString(process.env.LUMINA_REMOTE_BRAIN_SECRET) ??
-    storedConfig.remoteBrainSecret ??
     generatedDefaults.remoteBrainSecret ??
-    i24dToken;
+    "";
 
   const configuredRemoteBrainEnabled =
     readBool(process.env.LUMINA_REMOTE_BRAIN_ENABLED) ??
     storedConfig.remoteBrainEnabled ??
     generatedDefaults.remoteBrainEnabled;
-  const inferredRemoteBrainEnabled = Boolean(remoteBrainUrl);
+  const inferredRemoteBrainEnabled = Boolean(remoteBrainUrl && remoteBrainSecret);
   const remoteBrainEnabled = Boolean(
-    (configuredRemoteBrainEnabled ?? inferredRemoteBrainEnabled) && remoteBrainUrl,
+    (configuredRemoteBrainEnabled ?? inferredRemoteBrainEnabled) && remoteBrainUrl && remoteBrainSecret,
   );
   const currentPreferredModelRef = readOpenClawPreferredModelRef(currentOpenClawConfig);
   const persistedPreferredModelRef =
@@ -273,13 +268,13 @@ export function loadConfig(): LuminaConfig {
       DEFAULTS.remoteBrainMaxTurns,
     runtimeReleaseManifestUrl:
       readString(process.env.LUMINA_RUNTIME_RELEASE_MANIFEST_URL) ??
-      storedConfig.runtimeReleaseManifestUrl ??
       generatedDefaults.runtimeReleaseManifestUrl ??
+      storedConfig.runtimeReleaseManifestUrl ??
       DEFAULTS.runtimeReleaseManifestUrl,
     runtimeReleaseChannel:
       readString(process.env.LUMINA_RUNTIME_RELEASE_CHANNEL) ??
-      storedConfig.runtimeReleaseChannel ??
       generatedDefaults.runtimeReleaseChannel ??
+      storedConfig.runtimeReleaseChannel ??
       DEFAULTS.runtimeReleaseChannel,
     skipOpenClawChannels:
       readBool(process.env.LUMINA_SKIP_OPENCLAW_CHANNELS) ??
@@ -304,11 +299,12 @@ export function loadConfig(): LuminaConfig {
       storedConfig.modelMaxTokens ??
       generatedDefaults.modelMaxTokens ??
       DEFAULTS.modelMaxTokens,
-    defaultTab:
+    defaultTab: normalizeDefaultTab(
       readString(process.env.LUMINA_DEFAULT_TAB) ??
-      storedConfig.defaultTab ??
-      generatedDefaults.defaultTab ??
-      DEFAULTS.defaultTab,
+        storedConfig.defaultTab ??
+        generatedDefaults.defaultTab ??
+        DEFAULTS.defaultTab,
+    ),
     requireLuminaAuth:
       readBool(process.env.LUMINA_REQUIRE_AUTH) ??
       storedConfig.requireLuminaAuth ??
@@ -344,10 +340,8 @@ export function saveConfig(config: LuminaConfig): void {
           authServiceUrl: config.authServiceUrl,
           i24dChatUrl: config.i24dChatUrl,
           i24dModelsBaseUrl: config.i24dModelsBaseUrl,
-          i24dToken: config.i24dToken,
           remoteBrainEnabled: config.remoteBrainEnabled,
           remoteBrainUrl: config.remoteBrainUrl,
-          remoteBrainSecret: config.remoteBrainSecret,
           remoteBrainTimeoutMs: config.remoteBrainTimeoutMs,
           remoteBrainMaxTurns: config.remoteBrainMaxTurns,
           runtimeReleaseManifestUrl: config.runtimeReleaseManifestUrl,
@@ -515,6 +509,14 @@ function readString(input: string | undefined): string | null {
 
 function readStringValue(value: unknown): string | null {
   return typeof value === "string" ? readString(value) : null;
+}
+
+function normalizeDefaultTab(value: string | undefined): string {
+  const trimmed = readString(value);
+  if (!trimmed || trimmed === "instances") {
+    return DEFAULT_DESKTOP_TAB;
+  }
+  return trimmed;
 }
 
 function readInt(input: string | undefined): number | null {

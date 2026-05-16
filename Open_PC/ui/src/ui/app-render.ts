@@ -116,6 +116,7 @@ import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.t
 import { renderLoginGate }    from "./views/login-gate.ts";
 import { renderLuminaAuthGate, type LuminaAuthMode } from "./views/lumina-auth-gate.ts";
 import { isLuminaAuthenticated } from "../lumina/auth-client.ts";
+import { renderLuminaCode } from "./views/lumina-code.ts";
 import { renderOverview } from "./views/overview.ts";
 
 // Lazy-loaded view modules – deferred so the initial bundle stays small.
@@ -1570,6 +1571,7 @@ export function renderApp(state: AppViewState) {
               }),
             )
           : nothing}
+        ${state.tab === "luminaCode" ? renderLuminaCode(state) : nothing}
         ${state.tab === "chat"
           ? renderChat({
               sessionKey: state.sessionKey,

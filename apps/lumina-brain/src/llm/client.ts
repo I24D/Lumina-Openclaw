@@ -80,7 +80,7 @@ function buildDefaultConfig(): LLMConfig {
   return {
     provider: process.env.BRAIN_LLM_PROVIDER ?? "anthropic",
     apiKey,
-    model:    process.env.BRAIN_LLM_MODEL    ?? "claude-sonnet-4-6",
+    model:    process.env.BRAIN_LLM_MODEL    ?? "claude-opus-4-7",
     baseUrl:  process.env.BRAIN_LLM_BASE_URL,
   };
 }

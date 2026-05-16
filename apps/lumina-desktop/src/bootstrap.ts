@@ -5,6 +5,20 @@ import type { RuntimePaths } from "./runtime-paths.js";
 
 type JsonObject = Record<string, unknown>;
 const LEGACY_LUMINA_PROVIDER_IDS = ["custom-i24d-whatsapp-ai-onrender-com"] as const;
+const VALID_OPENCLAW_MODEL_APIS = new Set([
+  "openai-completions",
+  "openai-responses",
+  "openai-codex-responses",
+  "anthropic-messages",
+  "google-generative-ai",
+  "github-copilot",
+  "bedrock-converse-stream",
+  "ollama",
+  "azure-openai-responses",
+]);
+const DEPRECATED_MODEL_API_RENAMES = new Map([
+  ["google-gemini", "google-generative-ai"],
+]);
 
 function asObject(value: unknown): JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -76,6 +90,24 @@ function normalizeModelValue(modelValue: unknown): string | null {
       ? "lumina"
       : parsed.providerId.trim().toLowerCase();
   return createModelRef(normalizedProviderId, parsed.modelId);
+}
+
+function normalizeProviderTemplateApi(provider: JsonObject, template: JsonObject): JsonObject {
+  const api = typeof provider.api === "string" ? provider.api.trim() : "";
+  const renamedApi = DEPRECATED_MODEL_API_RENAMES.get(api);
+  if (renamedApi) {
+    return {
+      ...provider,
+      api: renamedApi,
+    };
+  }
+  if (!VALID_OPENCLAW_MODEL_APIS.has(api)) {
+    return {
+      ...provider,
+      api: template.api,
+    };
+  }
+  return provider;
 }
 
 function readModelPrimaryValue(value: unknown): string | null {
@@ -182,6 +214,86 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
       },
     ],
   };
+  const providerTemplates: Array<[string, JsonObject]> = [
+    [
+      "openai",
+      {
+        baseUrl: `http://127.0.0.1:${config.proxyPort}/openai/v1`,
+        api: "openai-completions",
+        apiKey: "",
+        models: [
+          {
+            id: "gpt-5.5",
+            name: "OpenAI GPT-5.5",
+            contextWindow: 128000,
+            maxTokens: 4096,
+            input: ["text"],
+          },
+        ],
+      },
+    ],
+    [
+      "anthropic",
+      {
+        baseUrl: `http://127.0.0.1:${config.proxyPort}/anthropic`,
+        api: "anthropic-messages",
+        apiKey: "",
+        models: [
+          {
+            id: "claude-haiku-4-5-20251001",
+            name: "Anthropic Claude Haiku",
+            contextWindow: 200000,
+            maxTokens: 4096,
+            input: ["text"],
+          },
+        ],
+      },
+    ],
+    [
+      "gemini",
+      {
+        baseUrl: `http://127.0.0.1:${config.proxyPort}/gemini`,
+        api: "google-generative-ai",
+        apiKey: "",
+        models: [
+          {
+            id: "gemini-3.1-pro-preview",
+            name: "Google Gemini 3.1 Pro Preview",
+            contextWindow: 1000000,
+            maxTokens: 4096,
+            input: ["text"],
+          },
+        ],
+      },
+    ],
+    [
+      "deepseek",
+      {
+        baseUrl: `http://127.0.0.1:${config.proxyPort}/deepseek/v1`,
+        api: "openai-completions",
+        apiKey: "",
+        models: [
+          {
+            id: "deepseek-v4-flash",
+            name: "DeepSeek V4 Flash",
+            contextWindow: 64000,
+            maxTokens: 4096,
+            input: ["text"],
+          },
+        ],
+      },
+    ],
+  ];
+  for (const [templateProviderId, template] of providerTemplates) {
+    if (providers[templateProviderId] === undefined) {
+      providers[templateProviderId] = template;
+    } else {
+      providers[templateProviderId] = normalizeProviderTemplateApi(
+        asObject(providers[templateProviderId]),
+        template,
+      );
+    }
+  }
   models.providers = providers;
   next.models = models;
 
@@ -238,6 +350,11 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
   if (luminaEntry.enabled === undefined) {
     luminaEntry.enabled = true;
   }
+  const luminaPluginConfig = asObject(luminaEntry.config);
+  if (luminaPluginConfig.heartbeatEnabled === undefined) {
+    luminaPluginConfig.heartbeatEnabled = false;
+  }
+  luminaEntry.config = luminaPluginConfig;
   entries["lumina-pc"] = luminaEntry;
   const browserEntry = asObject(entries.browser);
   if (browserEntry.enabled === undefined) {
@@ -257,16 +374,14 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
   plugins.load = load;
   next.plugins = plugins;
 
+  // Remove legacy key that violates openclaw's config schema.
   const meta = asObject(next.meta);
-  meta.luminaDesktopBootstrap = {
-    version: 4,
-    defaultTab: config.defaultTab,
-    providerId,
-    modelRef,
-    preferredModelRef: resolvedPrimaryModelValue,
-    updatedAt: new Date().toISOString(),
-  };
-  next.meta = meta;
+  delete meta.luminaDesktopBootstrap;
+  if (Object.keys(meta).length > 0) {
+    next.meta = meta;
+  } else {
+    delete next.meta;
+  }
 
   writeJson(config.openclawConfigPath, next);
 }
@@ -294,14 +409,12 @@ export function persistPreferredModelSelection(config: LuminaConfig, modelRef: s
   next.agents = agents;
 
   const meta = asObject(next.meta);
-  const bootstrapMeta = asObject(meta.luminaDesktopBootstrap);
-  meta.luminaDesktopBootstrap = {
-    ...bootstrapMeta,
-    version: 4,
-    preferredModelRef: modelDefaults.primary,
-    preferredModelUpdatedAt: new Date().toISOString(),
-  };
-  next.meta = meta;
+  delete meta.luminaDesktopBootstrap;
+  if (Object.keys(meta).length > 0) {
+    next.meta = meta;
+  } else {
+    delete next.meta;
+  }
 
   writeJson(config.openclawConfigPath, next);
   config.preferredModelRef = normalizedModelRef;

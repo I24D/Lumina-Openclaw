@@ -2,6 +2,7 @@ type LuminaRendererConfig = {
   authServiceUrl: string;
   gatewayUrl: string;
   gatewayToken: string;
+  proxyUrl: string;
   defaultTab: string;
   requireLuminaAuth: boolean;
 };
@@ -45,7 +46,8 @@ const DEFAULT_CONFIG: LuminaRendererConfig = {
   authServiceUrl: "",
   gatewayUrl: "",
   gatewayToken: "",
-  defaultTab: "instances",
+  proxyUrl: "http://127.0.0.1:4321",
+  defaultTab: "chat",
   requireLuminaAuth: false,
 };
 
@@ -77,6 +79,7 @@ function normalizeConfig(value: unknown): LuminaRendererConfig {
     authServiceUrl: readString(input.authServiceUrl, DEFAULT_CONFIG.authServiceUrl),
     gatewayUrl: readString(input.gatewayUrl, DEFAULT_CONFIG.gatewayUrl),
     gatewayToken: readString(input.gatewayToken, DEFAULT_CONFIG.gatewayToken),
+    proxyUrl: readString(input.proxyUrl, DEFAULT_CONFIG.proxyUrl),
     defaultTab: readString(input.defaultTab, DEFAULT_CONFIG.defaultTab),
     requireLuminaAuth: readBoolean(
       input.requireLuminaAuth,
@@ -137,6 +140,34 @@ function loadStoredSettings(scopedKey: string, legacyKey: string): Record<string
   }
 }
 
+function isBackgroundSessionKey(value: unknown): boolean {
+  const key = readString(value).trim().toLowerCase();
+  return !key || key === "heartbeat" || key.startsWith("system:") || key.includes(":cron:");
+}
+
+function forceMainSessionForDesktopChat(
+  settings: Record<string, unknown>,
+  scopedGateway: string,
+): void {
+  if (isBackgroundSessionKey(settings.sessionKey)) {
+    settings.sessionKey = "main";
+  }
+  if (isBackgroundSessionKey(settings.lastActiveSessionKey)) {
+    settings.lastActiveSessionKey = "main";
+  }
+
+  const sessionsByGateway = asObject(settings.sessionsByGateway);
+  const scopedSession = asObject(sessionsByGateway[scopedGateway]);
+  if (isBackgroundSessionKey(scopedSession.sessionKey)) {
+    scopedSession.sessionKey = "main";
+  }
+  if (isBackgroundSessionKey(scopedSession.lastActiveSessionKey)) {
+    scopedSession.lastActiveSessionKey = "main";
+  }
+  sessionsByGateway[scopedGateway] = scopedSession;
+  settings.sessionsByGateway = sessionsByGateway;
+}
+
 function bootstrapRendererGlobals(windowObject: Window, config: LuminaRendererConfig): void {
   const target = windowObject as unknown as Record<string, unknown>;
   target.__LUMINA_AUTH_URL__ = config.authServiceUrl;
@@ -150,6 +181,9 @@ function bootstrapRendererGlobals(windowObject: Window, config: LuminaRendererCo
     const scopedSettingsKey = `openclaw.control.settings.v1:${scopedGateway}`;
     const settings = loadStoredSettings(scopedSettingsKey, legacySettingsKey);
     settings.gatewayUrl = config.gatewayUrl;
+    if (config.defaultTab === "chat") {
+      forceMainSessionForDesktopChat(settings, scopedGateway);
+    }
     localStorage.setItem(legacySettingsKey, JSON.stringify(settings));
     localStorage.setItem(scopedSettingsKey, JSON.stringify(settings));
 

@@ -4,6 +4,7 @@ import type { CronModelSuggestionsState, CronState } from "./controllers/cron.ts
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
+import type { LuminaCodeStatus } from "./controllers/lumina-code.ts";
 import type {
   ClawHubSearchResult,
   ClawHubSkillDetail,
@@ -320,6 +321,11 @@ export type AppViewState = {
     logsLimit: number;
     logsMaxBytes: number;
     logsAtBottom: boolean;
+    luminaCodeStatusLoading: boolean;
+    luminaCodeOpening: boolean;
+    luminaCodeStatus: LuminaCodeStatus | null;
+    luminaCodeError: string | null;
+    luminaCodeMessage: string | null;
     updateAvailable: import("./types.js").UpdateAvailable | null;
     attentionItems: AttentionItem[];
     paletteOpen: boolean;
@@ -379,6 +385,8 @@ export type AppViewState = {
     handleLoadSkills: () => Promise<void>;
     handleLoadDebug: () => Promise<void>;
     handleLoadLogs: () => Promise<void>;
+    loadLuminaCodeStatus: () => Promise<void>;
+    openLuminaCode: () => Promise<void>;
     handleDebugCall: () => Promise<void>;
     handleRunUpdate: () => Promise<void>;
     setPassword: (next: string) => void;

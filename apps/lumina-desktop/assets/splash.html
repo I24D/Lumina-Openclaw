@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lumina OpenClaw</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0e1015;
+    color: #e2e8f0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  .logo {
+    width: 72px;
+    height: 72px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 28px;
+    box-shadow: 0 0 40px rgba(99,102,241,0.35);
+  }
+
+  .logo svg { width: 40px; height: 40px; }
+
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    color: #f1f5f9;
+    margin-bottom: 8px;
+  }
+
+  .subtitle {
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 40px;
+  }
+
+  .spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid #1e293b;
+    border-top-color: #6366f1;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 20px;
+    flex-shrink: 0;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  #status {
+    font-size: 13px;
+    color: #94a3b8;
+    text-align: center;
+    max-width: 360px;
+    line-height: 1.6;
+    min-height: 20px;
+    transition: opacity 0.2s ease;
+  }
+
+  /* Progress bar — hidden until download starts */
+  #progress-wrap {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    width: 320px;
+    gap: 8px;
+    margin-top: 18px;
+  }
+
+  #progress-track {
+    width: 100%;
+    height: 6px;
+    background: #1e293b;
+    border-radius: 99px;
+    overflow: hidden;
+  }
+
+  #progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #6366f1, #8b5cf6);
+    border-radius: 99px;
+    transition: width 0.4s ease;
+  }
+
+  #progress-labels {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  #progress-mb {
+    font-size: 11px;
+    color: #64748b;
+  }
+
+  #progress-pct {
+    font-size: 11px;
+    font-weight: 600;
+    color: #6366f1;
+  }
+
+  #error-box {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    max-width: 420px;
+    text-align: center;
+  }
+
+  .error-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(239,68,68,0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ef4444;
+    font-size: 22px;
+  }
+
+  .error-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #f87171;
+  }
+
+  .error-message {
+    font-size: 12px;
+    color: #94a3b8;
+    line-height: 1.7;
+    background: #0f1117;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    padding: 12px 16px;
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 180px;
+    overflow-y: auto;
+  }
+
+  .retry-btn {
+    padding: 9px 22px;
+    border-radius: 8px;
+    background: #6366f1;
+    color: #fff;
+    border: none;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .retry-btn:hover { background: #4f46e5; }
+
+  #loading-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+</style>
+</head>
+<body>
+
+<div class="logo">
+  <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M20 6C12.268 6 6 12.268 6 20s6.268 14 14 14 14-6.268 14-14S27.732 6 20 6z"
+          fill="rgba(255,255,255,0.12)"/>
+    <path d="M14 20l5 5 9-9" stroke="#fff" stroke-width="2.5"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+</div>
+
+<h1>Lumina OpenClaw</h1>
+<p class="subtitle">Iniciando tu entorno de IA local</p>
+
+<div id="loading-area">
+  <div class="spinner"></div>
+  <div id="status">Preparando OpenClaw&hellip;</div>
+
+  <div id="progress-wrap">
+    <div id="progress-track">
+      <div id="progress-bar"></div>
+    </div>
+    <div id="progress-labels">
+      <span id="progress-mb"></span>
+      <span id="progress-pct"></span>
+    </div>
+  </div>
+</div>
+
+<div id="error-box">
+  <div class="error-icon">&#9888;</div>
+  <div class="error-title">Error al iniciar Lumina</div>
+  <pre class="error-message" id="error-message"></pre>
+  <button class="retry-btn" onclick="location.reload()">Reintentar</button>
+</div>
+
+<script>
+(function () {
+  var statusEl    = document.getElementById('status');
+  var loadingArea = document.getElementById('loading-area');
+  var errorBox    = document.getElementById('error-box');
+  var errorMsg    = document.getElementById('error-message');
+  var progressWrap = document.getElementById('progress-wrap');
+  var progressBar  = document.getElementById('progress-bar');
+  var progressMb   = document.getElementById('progress-mb');
+  var progressPct  = document.getElementById('progress-pct');
+
+  function setStatus(msg) {
+    statusEl.textContent = msg;
+  }
+
+  function setProgress(percent, detail, downloadedMb, totalMb) {
+    progressWrap.style.display = 'flex';
+    progressBar.style.width = Math.min(100, percent) + '%';
+    progressPct.textContent = Math.min(100, percent) + '%';
+    if (detail) {
+      progressMb.textContent = detail;
+    } else if (totalMb > 0) {
+      progressMb.textContent =
+        Math.round(downloadedMb) + ' MB / ' + Math.round(totalMb) + ' MB';
+    } else {
+      progressMb.textContent = '';
+    }
+  }
+
+  function showError(msg) {
+    loadingArea.style.display = 'none';
+    errorBox.style.display = 'flex';
+    errorMsg.textContent = msg;
+  }
+
+  function attachEvents() {
+    var tauri = window.__TAURI__;
+    if (!tauri || !tauri.event) {
+      setTimeout(attachEvents, 80);
+      return;
+    }
+
+    tauri.event.listen('lumina-setup-progress', function (event) {
+      var p = event.payload || {};
+      if (p.message) setStatus(p.message);
+      if (typeof p.percent === 'number') {
+        setProgress(p.percent, p.detail || '', p.downloadedMb || 0, p.totalMb || 0);
+      }
+    });
+
+    tauri.event.listen('lumina-setup-error', function (event) {
+      var msg = event.payload && event.payload.error
+        ? event.payload.error
+        : 'Error desconocido al iniciar Lumina.';
+      showError(msg);
+    });
+  }
+
+  attachEvents();
+})();
+</script>
+</body>
+</html>

@@ -55,7 +55,8 @@ const bundledRemoteBrainSecret = embedRuntimeSecrets ? configuredRemoteBrainSecr
 const defaultRemoteBrainEnabled =
   (typeof renderPreset.remoteBrainEnabled === "boolean"
     ? renderPreset.remoteBrainEnabled
-    : Boolean(remoteBrainUrl)) && Boolean(remoteBrainUrl);
+    : Boolean(remoteBrainUrl && bundledRemoteBrainSecret)) &&
+  Boolean(remoteBrainUrl && bundledRemoteBrainSecret);
 const providerId = readString("LUMINA_PROVIDER_ID", renderPreset.providerId);
 const modelId = readString("LUMINA_MODEL_ID", renderPreset.modelId);
 
@@ -79,7 +80,7 @@ const defaults = {
   remoteBrainEnabled: readBool(
     "LUMINA_REMOTE_BRAIN_ENABLED",
     defaultRemoteBrainEnabled,
-  ),
+  ) && Boolean(remoteBrainUrl && bundledRemoteBrainSecret),
   remoteBrainUrl,
   remoteBrainSecret: bundledRemoteBrainSecret,
   remoteBrainTimeoutMs: readInt(

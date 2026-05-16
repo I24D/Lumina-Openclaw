@@ -1,8 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 declare const process: NodeJS.Process & { resourcesPath?: string };
+
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
 export interface RuntimePaths {
   repoRoot: string;
@@ -23,16 +26,53 @@ function fileExists(filePath: string): boolean {
   return fs.existsSync(filePath);
 }
 
+function stripWindowsExtendedLengthPrefix(value: string): string {
+  if (process.platform !== "win32") {
+    return value;
+  }
+  if (value.startsWith("\\\\?\\UNC\\")) {
+    return `\\\\${value.slice("\\\\?\\UNC\\".length)}`;
+  }
+  if (value.startsWith("\\\\?\\")) {
+    return value.slice("\\\\?\\".length);
+  }
+  return value;
+}
+
+function normalizeRuntimePath(value: string): string {
+  if (!value) {
+    return value;
+  }
+  return path.normalize(stripWindowsExtendedLengthPrefix(value));
+}
+
+function normalizeRuntimePaths(paths: RuntimePaths): RuntimePaths {
+  return {
+    repoRoot: normalizeRuntimePath(paths.repoRoot),
+    runtimeRoot: normalizeRuntimePath(paths.runtimeRoot),
+    uiIndexPath: normalizeRuntimePath(paths.uiIndexPath),
+    defaultsFilePath: normalizeRuntimePath(paths.defaultsFilePath),
+    nodeRuntimePath: normalizeRuntimePath(paths.nodeRuntimePath),
+    runtimeManagerBinaryPath: normalizeRuntimePath(paths.runtimeManagerBinaryPath),
+    openClawRoot: normalizeRuntimePath(paths.openClawRoot),
+    openClawEntryPath: normalizeRuntimePath(paths.openClawEntryPath),
+    openClawBundledPluginsDir: normalizeRuntimePath(paths.openClawBundledPluginsDir),
+    luminaPluginDir: normalizeRuntimePath(paths.luminaPluginDir),
+    proxyRoot: normalizeRuntimePath(paths.proxyRoot),
+    proxyEntryPath: normalizeRuntimePath(paths.proxyEntryPath),
+  };
+}
+
 function resolveRepoRoot(): string {
   const explicitRepoRoot = process.env.LUMINA_REPO_ROOT?.trim();
   if (explicitRepoRoot && fileExists(explicitRepoRoot)) {
-    return path.resolve(explicitRepoRoot);
+    return normalizeRuntimePath(path.resolve(explicitRepoRoot));
   }
   const resourcesRoot = process.env.LUMINA_RESOURCE_ROOT?.trim() || process.resourcesPath || "";
   if (resourcesRoot && fileExists(resourcesRoot)) {
-    return path.resolve(resourcesRoot);
+    return normalizeRuntimePath(path.resolve(resourcesRoot));
   }
-  return path.resolve(__dirname, "..", "..", "..");
+  return normalizeRuntimePath(path.resolve(moduleDir, "..", "..", ".."));
 }
 
 function resolveRuntimeManagerBinaryPath(repoRoot: string, resourcesRoot: string): string {
@@ -41,7 +81,7 @@ function resolveRuntimeManagerBinaryPath(repoRoot: string, resourcesRoot: string
   const candidates = [
     explicitPath ?? "",
     resourcesRoot ? path.join(resourcesRoot, "runtime-tools", binaryName) : "",
-    path.resolve(__dirname, "..", "build", "runtime-tools", binaryName),
+    path.resolve(moduleDir, "..", "build", "runtime-tools", binaryName),
     path.join(repoRoot, "rust", "lumina-bootstrapper", "target", "release", binaryName),
     path.join(repoRoot, "rust", "lumina-bootstrapper", "target", "debug", binaryName),
   ];
@@ -103,15 +143,25 @@ function resolveOpenClawPluginDirs(openClawRoot: string): {
   };
 }
 
+function resolvePackagedUiIndex(resourcesRoot: string): string {
+  const candidates = [
+    path.join(resourcesRoot, "ui", "index.html"),
+    path.join(resourcesRoot, "openclaw", "dist", "control-ui", "index.html"),
+  ];
+  return candidates.find((candidate) => fileExists(candidate)) ?? candidates[0];
+}
+
 export function resolveRuntimePaths(): RuntimePaths {
   const repoRoot = resolveRepoRoot();
   const externalRuntimeRoot = readBootstrapStateRuntimeRoot();
-  const resourcesRoot = process.env.LUMINA_RESOURCE_ROOT?.trim() || process.resourcesPath || "";
+  const resourcesRoot = normalizeRuntimePath(
+    process.env.LUMINA_RESOURCE_ROOT?.trim() || process.resourcesPath || "",
+  );
   const runtimeManagerBinaryPath = resolveRuntimeManagerBinaryPath(repoRoot, resourcesRoot);
   if (externalRuntimeRoot) {
     const openClawRoot = path.join(externalRuntimeRoot, "openclaw");
     const pluginDirs = resolveOpenClawPluginDirs(openClawRoot);
-    return {
+    return normalizeRuntimePaths({
       repoRoot,
       runtimeRoot: externalRuntimeRoot,
       uiIndexPath: path.join(externalRuntimeRoot, "ui", "index.html"),
@@ -124,14 +174,14 @@ export function resolveRuntimePaths(): RuntimePaths {
       luminaPluginDir: pluginDirs.luminaPluginDir,
       proxyRoot: path.join(externalRuntimeRoot, "proxy"),
       proxyEntryPath: path.join(externalRuntimeRoot, "proxy", "server.mjs"),
-    };
+    });
   }
-  const packagedUiIndex = path.join(resourcesRoot, "ui", "index.html");
+  const packagedUiIndex = resolvePackagedUiIndex(resourcesRoot);
 
   if (resourcesRoot && fileExists(packagedUiIndex)) {
     const openClawRoot = path.join(resourcesRoot, "openclaw");
     const pluginDirs = resolveOpenClawPluginDirs(openClawRoot);
-    return {
+    return normalizeRuntimePaths({
       repoRoot,
       runtimeRoot: resourcesRoot,
       uiIndexPath: packagedUiIndex,
@@ -144,17 +194,17 @@ export function resolveRuntimePaths(): RuntimePaths {
       luminaPluginDir: pluginDirs.luminaPluginDir,
       proxyRoot: path.join(resourcesRoot, "proxy"),
       proxyEntryPath: path.join(resourcesRoot, "proxy", "server.mjs"),
-    };
+    });
   }
 
   const openClawRoot = path.join(repoRoot, "Open_PC");
   const pluginDirs = resolveOpenClawPluginDirs(openClawRoot);
-  return {
+  return normalizeRuntimePaths({
     repoRoot,
     runtimeRoot: repoRoot,
     uiIndexPath: path.join(openClawRoot, "dist", "control-ui", "index.html"),
-    defaultsFilePath: path.resolve(__dirname, "..", "build", "lumina-defaults.json"),
-    nodeRuntimePath: resolveBundledNodePath(path.resolve(__dirname, "..", "build", "runtime-node")),
+    defaultsFilePath: path.resolve(moduleDir, "..", "build", "lumina-defaults.json"),
+    nodeRuntimePath: resolveBundledNodePath(path.resolve(moduleDir, "..", "build", "runtime-node")),
     runtimeManagerBinaryPath,
     openClawRoot,
     openClawEntryPath: path.join(openClawRoot, "openclaw.mjs"),
@@ -162,5 +212,5 @@ export function resolveRuntimePaths(): RuntimePaths {
     luminaPluginDir: pluginDirs.luminaPluginDir,
     proxyRoot: path.join(repoRoot, "tool-proxy"),
     proxyEntryPath: path.join(repoRoot, "tool-proxy", "server.mjs"),
-  };
+  });
 }

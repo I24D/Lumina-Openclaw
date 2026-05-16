@@ -10,7 +10,7 @@ export interface UserLLMSettings {
 const SERVER_DEFAULTS: UserLLMSettings = {
   provider: process.env.BRAIN_LLM_PROVIDER ?? "anthropic",
   api_key:  process.env.BRAIN_LLM_API_KEY  ?? "",
-  model:    process.env.BRAIN_LLM_MODEL    ?? "claude-sonnet-4-6",
+  model:    process.env.BRAIN_LLM_MODEL    ?? "claude-opus-4-7",
   base_url: process.env.BRAIN_LLM_BASE_URL,
 };
 

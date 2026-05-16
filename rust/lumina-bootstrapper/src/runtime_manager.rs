@@ -2,8 +2,9 @@ use crate::InstallPaths;
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::io::{BufRead, BufReader};
+use std::ffi::OsString;
+use std::fs::{self, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -97,6 +98,7 @@ impl RuntimeManager {
         startup_timeout_ms: u64,
     ) -> Result<Self> {
         ensure_runtime_manager_dirs(paths)?;
+        initialize_startup_log(paths, &spec)?;
         cleanup_existing_runtime_session(paths, DEFAULT_STOP_TIMEOUT_MS)?;
         clear_stop_signal(paths)?;
         validate_launch_spec(&spec)?;
@@ -133,6 +135,7 @@ impl RuntimeManager {
                 ("OPENCLAW_TOKEN", spec.gateway_token.clone()),
             ],
             "proxy",
+            &paths.runtime_startup_log_file,
         )
         .context("failed to spawn the Lumina proxy runtime")?;
 
@@ -183,6 +186,7 @@ impl RuntimeManager {
                 ),
             ],
             "openclaw",
+            &paths.runtime_startup_log_file,
         ) {
             Ok(child) => child,
             Err(err) => {
@@ -231,6 +235,10 @@ impl RuntimeManager {
         .map_err(|err| {
             session.status = "failed".to_string();
             session.last_error = Some(err.to_string());
+            let _ = append_startup_log_line(
+                &paths.runtime_startup_log_file,
+                &format!("[manager] startup failed: {err:#}"),
+            );
             let _ = write_runtime_session(paths, &session);
             kill_child_if_running(&mut proxy_child);
             kill_child_if_running(&mut gateway_child);
@@ -243,6 +251,13 @@ impl RuntimeManager {
         session.ready_at = Some(ready_at.clone());
         session.last_heartbeat_at = ready_at;
         write_runtime_session(paths, &session)?;
+        append_startup_log_line(
+            &paths.runtime_startup_log_file,
+            &format!(
+                "[manager] runtime ready on proxy port {} and gateway port {}",
+                spec.proxy_port, spec.gateway_port
+            ),
+        )?;
 
         Ok(Self {
             paths: paths.clone(),
@@ -379,6 +394,51 @@ fn ensure_runtime_manager_dirs(paths: &InstallPaths) -> Result<()> {
     Ok(())
 }
 
+fn initialize_startup_log(paths: &InstallPaths, spec: &RuntimeLaunchSpec) -> Result<()> {
+    if let Some(parent) = paths.runtime_startup_log_file.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&paths.runtime_startup_log_file)
+        .with_context(|| {
+            format!(
+                "failed to open startup log {}",
+                paths.runtime_startup_log_file.display()
+            )
+        })?;
+    writeln!(file, "[manager] startup log initialized at {}", Utc::now().to_rfc3339())?;
+    writeln!(file, "[manager] runtime root: {}", spec.runtime_root.display())?;
+    writeln!(
+        file,
+        "[manager] openclaw root: {}",
+        spec.open_claw_root.display()
+    )?;
+    writeln!(
+        file,
+        "[manager] bundled plugins: {}",
+        spec.openclaw_bundled_plugins_dir.display()
+    )?;
+    writeln!(file, "[manager] proxy root: {}", spec.proxy_root.display())?;
+    Ok(())
+}
+
+fn append_startup_log_line(path: &Path, line: &str) -> Result<()> {
+    append_startup_log_raw(path, &format!("{line}\n"))
+}
+
+fn append_startup_log_raw(path: &Path, text: &str) -> Result<()> {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("failed to append startup log {}", path.display()))?;
+    file.write_all(text.as_bytes())?;
+    Ok(())
+}
+
 fn validate_launch_spec(spec: &RuntimeLaunchSpec) -> Result<()> {
     validate_file(&spec.node_executable_path, "Node executable")?;
     validate_dir(&spec.open_claw_root, "OpenClaw root")?;
@@ -445,6 +505,7 @@ fn is_runtime_session_alive(session: &RuntimeSession) -> bool {
 
 fn read_node_version(node_executable_path: &Path) -> Result<String> {
     let mut command = Command::new(node_executable_path);
+    sanitize_node_command_environment(&mut command);
     command
         .arg("-e")
         .arg("process.stdout.write(process.versions.node)")
@@ -501,6 +562,7 @@ fn spawn_node_child(
     cwd: &Path,
     envs: &[(&str, String)],
     prefix: &str,
+    startup_log_path: &Path,
 ) -> Result<Child> {
     let mut command = Command::new(node_executable_path);
     command
@@ -511,12 +573,24 @@ fn spawn_node_child(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    sanitize_node_command_environment(&mut command);
+
     for (key, value) in envs {
         command.env(key, value);
     }
 
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
+
+    let _ = append_startup_log_line(
+        startup_log_path,
+        &format!(
+            "[manager] spawning {prefix}: {} {} (cwd: {})",
+            node_executable_path.display(),
+            entry_path.display(),
+            cwd.display()
+        ),
+    );
 
     let mut child = command.spawn().with_context(|| {
         format!(
@@ -527,16 +601,26 @@ fn spawn_node_child(
     })?;
 
     if let Some(stdout) = child.stdout.take() {
-        forward_stream(stdout, prefix.to_string(), false);
+        forward_stream(
+            stdout,
+            prefix.to_string(),
+            false,
+            startup_log_path.to_path_buf(),
+        );
     }
     if let Some(stderr) = child.stderr.take() {
-        forward_stream(stderr, prefix.to_string(), true);
+        forward_stream(
+            stderr,
+            prefix.to_string(),
+            true,
+            startup_log_path.to_path_buf(),
+        );
     }
 
     Ok(child)
 }
 
-fn forward_stream<R>(stream: R, prefix: String, is_stderr: bool)
+fn forward_stream<R>(stream: R, prefix: String, is_stderr: bool, startup_log_path: PathBuf)
 where
     R: std::io::Read + Send + 'static,
 {
@@ -548,16 +632,47 @@ where
             match reader.read_line(&mut line) {
                 Ok(0) => break,
                 Ok(_) => {
+                    let output = format!("[{prefix}] {line}");
                     if is_stderr {
-                        eprint!("[{prefix}] {line}");
+                        eprint!("{output}");
                     } else {
-                        print!("[{prefix}] {line}");
+                        print!("{output}");
                     }
+                    let _ = append_startup_log_raw(&startup_log_path, &output);
                 }
                 Err(_) => break,
             }
         }
     });
+}
+
+fn sanitize_node_command_environment(command: &mut Command) {
+    let exact_keys = [
+        "ELECTRON_RUN_AS_NODE",
+        "INIT_CWD",
+        "NODE_OPTIONS",
+        "NODE_PATH",
+        "OPENCLAW_PLUGIN_CATALOG_PATHS",
+        "OPENCLAW_MPM_CATALOG_PATHS",
+    ];
+    for key in exact_keys {
+        command.env_remove(key);
+    }
+
+    let inherited_keys: Vec<OsString> = std::env::vars_os().map(|(key, _)| key).collect();
+    for key in inherited_keys {
+        let key_text = key.to_string_lossy().to_ascii_lowercase();
+        if key_text.starts_with("electron_")
+            || key_text.starts_with("lumina_")
+            || key_text.starts_with("npm_")
+            || key_text.starts_with("openclaw_")
+            || key_text.starts_with("pnpm_")
+            || key_text.starts_with("vite_")
+            || key_text.starts_with("yarn_")
+        {
+            command.env_remove(key);
+        }
+    }
 }
 
 fn wait_for_ports_or_child_exit(

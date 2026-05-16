@@ -32,6 +32,7 @@ async function main(): Promise<void> {
         authServiceUrl: config.authServiceUrl,
         gatewayUrl: `ws://127.0.0.1:${config.gatewayPort}`,
         gatewayToken: config.gatewayToken,
+        proxyUrl: `http://127.0.0.1:${config.proxyPort}`,
         defaultTab: config.defaultTab,
         requireLuminaAuth: config.requireLuminaAuth,
       },

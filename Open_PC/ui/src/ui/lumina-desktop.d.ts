@@ -2,6 +2,7 @@ interface LuminaDesktopRendererConfig {
   authServiceUrl: string;
   gatewayUrl: string;
   gatewayToken: string;
+  proxyUrl: string;
   defaultTab: string;
   requireLuminaAuth: boolean;
 }

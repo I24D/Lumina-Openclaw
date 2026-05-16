@@ -30,8 +30,19 @@ function byteSize(targetPath) {
   return fs.statSync(targetPath).size;
 }
 
+function listArchiveEntries(sourceDir) {
+  const entries = fs
+    .readdirSync(sourceDir, { withFileTypes: true })
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right));
+  if (entries.length === 0) {
+    fail(`Cannot archive an empty directory: ${sourceDir}`);
+  }
+  return entries;
+}
+
 function archiveWithTar(sourceDir, archivePath) {
-  const result = spawnSync("tar", ["-czf", archivePath, "-C", sourceDir, "."], {
+  const result = spawnSync("tar", ["-czf", archivePath, "-C", sourceDir, ...listArchiveEntries(sourceDir)], {
     cwd: repoRoot,
     stdio: "inherit",
     env: process.env,

@@ -1,0 +1,85 @@
+.lumina-code-page {
+  max-width: 1180px;
+}
+
+.lumina-code-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.lumina-code-hero__icon {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  background: color-mix(in srgb, var(--accent-subtle) 72%, var(--bg-elevated));
+  color: var(--accent);
+}
+
+.lumina-code-hero__icon svg {
+  width: 24px;
+  height: 24px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.6px;
+}
+
+.lumina-code-hero__body {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.lumina-code-hero__eyebrow {
+  margin: 0;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lumina-code-hero__title {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 24px;
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+}
+
+.lumina-code-hero__text {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.lumina-code-actions {
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.lumina-code-status-grid {
+  align-items: stretch;
+}
+
+.lumina-code-path {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+@media (max-width: 720px) {
+  .lumina-code-hero {
+    flex-direction: column;
+  }
+}

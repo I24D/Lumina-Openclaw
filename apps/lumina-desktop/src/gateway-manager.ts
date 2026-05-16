@@ -7,10 +7,12 @@ import { bootstrapLuminaRuntime } from "./bootstrap.js";
 import { resolveRuntimePaths, type RuntimePaths } from "./runtime-paths.js";
 
 const POLL_INTERVAL_MS = 500;
-const READY_TIMEOUT_MS = 30_000;
+const READY_TIMEOUT_MS = 600_000;
 
 let runtimeManagerProcess: ChildProcess | null = null;
 let runtimeManagerOutput = "";
+let intentionalStop = false;
+let lastConfig: LuminaConfig | null = null;
 
 function appendRuntimeManagerOutput(chunk: string): void {
   runtimeManagerOutput = `${runtimeManagerOutput}${chunk}`.slice(-12_000);
@@ -210,6 +212,8 @@ export async function startGateway(config: LuminaConfig): Promise<void> {
     console.log("[runtime-manager] Remote brain bridge disabled.");
   }
 
+  intentionalStop = false;
+  lastConfig = config;
   runtimeManagerOutput = "";
   runtimeManagerProcess = spawn(
     runtimeManagerBinary,
@@ -224,9 +228,23 @@ export async function startGateway(config: LuminaConfig): Promise<void> {
   );
 
   logChildOutput(runtimeManagerProcess, "runtime-manager");
-  runtimeManagerProcess.on("exit", (code, signal) => {
+  runtimeManagerProcess.on("exit", (code: number | null, signal: string | null) => {
     console.log(`[runtime-manager] Exited - code=${code ?? "?"} signal=${signal ?? "none"}`);
     runtimeManagerProcess = null;
+    if (!intentionalStop && lastConfig !== null) {
+      const configSnapshot = lastConfig;
+      console.log("[runtime-manager] Unexpected exit — restarting in 3s...");
+      setTimeout(() => {
+        if (!intentionalStop) {
+          startGateway(configSnapshot).catch((err: unknown) => {
+            console.error(
+              "[runtime-manager] Auto-restart failed:",
+              err instanceof Error ? err.message : String(err),
+            );
+          });
+        }
+      }, 3_000);
+    }
   });
 
   try {
@@ -240,6 +258,7 @@ export async function startGateway(config: LuminaConfig): Promise<void> {
 }
 
 export function stopGateway(): void {
+  intentionalStop = true;
   const runtimePaths = resolveRuntimePaths();
   const managerBinaryPath = runtimePaths.runtimeManagerBinaryPath;
   const activeManagerProcess = runtimeManagerProcess;

@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   BUNDLE_MANIFEST_SCHEMA_VERSION,
   createBundleEntry,
@@ -19,6 +19,10 @@ const repoRoot = path.resolve(here, "..");
 const openClawRoot = path.join(repoRoot, "Open_PC");
 const desktopRoot = path.join(repoRoot, "apps", "lumina-desktop");
 const toolProxyRoot = path.join(repoRoot, "tool-proxy");
+const workspaceRoot = path.resolve(repoRoot, "..");
+const luminaCodeVsixPath =
+  process.env.LUMINA_CODE_VSIX_PATH ??
+  path.join(workspaceRoot, "src", "lumina-code", "official", "extensions", "vscode", "build", "lumina-code-0.1.0.vsix");
 const bundleManifestPath = path.join(desktopRoot, "build", "openclaw-bundle.json");
 const canonicalBundleRoot = path.join(desktopRoot, "build", "runtime-bundle");
 const canonicalBundlePayloadRoot = path.join(canonicalBundleRoot, "payload");
@@ -31,6 +35,55 @@ const pnpmCmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const desktopPackageJsonPath = path.join(desktopRoot, "package.json");
 const tauriConfigPath = path.join(desktopRoot, "src-tauri", "tauri.conf.json");
 const openClawPackageJsonPath = path.join(openClawRoot, "package.json");
+const openClawNpmrcPath = path.join(openClawRoot, ".npmrc");
+const openClawWorkspacePath = path.join(openClawRoot, "pnpm-workspace.yaml");
+const openClawPatchesDir = path.join(openClawRoot, "patches");
+const PRODUCTION_DEPENDENCY_LAYOUT_VERSION = 3;
+const NODE_MODULES_PRUNE_SUFFIXES = [
+  ".ts",
+  ".mts",
+  ".cts",
+  ".map",
+  ".md",
+  ".mdx",
+];
+const NODE_MODULES_PRUNE_FILE_NAMES = new Set([
+  "readme",
+  "readme.md",
+  "changelog",
+  "changelog.md",
+]);
+const NODE_MODULES_KEEP_FILE_NAMES = new Set([
+  "authors",
+  "authors.md",
+  "copying",
+  "copying.md",
+  "licence",
+  "licence.md",
+  "license",
+  "license.md",
+  "notice",
+  "notice.md",
+]);
+const NODE_MODULES_RUNTIME_FILE_EXTENSIONS = new Set([
+  ".js",
+  ".cjs",
+  ".mjs",
+  ".json",
+  ".node",
+  ".wasm",
+]);
+const NODE_MODULES_PRUNE_DIRECTORY_NAMES = new Set([
+  "__tests__",
+  ".github",
+  ".vscode",
+  "coverage",
+  "example",
+  "examples",
+  "test",
+  "tests",
+]);
+const BUNDLED_PLUGIN_RUNTIME_METADATA_PRUNE_DIRECTORIES = new Set(["node_modules"]);
 
 const cliArgs = new Set(process.argv.slice(2));
 const forceRuntimeBuild =
@@ -41,6 +94,12 @@ const skipRuntimeBuild =
   cliArgs.has("--skip-openclaw-build") || process.env.LUMINA_SKIP_OPENCLAW_BUILD === "1";
 const skipUiBuild =
   cliArgs.has("--skip-ui-build") || process.env.LUMINA_SKIP_OPENCLAW_UI_BUILD === "1";
+const skipCanonicalRuntimeBundle =
+  cliArgs.has("--skip-canonical-runtime-bundle") ||
+  process.env.LUMINA_SKIP_CANONICAL_RUNTIME_BUNDLE === "1";
+const skipRuntimePostbuild =
+  cliArgs.has("--skip-runtime-postbuild") ||
+  process.env.LUMINA_SKIP_RUNTIME_POSTBUILD === "1";
 
 function log(message) {
   process.stdout.write(`[lumina-desktop] ${message}\n`);
@@ -59,6 +118,36 @@ function ensureExists(targetPath, label) {
 
 function readPackageJson(targetPath) {
   return readJsonFile(targetPath);
+}
+
+function readVsixPackageJson(targetPath, label) {
+  const result = spawnSync("tar", ["-xOf", targetPath, "extension/package.json"], {
+    encoding: "utf8",
+    maxBuffer: 2 * 1024 * 1024,
+  });
+  if ((result.status ?? 1) !== 0) {
+    const details = [result.stderr, result.stdout].map((value) => String(value ?? "").trim()).filter(Boolean).join("\n");
+    fail(`Could not read ${label} package.json from VSIX.${details ? ` ${details}` : ""}`);
+  }
+  try {
+    return JSON.parse(String(result.stdout ?? ""));
+  } catch (err) {
+    fail(`Could not parse ${label} package.json from VSIX: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+function verifyLuminaCodeVsixManifest(targetPath) {
+  const manifest = readVsixPackageJson(targetPath, "Lumina Code VSIX");
+  const serialized = JSON.stringify(manifest);
+  const forbidden = ["Lumina Studio", "lumina.autonomousTask", "Deploy Changelog"];
+  const foundForbidden = forbidden.filter((needle) => serialized.includes(needle));
+  if (foundForbidden.length > 0) {
+    fail(`Lumina Code VSIX is the experimental Studio build, not the official Continue-based build: ${foundForbidden.join(", ")}`);
+  }
+  if (!serialized.includes("continue.continueGUIView")) {
+    fail("Lumina Code VSIX does not expose continue.continueGUIView; refusing to package the wrong extension.");
+  }
+  log("Lumina Code VSIX manifest verified as official Continue-based build.");
 }
 
 function copyFileToStage(sourcePath, targetPath) {
@@ -113,7 +202,72 @@ function syncDirToStage(sourceDir, targetDir) {
   copyDirToStage(sourceDir, targetDir);
 }
 
+function copyBundledPluginRuntimeMetadata(sourceDir, targetDir) {
+  if (!fs.existsSync(sourceDir)) {
+    return;
+  }
+
+  for (const dirent of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    if (BUNDLED_PLUGIN_RUNTIME_METADATA_PRUNE_DIRECTORIES.has(dirent.name)) {
+      continue;
+    }
+
+    const sourcePath = path.join(sourceDir, dirent.name);
+    const targetPath = path.join(targetDir, dirent.name);
+
+    if (dirent.isDirectory()) {
+      copyBundledPluginRuntimeMetadata(sourcePath, targetPath);
+      continue;
+    }
+
+    if (!dirent.isFile()) {
+      continue;
+    }
+
+    if (path.extname(dirent.name).toLowerCase() === ".js") {
+      continue;
+    }
+
+    copyFileToStage(sourcePath, targetPath);
+  }
+}
+
+function syncBundledPluginRuntimeMetadata() {
+  const sourceExtensionsRoot = path.join(openClawRoot, "dist-runtime", "extensions");
+  const targetExtensionsRoot = path.join(stagedOpenClawDir, "dist", "extensions");
+
+  if (!fs.existsSync(sourceExtensionsRoot)) {
+    return;
+  }
+
+  log("Syncing bundled plugin runtime metadata into the production deploy bundle.");
+  copyBundledPluginRuntimeMetadata(sourceExtensionsRoot, targetExtensionsRoot);
+}
+
+function shouldSkipPackagedRuntimePath(sourcePath) {
+  const relativePath = path.relative(stagedOpenClawDir, sourcePath);
+  if (!relativePath || relativePath.startsWith("..")) {
+    return false;
+  }
+
+  const normalizedRelativePath = relativePath.split(path.sep).join("/");
+  return (
+    normalizedRelativePath === ".npmrc" ||
+    normalizedRelativePath === "pnpm-lock.yaml" ||
+    normalizedRelativePath === "pnpm-workspace.yaml" ||
+    normalizedRelativePath === "node_modules/.modules.yaml" ||
+    normalizedRelativePath === "node_modules/.pnpm" ||
+    normalizedRelativePath.startsWith("node_modules/.pnpm/") ||
+    normalizedRelativePath === "patches" ||
+    normalizedRelativePath.startsWith("patches/")
+  );
+}
+
 function copyPathResolvingSymlinks(sourcePath, targetPath, ancestors = new Set()) {
+  if (shouldSkipPackagedRuntimePath(sourcePath)) {
+    return;
+  }
+
   const sourceLstat = fs.lstatSync(sourcePath);
   const resolvedSourcePath = sourceLstat.isSymbolicLink()
     ? fs.realpathSync(sourcePath)
@@ -136,7 +290,7 @@ function copyPathResolvingSymlinks(sourcePath, targetPath, ancestors = new Set()
 
     for (const entry of entries) {
       copyPathResolvingSymlinks(
-        path.join(resolvedSourcePath, entry.name),
+        path.join(sourcePath, entry.name),
         path.join(targetPath, entry.name),
         nextAncestors,
       );
@@ -185,6 +339,10 @@ function sanitizeOpenClawSourceRuntimeOverlays() {
   }
 }
 
+function refreshOpenClawRuntimePostBuildArtifacts() {
+  runNodeScript(path.join(openClawRoot, "scripts", "runtime-postbuild.mjs"), openClawRoot);
+}
+
 function run(command, args, cwd) {
   log(`Running: ${command} ${args.join(" ")}`);
   const result =
@@ -213,9 +371,295 @@ function run(command, args, cwd) {
   }
 }
 
+function runNodeScript(scriptPath, cwd, args = []) {
+  log(`Running Node script: ${scriptPath} ${args.join(" ")}`.trimEnd());
+  const result = spawnSync(process.execPath, [scriptPath, ...args], {
+    cwd,
+    stdio: "inherit",
+    env: process.env,
+  });
+
+  if (result.error) {
+    fail(`Failed to start Node script ${scriptPath}: ${result.error.message}`);
+  }
+
+  if ((result.status ?? 1) !== 0) {
+    fail(`Node script ${scriptPath} exited with code ${result.status ?? 1}`);
+  }
+}
+
 function createEmptyCanonicalBundle() {
   fs.rmSync(canonicalBundleRoot, { recursive: true, force: true });
   ensureDirectory(canonicalBundlePayloadRoot);
+}
+
+function validateRequiredPaths(
+  rootDir,
+  rootLabel,
+  entries,
+) {
+  const missingEntries = [];
+
+  for (const entry of entries) {
+    const absolutePath = path.join(rootDir, ...entry.relativePath.split("/"));
+    const exists = fs.existsSync(absolutePath);
+    const kindMatches =
+      exists &&
+      (entry.kind === "directory"
+        ? fs.statSync(absolutePath).isDirectory()
+        : fs.statSync(absolutePath).isFile());
+
+    if (!kindMatches) {
+      missingEntries.push({
+        label: entry.label,
+        absolutePath,
+        expectedKind: entry.kind,
+      });
+    }
+  }
+
+  if (missingEntries.length > 0) {
+    const details = missingEntries
+      .map(
+        (entry) =>
+          ` - ${entry.label} (${entry.expectedKind}) -> ${entry.absolutePath}`,
+      )
+      .join("\n");
+    fail(
+      `Runtime bundle validation failed for ${rootLabel}.\n` +
+        `The installer would be incomplete, so the build is stopping.\n` +
+        details,
+    );
+  }
+
+  log(`Validated required runtime bundle paths in ${rootLabel}.`);
+}
+
+function validatePackagedOpenClawRuntime() {
+  validateRequiredPaths(packagedOpenClawDir, "packaged OpenClaw runtime", [
+    {
+      relativePath: "openclaw.mjs",
+      label: "openclaw/openclaw.mjs",
+      kind: "file",
+    },
+    {
+      relativePath: "package.json",
+      label: "openclaw/package.json",
+      kind: "file",
+    },
+    {
+      relativePath: "docs/reference/templates/AGENTS.md",
+      label: "openclaw/docs/reference/templates/AGENTS.md",
+      kind: "file",
+    },
+    {
+      relativePath: "dist/extensions/lumina-pc",
+      label: "openclaw/dist/extensions/lumina-pc",
+      kind: "directory",
+    },
+    {
+      relativePath: "dist/extensions/lumina-pc/openclaw.plugin.json",
+      label: "openclaw/dist/extensions/lumina-pc/openclaw.plugin.json",
+      kind: "file",
+    },
+    {
+      relativePath: "dist/extensions/lumina-pc/package.json",
+      label: "openclaw/dist/extensions/lumina-pc/package.json",
+      kind: "file",
+    },
+    {
+      relativePath: "dist/control-ui/index.html",
+      label: "ui/index.html",
+      kind: "file",
+    },
+  ]);
+  validatePackagedBundledExtensionRuntimeDependencies();
+  validatePackagedRuntimeModuleImports();
+}
+
+function validatePackagedBundledExtensionRuntimeDependencies() {
+  const extensionsRoot = path.join(packagedOpenClawDir, "dist", "extensions");
+  const rootNodeModulesDir = path.join(packagedOpenClawDir, "node_modules");
+  if (!fs.existsSync(extensionsRoot) || !fs.existsSync(rootNodeModulesDir)) {
+    return;
+  }
+
+  const missingDependencies = [];
+  for (const entry of fs.readdirSync(extensionsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const packageJsonPath = path.join(extensionsRoot, entry.name, "package.json");
+    if (!fs.existsSync(packageJsonPath)) {
+      continue;
+    }
+
+    let packageJson;
+    try {
+      packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+    } catch {
+      continue;
+    }
+
+    if (packageJson?.openclaw?.bundle?.stageRuntimeDependencies !== true) {
+      continue;
+    }
+
+    for (const dependencyName of Object.keys(packageJson.dependencies ?? {})) {
+      const dependencyPackageJsonPath = path.join(
+        rootNodeModulesDir,
+        ...dependencyName.split("/"),
+        "package.json",
+      );
+      if (!fs.existsSync(dependencyPackageJsonPath)) {
+        missingDependencies.push(`${entry.name}: ${dependencyName}`);
+      }
+    }
+  }
+
+  if (missingDependencies.length > 0) {
+    fail(
+      "Missing staged bundled extension runtime dependencies in packaged OpenClaw runtime:\n" +
+        missingDependencies.map((item) => `  - ${item}`).join("\n"),
+    );
+  }
+
+  log("Validated staged bundled extension runtime dependencies in packaged OpenClaw runtime.");
+}
+
+function resolveGatewayServerBundlePath(runtimeRoot) {
+  const distRoot = path.join(runtimeRoot, "dist");
+  if (!fs.existsSync(distRoot)) {
+    fail(`Missing dist directory for gateway import validation: ${distRoot}`);
+  }
+
+  for (const entry of fs.readdirSync(distRoot, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.startsWith("server-") || !entry.name.endsWith(".js")) {
+      continue;
+    }
+
+    const candidatePath = path.join(distRoot, entry.name);
+    try {
+      const source = fs.readFileSync(candidatePath, "utf8");
+      if (source.includes("startGatewayServer") && source.includes("export { startGatewayServer")) {
+        return candidatePath;
+      }
+    } catch {
+      // Ignore unreadable bundle candidates and keep scanning.
+    }
+  }
+
+  fail(`Unable to locate the packaged gateway server bundle inside ${distRoot}`);
+}
+
+function runPackagedRuntimeImportSmokeTest(targetPath, label) {
+  const importUrl = pathToFileURL(targetPath).href;
+  const validationScript = `await import(${JSON.stringify(importUrl)});`;
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "--eval", validationScript],
+    {
+      cwd: path.dirname(targetPath),
+      env: {
+        ...process.env,
+        OPENCLAW_DEFER_SHELL_ENV_FALLBACK: "1",
+        OPENCLAW_STARTUP_TRACE: "0",
+      },
+      encoding: "utf8",
+      timeout: 180_000,
+      maxBuffer: 8 * 1024 * 1024,
+    },
+  );
+
+  if (result.error) {
+    if ((result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
+      fail(`Packaged runtime import smoke test timed out for ${label}: ${targetPath}`);
+    }
+    fail(
+      `Failed to start packaged runtime import smoke test for ${label}: ${result.error.message}`,
+    );
+  }
+
+  if ((result.status ?? 1) !== 0) {
+    const stderr = result.stderr?.trim();
+    const stdout = result.stdout?.trim();
+    const details = [stderr, stdout].filter(Boolean).join("\n");
+    fail(
+      `Packaged runtime import smoke test failed for ${label}: ${targetPath}\n` +
+        (details || `node exited with code ${result.status ?? 1}`),
+    );
+  }
+
+  log(`Validated packaged runtime import smoke test for ${label}.`);
+}
+
+function validatePackagedRuntimeModuleImports() {
+  const gatewayServerBundlePath = resolveGatewayServerBundlePath(packagedOpenClawDir);
+  runPackagedRuntimeImportSmokeTest(gatewayServerBundlePath, "gateway server bundle");
+}
+
+function validateCanonicalRuntimeBundlePayload() {
+  const bundledNodeRelativePath =
+    process.platform === "win32" ? "node/node.exe" : "node/node";
+
+  validateRequiredPaths(canonicalBundlePayloadRoot, "canonical runtime bundle payload", [
+    {
+      relativePath: bundledNodeRelativePath,
+      label: bundledNodeRelativePath,
+      kind: "file",
+    },
+    {
+      relativePath: "proxy/server.mjs",
+      label: "proxy/server.mjs",
+      kind: "file",
+    },
+    {
+      relativePath: "proxy/proxy-config.json",
+      label: "proxy/proxy-config.json",
+      kind: "file",
+    },
+    {
+      relativePath: "lumina-code/lumina-code-0.1.0.vsix",
+      label: "lumina-code/lumina-code-0.1.0.vsix",
+      kind: "file",
+    },
+    {
+      relativePath: "openclaw/openclaw.mjs",
+      label: "openclaw/openclaw.mjs",
+      kind: "file",
+    },
+    {
+      relativePath: "openclaw/package.json",
+      label: "openclaw/package.json",
+      kind: "file",
+    },
+    {
+      relativePath: "openclaw/docs/reference/templates/AGENTS.md",
+      label: "openclaw/docs/reference/templates/AGENTS.md",
+      kind: "file",
+    },
+    {
+      relativePath: "openclaw/dist/extensions/lumina-pc",
+      label: "openclaw/dist/extensions/lumina-pc",
+      kind: "directory",
+    },
+    {
+      relativePath: "openclaw/dist/extensions/lumina-pc/openclaw.plugin.json",
+      label: "openclaw/dist/extensions/lumina-pc/openclaw.plugin.json",
+      kind: "file",
+    },
+    {
+      relativePath: "openclaw/dist/extensions/lumina-pc/package.json",
+      label: "openclaw/dist/extensions/lumina-pc/package.json",
+      kind: "file",
+    },
+    {
+      relativePath: "ui/index.html",
+      label: "ui/index.html",
+      kind: "file",
+    },
+  ]);
 }
 
 function buildCanonicalRuntimeBundle() {
@@ -227,13 +671,13 @@ function buildCanonicalRuntimeBundle() {
   );
   syncDirToStage(runtimeNodeDir, path.join(canonicalBundlePayloadRoot, "node"));
   const canonicalOpenClawDir = path.join(canonicalBundlePayloadRoot, "openclaw");
-  syncDirToStage(stagedOpenClawDir, canonicalOpenClawDir);
+  syncDirToStage(packagedOpenClawDir, canonicalOpenClawDir);
   fs.rmSync(path.join(canonicalOpenClawDir, "dist", "control-ui"), {
     recursive: true,
     force: true,
   });
   syncDirToStage(
-    path.join(stagedOpenClawDir, "dist", "control-ui"),
+    path.join(packagedOpenClawDir, "dist", "control-ui"),
     path.join(canonicalBundlePayloadRoot, "ui"),
   );
   copyFileToStage(
@@ -243,6 +687,10 @@ function buildCanonicalRuntimeBundle() {
   copyFileToStage(
     proxyConfigPath,
     path.join(canonicalBundlePayloadRoot, "proxy", "proxy-config.json"),
+  );
+  copyFileToStage(
+    luminaCodeVsixPath,
+    path.join(canonicalBundlePayloadRoot, "lumina-code", "lumina-code-0.1.0.vsix"),
   );
 
   log(`Prepared canonical runtime bundle payload: ${canonicalBundleRoot}`);
@@ -317,14 +765,14 @@ function writeCanonicalBundleManifest() {
         kind: "content",
         bundleRelativePath: "payload/openclaw",
         installRelativePath: "openclaw",
-        sourcePath: packagedOpenClawDir,
+        sourcePath: path.join(canonicalBundlePayloadRoot, "openclaw"),
       }),
       createBundleEntry({
         id: "openclaw-ui",
         kind: "ui",
         bundleRelativePath: "payload/ui",
         installRelativePath: "ui",
-        sourcePath: path.join(packagedOpenClawDir, "dist", "control-ui"),
+        sourcePath: path.join(canonicalBundlePayloadRoot, "ui"),
       }),
       createBundleEntry({
         id: "proxy-runtime",
@@ -339,6 +787,13 @@ function writeCanonicalBundleManifest() {
         bundleRelativePath: "payload/proxy/proxy-config.json",
         installRelativePath: "proxy/proxy-config.json",
         sourcePath: proxyConfigPath,
+      }),
+      createBundleEntry({
+        id: "lumina-code-vsix",
+        kind: "content",
+        bundleRelativePath: "payload/lumina-code/lumina-code-0.1.0.vsix",
+        installRelativePath: "lumina-code/lumina-code-0.1.0.vsix",
+        sourcePath: luminaCodeVsixPath,
       }),
     ],
   };
@@ -409,6 +864,19 @@ function computeDeploySignature() {
     .update(readFileIfExists(path.join(openClawRoot, "package.json")))
     .update("\n---lockfile---\n")
     .update(readFileIfExists(path.join(openClawRoot, "pnpm-lock.yaml")))
+    .update("\n---npmrc---\n")
+    .update(readFileIfExists(openClawNpmrcPath))
+    .update("\n---workspace---\n")
+    .update(readFileIfExists(openClawWorkspacePath))
+    .digest("hex");
+}
+
+function computeLegacyDeploySignature() {
+  return crypto
+    .createHash("sha256")
+    .update(readFileIfExists(path.join(openClawRoot, "package.json")))
+    .update("\n---lockfile---\n")
+    .update(readFileIfExists(path.join(openClawRoot, "pnpm-lock.yaml")))
     .digest("hex");
 }
 
@@ -424,7 +892,15 @@ function saveDeployStamp(signature) {
   fs.mkdirSync(path.dirname(deployStampPath), { recursive: true });
   fs.writeFileSync(
     deployStampPath,
-    `${JSON.stringify({ signature, updatedAt: new Date().toISOString() }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        signature,
+        layoutVersion: PRODUCTION_DEPENDENCY_LAYOUT_VERSION,
+        updatedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    )}\n`,
     "utf8",
   );
 }
@@ -448,8 +924,20 @@ function productionInstallMetadataIsCurrent() {
   const expectedVirtualStoreDir = normalizePnpmPath(
     path.join(stagedOpenClawDir, "node_modules", ".pnpm"),
   );
+  let resolvedVirtualStoreDir = "";
+  try {
+    const parsedModulesYaml = JSON.parse(modulesYaml);
+    if (typeof parsedModulesYaml.virtualStoreDir === "string") {
+      resolvedVirtualStoreDir = normalizePnpmPath(parsedModulesYaml.virtualStoreDir);
+    }
+  } catch {
+    // Fall back to a raw text match for older pnpm metadata formats.
+  }
 
-  if (!normalizedModulesYaml.includes(`virtualstoredir: ${expectedVirtualStoreDir}`)) {
+  if (
+    resolvedVirtualStoreDir !== expectedVirtualStoreDir &&
+    !normalizedModulesYaml.includes(expectedVirtualStoreDir)
+  ) {
     return false;
   }
 
@@ -475,6 +963,17 @@ function shouldRefreshProductionDependencies() {
     saveDeployStamp(signature);
     return false;
   }
+  if (
+    stamp.layoutVersion === undefined &&
+    stamp.signature === computeLegacyDeploySignature() &&
+    productionInstallMetadataIsCurrent()
+  ) {
+    saveDeployStamp(signature);
+    return false;
+  }
+  if (stamp.layoutVersion !== PRODUCTION_DEPENDENCY_LAYOUT_VERSION) {
+    return true;
+  }
   return stamp.signature !== signature;
 }
 
@@ -484,18 +983,42 @@ function syncOpenClawRuntimeAssets() {
   fs.rmSync(path.join(stagedOpenClawDir, "docs"), { recursive: true, force: true });
   fs.rmSync(path.join(stagedOpenClawDir, "CHANGELOG.md"), { recursive: true, force: true });
   fs.rmSync(path.join(stagedOpenClawDir, "scripts"), { recursive: true, force: true });
+  fs.rmSync(path.join(stagedOpenClawDir, ".npmrc"), { force: true });
+  fs.rmSync(path.join(stagedOpenClawDir, "pnpm-workspace.yaml"), { force: true });
+  fs.rmSync(path.join(stagedOpenClawDir, "patches"), { recursive: true, force: true });
 
   copyFileToStage(path.join(openClawRoot, "openclaw.mjs"), path.join(stagedOpenClawDir, "openclaw.mjs"));
   copyFileToStage(path.join(openClawRoot, "package.json"), path.join(stagedOpenClawDir, "package.json"));
   copyFileToStage(path.join(openClawRoot, "pnpm-lock.yaml"), path.join(stagedOpenClawDir, "pnpm-lock.yaml"));
+  if (fs.existsSync(openClawNpmrcPath)) {
+    copyFileToStage(openClawNpmrcPath, path.join(stagedOpenClawDir, ".npmrc"));
+  }
+  if (fs.existsSync(openClawWorkspacePath)) {
+    copyFileToStage(openClawWorkspacePath, path.join(stagedOpenClawDir, "pnpm-workspace.yaml"));
+  }
   copyFileToStage(path.join(openClawRoot, "README.md"), path.join(stagedOpenClawDir, "README.md"));
   copyFileToStage(path.join(openClawRoot, "LICENSE"), path.join(stagedOpenClawDir, "LICENSE"));
   log("Syncing OpenClaw assets into the production deploy bundle.");
   syncDirToStage(path.join(openClawRoot, "assets"), path.join(stagedOpenClawDir, "assets"));
   log("Syncing OpenClaw runtime dist into the production deploy bundle.");
   syncDirToStage(path.join(openClawRoot, "dist"), path.join(stagedOpenClawDir, "dist"));
+  syncBundledPluginRuntimeMetadata();
   log("Syncing OpenClaw skills into the production deploy bundle.");
   syncDirToStage(path.join(openClawRoot, "skills"), path.join(stagedOpenClawDir, "skills"));
+
+  const refTemplatesSource = path.join(openClawRoot, "docs", "reference", "templates");
+  if (fs.existsSync(refTemplatesSource)) {
+    log("Syncing OpenClaw reference templates into the production deploy bundle.");
+    syncDirToStage(
+      refTemplatesSource,
+      path.join(stagedOpenClawDir, "docs", "reference", "templates"),
+    );
+  }
+
+  if (fs.existsSync(openClawPatchesDir)) {
+    log("Syncing OpenClaw pnpm patches into the production deploy bundle.");
+    syncDirToStage(openClawPatchesDir, path.join(stagedOpenClawDir, "patches"));
+  }
 
   const scriptsStageDir = path.join(stagedOpenClawDir, "scripts");
   fs.mkdirSync(scriptsStageDir, { recursive: true });
@@ -518,18 +1041,210 @@ function ensureOpenClawProductionDependencies() {
   }
 
   log("Installing isolated production dependencies for the staged OpenClaw bundle.");
+  fs.rmSync(path.join(stagedOpenClawDir, "node_modules"), { recursive: true, force: true });
+  const installArgs = [
+    "install",
+    "--prod",
+    "--ignore-scripts",
+    "--no-frozen-lockfile",
+    // The packaged desktop runtime cannot rely on pnpm symlink topology after
+    // we materialize the bundle without symlinks, so hoist transitive runtime
+    // deps into the root node_modules to keep CommonJS resolution intact.
+    "--shamefully-hoist",
+    "--config.confirmModulesPurge=false",
+  ];
+  if (!fs.existsSync(path.join(stagedOpenClawDir, "pnpm-workspace.yaml"))) {
+    installArgs.splice(3, 0, "--ignore-workspace");
+  }
   run(
     pnpmCmd,
-    [
-      "install",
-      "--prod",
-      "--ignore-scripts",
-      "--ignore-workspace",
-      "--config.confirmModulesPurge=false",
-    ],
+    installArgs,
     stagedOpenClawDir,
   );
+  pruneDesktopOnlyOptionalRuntimeDependencies();
   saveDeployStamp(computeDeploySignature());
+}
+
+function pruneDesktopOnlyOptionalRuntimeDependencies() {
+  // OpenClaw's local embedding stack auto-installs node-llama-cpp as an optional
+  // peer, but Lumina desktop does not require that package for first-run startup.
+  // Keeping it in the desktop runtime adds ~700 MB and tens of thousands of extra
+  // filesystem operations during extraction, which is unacceptable for installer UX.
+  for (const relativePath of [
+    path.join("node_modules", "node-llama-cpp"),
+    path.join("node_modules", "@node-llama-cpp"),
+  ]) {
+    fs.rmSync(path.join(stagedOpenClawDir, relativePath), { recursive: true, force: true });
+  }
+}
+
+function shouldPruneBundledNodeModulesFile(entryPath) {
+  const fileName = path.basename(entryPath).toLowerCase();
+  if (NODE_MODULES_KEEP_FILE_NAMES.has(fileName)) {
+    return false;
+  }
+  if (NODE_MODULES_PRUNE_FILE_NAMES.has(fileName)) {
+    return true;
+  }
+
+  return NODE_MODULES_PRUNE_SUFFIXES.some((suffix) => fileName.endsWith(suffix));
+}
+
+function directoryContainsRuntimeModuleFiles(rootPath) {
+  const pendingDirectories = [rootPath];
+
+  while (pendingDirectories.length > 0) {
+    const currentDir = pendingDirectories.pop();
+    if (!currentDir) {
+      continue;
+    }
+
+    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+      const entryPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        pendingDirectories.push(entryPath);
+        continue;
+      }
+
+      if (
+        entry.isFile() &&
+        NODE_MODULES_RUNTIME_FILE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function shouldPruneBundledNodeModulesDirectory(entryPath) {
+  const directoryName = path.basename(entryPath).toLowerCase();
+  if (!NODE_MODULES_PRUNE_DIRECTORY_NAMES.has(directoryName)) {
+    return false;
+  }
+
+  if (
+    (directoryName === "doc" || directoryName === "docs") &&
+    directoryContainsRuntimeModuleFiles(entryPath)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function measurePathFootprint(rootPath) {
+  let fileCount = 0;
+  let byteSize = 0;
+  const pendingPaths = [rootPath];
+
+  while (pendingPaths.length > 0) {
+    const currentPath = pendingPaths.pop();
+    if (!currentPath) {
+      continue;
+    }
+
+    const stats = fs.lstatSync(currentPath);
+    if (stats.isDirectory()) {
+      for (const entry of fs.readdirSync(currentPath, { withFileTypes: true })) {
+        pendingPaths.push(path.join(currentPath, entry.name));
+      }
+      continue;
+    }
+
+    if (stats.isFile()) {
+      fileCount += 1;
+      byteSize += stats.size;
+    }
+  }
+
+  return { fileCount, byteSize };
+}
+
+function pruneBundledNodeModulesForDesktop() {
+  const nodeModulesRoot = path.join(stagedOpenClawDir, "node_modules");
+  if (!fs.existsSync(nodeModulesRoot)) {
+    return;
+  }
+
+  const pendingDirectories = [nodeModulesRoot];
+  let removedFiles = 0;
+  let removedDirectories = 0;
+  let removedBytes = 0;
+
+  while (pendingDirectories.length > 0) {
+    const currentDir = pendingDirectories.pop();
+    if (!currentDir) {
+      continue;
+    }
+
+    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+      const entryPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        if (shouldPruneBundledNodeModulesDirectory(entryPath)) {
+          const digest = measurePathFootprint(entryPath);
+          fs.rmSync(entryPath, { recursive: true, force: true });
+          removedDirectories += 1;
+          removedFiles += digest.fileCount;
+          removedBytes += digest.byteSize;
+          continue;
+        }
+
+        pendingDirectories.push(entryPath);
+        continue;
+      }
+
+      if (!entry.isFile() || !shouldPruneBundledNodeModulesFile(entryPath)) {
+        continue;
+      }
+
+      removedBytes += fs.statSync(entryPath).size;
+      fs.rmSync(entryPath, { force: true });
+      removedFiles += 1;
+    }
+  }
+
+  const runtimeMapsDir = path.join(stagedOpenClawDir, "dist");
+  if (fs.existsSync(runtimeMapsDir)) {
+    for (const mapPath of walkFiles(runtimeMapsDir)) {
+      if (!path.basename(mapPath).toLowerCase().endsWith(".map")) {
+        continue;
+      }
+      removedBytes += fs.statSync(mapPath).size;
+      fs.rmSync(mapPath, { force: true });
+      removedFiles += 1;
+    }
+  }
+
+  if (removedFiles > 0 || removedDirectories > 0) {
+    log(
+      `Pruned ${removedFiles} files and ${removedDirectories} directories ` +
+        `(${(removedBytes / 1_048_576).toFixed(1)} MB) from the bundled desktop runtime.`,
+    );
+  }
+}
+
+function* walkFiles(rootDir) {
+  const pendingDirectories = [rootDir];
+  while (pendingDirectories.length > 0) {
+    const currentDir = pendingDirectories.pop();
+    if (!currentDir) {
+      continue;
+    }
+
+    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+      const entryPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        pendingDirectories.push(entryPath);
+        continue;
+      }
+
+      if (entry.isFile()) {
+        yield entryPath;
+      }
+    }
+  }
 }
 
 function hoistBundledExtensionRuntimeDeps() {
@@ -711,15 +1426,28 @@ ensureExists(path.join(openClawRoot, "assets"), "OpenClaw assets");
 ensureExists(runtimeDistPath, "OpenClaw dist");
 ensureExists(proxyEntryPath, "tool-proxy server");
 ensureExists(proxyConfigPath, "tool-proxy config");
+ensureExists(luminaCodeVsixPath, "Lumina Code VSIX");
+verifyLuminaCodeVsixManifest(luminaCodeVsixPath);
 
+if (skipRuntimePostbuild) {
+  log("Skipping OpenClaw runtime-postbuild because --skip-runtime-postbuild or LUMINA_SKIP_RUNTIME_POSTBUILD=1 was set.");
+} else {
+  refreshOpenClawRuntimePostBuildArtifacts();
+}
 syncOpenClawRuntimeAssets();
 ensureOpenClawProductionDependencies();
 hoistBundledExtensionRuntimeDeps();
 sanitizeBundledExtensionPackageManifests();
+pruneBundledNodeModulesForDesktop();
 materializePackagedOpenClawRuntime();
+validatePackagedOpenClawRuntime();
 prepareBundledNodeRuntime();
-fs.rmSync(canonicalBundleRoot, { recursive: true, force: true });
-ensureDirectory(canonicalBundleRoot);
+if (skipCanonicalRuntimeBundle) {
+  log("Skipping canonical runtime bundle payload assembly.");
+} else {
+  buildCanonicalRuntimeBundle();
+  validateCanonicalRuntimeBundlePayload();
+}
 
 if (!fs.existsSync(macIconPath)) {
   log("assets/icon.icns is missing. macOS builds will use the PNG icon fallback.");
@@ -727,5 +1455,9 @@ if (!fs.existsSync(macIconPath)) {
 
 const canonicalBundleManifest = writeCanonicalBundleManifest();
 writeLegacyBundleSummary(canonicalBundleManifest);
-log("Deferred canonical runtime bundle payload assembly until the archive stage.");
+if (skipCanonicalRuntimeBundle) {
+  log("Prepared installer bundle inputs without canonical runtime payload assembly.");
+} else {
+  log("Prepared canonical runtime bundle payload for installer packaging.");
+}
 log("Desktop bundle inputs are ready.");

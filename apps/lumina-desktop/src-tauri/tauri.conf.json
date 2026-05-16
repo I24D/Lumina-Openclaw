@@ -17,10 +17,12 @@
     ],
     "resources": {
       "../build/runtime-bundle/bundle.manifest.json": "bundle.manifest.json",
+      "../config/render-preset.json": "config/render-preset.json",
       "../build/lumina-defaults.json": "config/lumina-defaults.json",
       "../build/runtime-node/": "node",
       "../build/runtime-tools/": "runtime-tools",
-      "../build/openclaw-package/dist/control-ui/": "ui",
+      "../build/runtime-bundle/payload/lumina-code/lumina-code-0.1.0.vsix": "lumina-code/lumina-code-0.1.0.vsix",
+      "../build/runtime-bundle/payload/ui/": "ui",
       "../build/openclaw-package/": "openclaw",
       "../../../tool-proxy/server.mjs": "proxy/server.mjs",
       "../../../tool-proxy/proxy-config.json": "proxy/proxy-config.json",
@@ -28,7 +30,15 @@
       "../dist/config.js": "desktop-shell/config.js",
       "../dist/runtime-paths.js": "desktop-shell/runtime-paths.js",
       "../dist/tauri-bridge.js": "desktop-shell/tauri-bridge.js",
-      "../dist/tauri-init.js": "desktop-shell/tauri-init.js"
+      "../dist/tauri-init.js": "desktop-shell/tauri-init.js",
+      "../assets/splash.html": "desktop-shell/splash.html"
+    },
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": false,
+        "installMode": "perMachine",
+        "compression": "zlib"
+      }
     }
   }
 }

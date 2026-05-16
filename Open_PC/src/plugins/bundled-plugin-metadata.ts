@@ -21,15 +21,24 @@ import {
 } from "./sdk-alias.js";
 import type { PluginConfigUiHint } from "./types.js";
 
-const OPENCLAW_PACKAGE_ROOT =
-  resolveLoaderPackageRoot({
-    modulePath: fileURLToPath(import.meta.url),
-    moduleUrl: import.meta.url,
-  }) ?? fileURLToPath(new URL("../..", import.meta.url));
 const CURRENT_MODULE_PATH = fileURLToPath(import.meta.url);
-const RUNNING_FROM_BUILT_ARTIFACT =
-  CURRENT_MODULE_PATH.includes(`${path.sep}dist${path.sep}`) ||
-  CURRENT_MODULE_PATH.includes(`${path.sep}dist-runtime${path.sep}`);
+let cachedOpenClawPackageRoot: string | null | undefined;
+
+function getOpenClawPackageRoot(): string {
+  cachedOpenClawPackageRoot ??=
+    resolveLoaderPackageRoot({
+      modulePath: fileURLToPath(import.meta.url),
+      moduleUrl: import.meta.url,
+    }) ?? fileURLToPath(new URL("../..", import.meta.url));
+  return cachedOpenClawPackageRoot;
+}
+
+function isRunningFromBuiltArtifact(): boolean {
+  return (
+    CURRENT_MODULE_PATH.includes(`${path.sep}dist${path.sep}`) ||
+    CURRENT_MODULE_PATH.includes(`${path.sep}dist-runtime${path.sep}`)
+  );
+}
 const PUBLIC_SURFACE_SOURCE_EXTENSIONS = [".ts", ".mts", ".js", ".mjs", ".cts", ".cjs"] as const;
 const RUNTIME_SIDECAR_ARTIFACTS = new Set([
   "helper-api.js",
@@ -194,7 +203,7 @@ function resolveBundledPluginScanDir(packageRoot: string): string | undefined {
   const sourceDir = path.join(packageRoot, "extensions");
   const runtimeDir = path.join(packageRoot, "dist-runtime", "extensions");
   const builtDir = path.join(packageRoot, "dist", "extensions");
-  if (RUNNING_FROM_BUILT_ARTIFACT) {
+  if (isRunningFromBuiltArtifact()) {
     if (fs.existsSync(builtDir)) {
       return builtDir;
     }
@@ -460,8 +469,8 @@ export function listBundledPluginMetadata(params?: {
   includeChannelConfigs?: boolean;
   includeSyntheticChannelConfigs?: boolean;
 }): readonly BundledPluginMetadata[] {
-  const rootDir = path.resolve(params?.rootDir ?? OPENCLAW_PACKAGE_ROOT);
-  const includeChannelConfigs = params?.includeChannelConfigs ?? !RUNNING_FROM_BUILT_ARTIFACT;
+  const rootDir = path.resolve(params?.rootDir ?? getOpenClawPackageRoot());
+  const includeChannelConfigs = params?.includeChannelConfigs ?? !isRunningFromBuiltArtifact();
   const includeSyntheticChannelConfigs =
     params?.includeSyntheticChannelConfigs ?? includeChannelConfigs;
   const cacheKey = JSON.stringify({

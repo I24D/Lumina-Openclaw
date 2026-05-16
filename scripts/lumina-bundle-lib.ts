@@ -67,6 +67,16 @@ export function computeFileByteSize(targetPath) {
   return fs.statSync(targetPath).size;
 }
 
+function compareStablePathStrings(left, right) {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
+}
+
 function sanitizeFileNameSegment(value) {
   return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
 }
@@ -116,7 +126,7 @@ export function resolveReleaseManifestPath(releaseRoot, explicitPath) {
 function walkDirectory(rootPath, currentPath, files) {
   const dirEntries = fs.readdirSync(currentPath, { withFileTypes: true })
     .slice()
-    .sort((left, right) => left.name.localeCompare(right.name));
+    .sort((left, right) => compareStablePathStrings(left.name, right.name));
 
   for (const dirEntry of dirEntries) {
     const absolutePath = path.join(currentPath, dirEntry.name);
@@ -145,6 +155,7 @@ function walkDirectory(rootPath, currentPath, files) {
 export function computeDirectoryDigest(rootPath) {
   const files = [];
   walkDirectory(rootPath, rootPath, files);
+  files.sort((left, right) => compareStablePathStrings(left.relativePath, right.relativePath));
 
   // Directory entries can contain very large dependency trees. We keep the
   // release artifact itself content-addressed and use a structural digest here

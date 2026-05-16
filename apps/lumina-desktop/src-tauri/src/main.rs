@@ -7,29 +7,33 @@ use mime_guess::MimeGuess;
 use percent_encoding::percent_decode_str;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use tauri::menu::{MenuBuilder, SubmenuBuilder};
 use tauri::plugin::{Builder as PluginBuilder, TauriPlugin};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::window::Color;
-use tauri::{AppHandle, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder};
 #[cfg(target_os = "macos")]
 use tauri::TitleBarStyle;
 use url::Url;
 
-const READY_TIMEOUT_MS: u64 = 30_000;
+const READY_TIMEOUT_MS: u64 = 600_000;
 const POLL_INTERVAL_MS: u64 = 500;
 const UI_SCHEME: &str = "lumina";
 const UI_HOST: &str = "localhost";
 const UI_WINDOWS_HOST: &str = "lumina.localhost";
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-static UI_ROOT: OnceLock<PathBuf> = OnceLock::new();
+static UI_ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
+static SPLASH_ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +41,7 @@ struct RendererConfig {
     auth_service_url: String,
     gateway_url: String,
     gateway_token: String,
+    proxy_url: String,
     default_tab: String,
     require_lumina_auth: bool,
 }
@@ -96,11 +101,22 @@ struct RuntimeManagerSession {
     child: Child,
 }
 
-#[derive(Default)]
 struct AppState {
     helper_context: Mutex<Option<HelperContext>>,
     startup_state: Mutex<Option<StartupState>>,
     runtime_manager: Mutex<Option<RuntimeManagerSession>>,
+    shutdown_requested: std::sync::atomic::AtomicBool,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            helper_context: Mutex::new(None),
+            startup_state: Mutex::new(None),
+            runtime_manager: Mutex::new(None),
+            shutdown_requested: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -468,6 +484,7 @@ where
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    hide_child_console(&mut command);
 
     let output = command
         .output()
@@ -499,33 +516,40 @@ fn main() {
             install_update
         ])
         .setup(|app| {
-            let helper_context = resolve_helper_context(app.handle())?;
+            let helper_context = match resolve_helper_context(app.handle()) {
+                Ok(ctx) => ctx,
+                Err(error) => {
+                    eprintln!("[lumina] Fatal: could not resolve helper context: {error:#}");
+                    return Err(error.into());
+                }
+            };
+
             {
                 let state: State<AppState> = app.state();
                 let mut slot = state.helper_context.lock().expect("helper context mutex poisoned");
                 *slot = Some(helper_context.clone());
             }
 
-            let startup = resolve_startup_state(&helper_context)?;
-            let ui_root = PathBuf::from(&startup.runtime_paths.ui_index_path)
-                .parent()
-                .map(Path::to_path_buf)
-                .ok_or_else(|| anyhow!("UI index path does not have a parent directory."))?;
-            let _ = UI_ROOT.set(ui_root);
-
-            start_runtime_manager(&helper_context, &startup, app.state())?;
+            // Set SPLASH_ROOT immediately so splash.html can be served.
+            let splash_root = resolve_splash_root(&helper_context);
+            *SPLASH_ROOT.lock().expect("SPLASH_ROOT mutex poisoned") = Some(splash_root);
 
             let menu = build_app_menu(app)?;
             app.set_menu(menu)?;
             app.on_menu_event(handle_menu_event);
 
-            {
-                let state: State<AppState> = app.state();
-                let mut slot = state.startup_state.lock().expect("startup state mutex poisoned");
-                *slot = Some(startup.clone());
+            // Create the splash window FIRST — before running any I/O (node, etc.).
+            // If the window can't be created, we have no choice but to fail hard.
+            if let Err(error) = create_main_window(app.handle(), &helper_context, None) {
+                eprintln!("[lumina] Fatal: could not create main window: {error:#}");
+                return Err(error.into());
             }
 
-            create_main_window(app.handle(), &helper_context, &startup)?;
+            // Everything else (startup resolution + bootstrap) runs in background.
+            let app_handle = app.handle().clone();
+            let hc = helper_context.clone();
+            thread::spawn(move || full_startup(app_handle, hc));
+
             Ok(())
         });
 
@@ -536,11 +560,383 @@ fn main() {
     app.run(|app_handle, run_event| {
         if matches!(run_event, tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }) {
             if let Some(state) = app_handle.try_state::<AppState>() {
+                state.shutdown_requested.store(true, std::sync::atomic::Ordering::Relaxed);
                 let _ = stop_runtime_manager(&state);
             }
         }
     });
 }
+
+// ── Startup background thread ─────────────────────────────────────────────────
+
+fn full_startup(app: AppHandle, helper_context: HelperContext) {
+    emit_setup_progress(&app, "Iniciando Lumina\u{2026}");
+
+    let startup = match resolve_startup_state(&helper_context) {
+        Ok(s) => s,
+        Err(error) => {
+            emit_setup_error(&app, &format!("Error iniciando Lumina: {error:#}"));
+            return;
+        }
+    };
+
+    set_ui_root_from_startup(&startup);
+
+    // Inject the real init payload into the already-open splash window so that
+    // when we later navigate to index.html the init data is available.
+    if let Some(window) = app.get_webview_window("main") {
+        if let Ok(payload_json) = serde_json::to_string(&TauriInitializationPayload {
+            renderer_config: startup.renderer_config.clone(),
+            capabilities: DesktopCapabilities::tauri(&startup),
+        }) {
+            let _ = window.eval(&format!("window.__LUMINA_TAURI_INIT__ = {payload_json};"));
+        }
+    }
+
+    if let Some(state) = app.try_state::<AppState>() {
+        *state.startup_state.lock().expect("startup state mutex poisoned") = Some(startup.clone());
+    }
+
+    bootstrap_runtime(app, helper_context, startup);
+}
+
+// ── Bootstrap background thread ────────────────────────────────────────────────
+
+fn bootstrap_runtime(app: AppHandle, helper_context: HelperContext, startup: StartupState) {
+    let openclaw_entry = PathBuf::from(startup.runtime_paths.open_claw_entry_path.trim());
+    let needs_install = !openclaw_entry.exists();
+
+    let effective_startup = if needs_install {
+        let manifest_url = startup.config.runtime_release_manifest_url.trim().to_string();
+        if manifest_url.is_empty() {
+            emit_setup_error(
+                &app,
+                "OpenClaw Runtime no está instalado y runtimeReleaseManifestUrl no está configurado.\n\
+                 Configura LUMINA_RUNTIME_RELEASE_MANIFEST_URL en render-preset.json.",
+            );
+            return;
+        }
+
+        emit_setup_progress(&app, "Preparando descarga del OpenClaw Runtime\u{2026}");
+
+        match run_bootstrapper_install_for_first_run(&app, &helper_context, &startup, &manifest_url) {
+            Ok(_) => {
+                emit_setup_progress(&app, "Runtime descargado. Configurando rutas\u{2026}");
+                match resolve_startup_state(&helper_context) {
+                    Ok(new_startup) => {
+                        set_ui_root_from_startup(&new_startup);
+                        if let Some(state) = app.try_state::<AppState>() {
+                            *state.startup_state.lock().expect("startup state mutex poisoned") =
+                                Some(new_startup.clone());
+                        }
+                        new_startup
+                    }
+                    Err(error) => {
+                        emit_setup_error(&app, &format!("Error resolviendo runtime instalado: {error:#}"));
+                        return;
+                    }
+                }
+            }
+            Err(error) => {
+                emit_setup_error(&app, &format!("Error descargando OpenClaw Runtime: {error:#}"));
+                return;
+            }
+        }
+    } else {
+        startup
+    };
+
+    emit_setup_progress(&app, "Iniciando OpenClaw\u{2026}");
+
+    let state = app.state::<AppState>();
+    let started = match start_runtime_manager(&helper_context, &effective_startup, state) {
+        Ok(()) => {
+            if let Some(window) = app.get_webview_window("main") {
+                let mut gateway_url = Url::parse(&format!(
+                    "http://127.0.0.1:{}/",
+                    effective_startup.config.gateway_port
+                ))
+                .expect("valid local gateway URL");
+                gateway_url.set_fragment(Some(&format!(
+                    "token={}",
+                    effective_startup.config.gateway_token
+                )));
+                if let Ok(gateway_url_json) = serde_json::to_string(gateway_url.as_str()) {
+                    let _ = window.eval(&format!(
+                        "window.location.replace({gateway_url_json});"
+                    ));
+                }
+            }
+            true
+        }
+        Err(error) => {
+            emit_setup_error(&app, &format!("Error iniciando OpenClaw: {error:#}"));
+            false
+        }
+    };
+
+    if started {
+        spawn_gateway_watchdog(app, helper_context, effective_startup);
+    }
+}
+
+fn run_bootstrapper_install_for_first_run(
+    app: &AppHandle,
+    helper_context: &HelperContext,
+    startup: &StartupState,
+    manifest_url: &str,
+) -> Result<()> {
+    let runtime_manager_binary =
+        PathBuf::from(startup.runtime_paths.runtime_manager_binary_path.trim());
+    if !runtime_manager_binary.exists() {
+        return Err(anyhow!(
+            "Bootstrapper binary not found at {}.",
+            runtime_manager_binary.display()
+        ));
+    }
+
+    let node_runtime_path = if !startup.runtime_paths.node_runtime_path.trim().is_empty() {
+        PathBuf::from(startup.runtime_paths.node_runtime_path.trim())
+    } else {
+        resolve_helper_node_path(helper_context)?
+    };
+
+    let mut command = Command::new(&runtime_manager_binary);
+    command
+        .arg("install")
+        .arg("--release-manifest")
+        .arg(manifest_url)
+        .env("NODE_EXECUTABLE", &node_runtime_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    if !startup.runtime_paths.repo_root.trim().is_empty() {
+        let repo_root = PathBuf::from(startup.runtime_paths.repo_root.trim());
+        if repo_root.exists() {
+            command.current_dir(repo_root);
+        }
+    }
+
+    hide_child_console(&mut command);
+
+    let mut child = command.spawn().context("Failed to spawn bootstrapper install")?;
+
+    // Forward bootstrapper stdout to the splash screen in real time.
+    // Lines starting with "PROGRESS:downloaded:total" are parsed into a percentage.
+    // All other stdout lines are captured for error reporting.
+    let captured = Arc::new(Mutex::new(String::new()));
+    if let Some(stdout) = child.stdout.take() {
+        let output = captured.clone();
+        let app_handle = app.clone();
+        thread::spawn(move || {
+            let mut download_percent = 0u64;
+            let mut extract_percent = 0u64;
+            let mut activate_percent = 0u64;
+            let mut current_message = String::from("Preparando OpenClaw Runtime...");
+            for line in BufReader::new(stdout).lines().map_while(std::result::Result::ok) {
+                if let Some(rest) = line.strip_prefix("PROGRESS:") {
+                    let parts: Vec<&str> = rest.split(':').collect();
+                    if parts.len() == 3 {
+                        if let (phase, Ok(completed), Ok(total)) = (
+                            parts[0],
+                            parts[1].parse::<u64>(),
+                            parts[2].parse::<u64>(),
+                        ) {
+                            if total > 0 {
+                                let phase_percent = (completed.saturating_mul(100) / total).min(100);
+                                let detail = match phase {
+                                    "download" => {
+                                        download_percent = phase_percent;
+                                        current_message = "Descargando OpenClaw Runtime...".to_string();
+                                        Some(format!(
+                                            "{:.0} MB / {:.0} MB",
+                                            completed as f64 / 1_048_576.0,
+                                            total as f64 / 1_048_576.0
+                                        ))
+                                    }
+                                    "extract" => {
+                                        download_percent = download_percent.max(100);
+                                        extract_percent = phase_percent;
+                                        current_message = "Extrayendo OpenClaw Runtime...".to_string();
+                                        Some(format!(
+                                            "{:.0} MB / {:.0} MB",
+                                            completed as f64 / 1_048_576.0,
+                                            total as f64 / 1_048_576.0
+                                        ))
+                                    }
+                                    "activate" => {
+                                        download_percent = download_percent.max(100);
+                                        extract_percent = extract_percent.max(100);
+                                        activate_percent = phase_percent;
+                                        current_message = "Activando runtime instalado...".to_string();
+                                        Some(format!("{completed} / {total} pasos"))
+                                    }
+                                    _ => None,
+                                };
+                                let _ = app_handle.emit(
+                                    "lumina-setup-progress",
+                                    serde_json::json!({
+                                        "message": current_message,
+                                        "detail": detail,
+                                        "percent": combined_setup_percent(
+                                            download_percent,
+                                            extract_percent,
+                                            activate_percent,
+                                        ),
+                                    }),
+                                );
+                            }
+                        }
+                    } else if parts.len() == 2 {
+                        if let (Ok(downloaded), Ok(total)) = (
+                            parts[0].parse::<u64>(),
+                            parts[1].parse::<u64>(),
+                        ) {
+                            if total > 0 {
+                                download_percent = (downloaded.saturating_mul(100) / total).min(100);
+                                current_message = "Descargando OpenClaw Runtime...".to_string();
+                                let _ = app_handle.emit(
+                                    "lumina-setup-progress",
+                                    serde_json::json!({
+                                        "message": current_message,
+                                        "detail": format!(
+                                            "{:.0} MB / {:.0} MB",
+                                            downloaded as f64 / 1_048_576.0,
+                                            total as f64 / 1_048_576.0
+                                        ),
+                                        "percent": combined_setup_percent(
+                                            download_percent,
+                                            extract_percent,
+                                            activate_percent,
+                                        ),
+                                    }),
+                                );
+                            }
+                        }
+                    }
+                } else if let Some(message) = line.strip_prefix("STATUS:") {
+                    let message = message.trim();
+                    if !message.is_empty() {
+                        current_message = message.to_string();
+                        apply_setup_status_floor(
+                            message,
+                            &mut download_percent,
+                            &mut extract_percent,
+                            &mut activate_percent,
+                        );
+                        let _ = app_handle.emit(
+                            "lumina-setup-progress",
+                            serde_json::json!({
+                                "message": message,
+                                "percent": combined_setup_percent(
+                                    download_percent,
+                                    extract_percent,
+                                    activate_percent,
+                                ),
+                            }),
+                        );
+                    }
+                } else {
+                    append_output(&output, &line);
+                }
+            }
+        });
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let output = captured.clone();
+        thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(std::result::Result::ok) {
+                append_output(&output, &line);
+            }
+        });
+    }
+
+    let status = child.wait().context("Failed to wait for bootstrapper install")?;
+    if !status.success() {
+        let tail = captured.lock().expect("output mutex poisoned").trim().to_string();
+        return Err(anyhow!(
+            "Bootstrapper install exited with code {}. {}",
+            status.code().unwrap_or_default(),
+            tail
+        ));
+    }
+    let _ = app.emit(
+        "lumina-setup-progress",
+        serde_json::json!({
+            "message": "OpenClaw Runtime listo.",
+            "detail": "Instalacion completada",
+            "percent": 100,
+        }),
+    );
+    Ok(())
+}
+
+fn set_ui_root_from_startup(startup: &StartupState) {
+    if let Some(ui_root) = PathBuf::from(startup.runtime_paths.ui_index_path.trim())
+        .parent()
+        .map(Path::to_path_buf)
+    {
+        *UI_ROOT.lock().expect("UI_ROOT mutex poisoned") = Some(ui_root);
+    }
+}
+
+fn resolve_splash_root(helper_context: &HelperContext) -> PathBuf {
+    if let Some(resource_root) = &helper_context.resource_root {
+        resource_root.join("desktop-shell")
+    } else {
+        helper_context.desktop_root.join("dist")
+    }
+}
+
+fn emit_setup_progress(app: &AppHandle, message: &str) {
+    let _ = app.emit("lumina-setup-progress", serde_json::json!({ "message": message }));
+}
+
+fn combined_setup_percent(download_percent: u64, extract_percent: u64, activate_percent: u64) -> u64 {
+    let weighted = download_percent.saturating_mul(35)
+        + extract_percent.saturating_mul(50)
+        + activate_percent.saturating_mul(15);
+    (weighted / 100).min(100)
+}
+
+fn apply_setup_status_floor(
+    message: &str,
+    download_percent: &mut u64,
+    extract_percent: &mut u64,
+    activate_percent: &mut u64,
+) {
+    match message {
+        "Validando archivos descargados..." => {
+            *download_percent = (*download_percent).max(100);
+        }
+        "Extrayendo OpenClaw Runtime..." => {
+            *download_percent = (*download_percent).max(100);
+            *extract_percent = (*extract_percent).max(1);
+        }
+        "Validando estructura del runtime..." => {
+            *download_percent = (*download_percent).max(100);
+            *extract_percent = (*extract_percent).max(98);
+        }
+        "Preparando instalacion final..." => {
+            *download_percent = (*download_percent).max(100);
+            *extract_percent = (*extract_percent).max(100);
+            *activate_percent = (*activate_percent).max(10);
+        }
+        "Activando runtime instalado..." => {
+            *download_percent = (*download_percent).max(100);
+            *extract_percent = (*extract_percent).max(100);
+            *activate_percent = (*activate_percent).max(90);
+        }
+        _ => {}
+    }
+}
+
+fn emit_setup_error(app: &AppHandle, error: &str) {
+    let _ = app.emit("lumina-setup-error", serde_json::json!({ "error": error }));
+}
+
+// ── Tauri protocol plugin ──────────────────────────────────────────────────────
 
 fn lumina_protocol_plugin<R: Runtime>() -> TauriPlugin<R> {
     PluginBuilder::new("lumina-protocol")
@@ -553,19 +949,22 @@ fn serve_ui_request(request: http::Request<Vec<u8>>) -> Response<Vec<u8>> {
         return text_response(StatusCode::METHOD_NOT_ALLOWED, "Only GET and HEAD are supported.");
     }
 
-    let ui_root = match UI_ROOT.get() {
-        Some(path) => path,
-        None => {
-            return text_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Lumina UI root has not been initialized yet.",
-            )
-        }
-    };
+    let uri_path = request.uri().path();
 
-    let file_path = match resolve_ui_file_path(ui_root, request.uri().path()) {
-        Some(path) => path,
-        None => return text_response(StatusCode::NOT_FOUND, "Lumina UI asset not found."),
+    // Resolve the file: check UI_ROOT first, then SPLASH_ROOT as fallback.
+    let file_path = resolve_file_path_for_request(uri_path);
+    let file_path = match file_path {
+        Some(p) => p,
+        None => {
+            let ui_ready = UI_ROOT.lock().expect("UI_ROOT mutex poisoned").is_some();
+            if !ui_ready {
+                return text_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Lumina UI root has not been initialized yet.",
+                );
+            }
+            return text_response(StatusCode::NOT_FOUND, "Lumina UI asset not found.");
+        }
     };
 
     let mime = mime_for_path(&file_path);
@@ -584,6 +983,30 @@ fn serve_ui_request(request: http::Request<Vec<u8>>) -> Response<Vec<u8>> {
         .header(CACHE_CONTROL, cache_control_for_path(&file_path))
         .body(body)
         .unwrap_or_else(|_| Response::new(Vec::new()))
+}
+
+fn resolve_file_path_for_request(uri_path: &str) -> Option<PathBuf> {
+    // 1. Try UI_ROOT (the installed/bundled OpenClaw UI).
+    {
+        let guard = UI_ROOT.lock().expect("UI_ROOT mutex poisoned");
+        if let Some(ui_root) = guard.as_ref() {
+            if let Some(path) = resolve_ui_file_path(ui_root, uri_path) {
+                return Some(path);
+            }
+        }
+    }
+
+    // 2. Fallback to SPLASH_ROOT (desktop-shell assets: splash.html, etc.).
+    {
+        let guard = SPLASH_ROOT.lock().expect("SPLASH_ROOT mutex poisoned");
+        if let Some(splash_root) = guard.as_ref() {
+            if let Some(path) = resolve_ui_file_path(splash_root, uri_path) {
+                return Some(path);
+            }
+        }
+    }
+
+    None
 }
 
 fn request_path_to_relative(uri_path: &str) -> Option<PathBuf> {
@@ -610,15 +1033,15 @@ fn request_path_to_relative(uri_path: &str) -> Option<PathBuf> {
     Some(relative)
 }
 
-fn resolve_ui_file_path(ui_root: &Path, uri_path: &str) -> Option<PathBuf> {
+fn resolve_ui_file_path(root: &Path, uri_path: &str) -> Option<PathBuf> {
     let relative_path = request_path_to_relative(uri_path)?;
-    let candidate = ui_root.join(&relative_path);
+    let candidate = root.join(&relative_path);
     if candidate.is_file() {
         return Some(candidate);
     }
 
     if relative_path.extension().is_none() {
-        let fallback = ui_root.join("index.html");
+        let fallback = root.join("index.html");
         if fallback.is_file() {
             return Some(fallback);
         }
@@ -645,7 +1068,10 @@ fn cache_control_for_path(path: &Path) -> &'static str {
     if path
         .file_name()
         .and_then(|name| name.to_str())
-        .map(|name| name.eq_ignore_ascii_case("index.html"))
+        .map(|name| {
+            let lower = name.to_lowercase();
+            lower == "index.html" || lower == "splash.html"
+        })
         .unwrap_or(false)
     {
         "no-store"
@@ -653,6 +1079,8 @@ fn cache_control_for_path(path: &Path) -> &'static str {
         "public, max-age=31536000, immutable"
     }
 }
+
+// ── Window & menu ──────────────────────────────────────────────────────────────
 
 fn build_app_menu<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<tauri::menu::Menu<R>> {
     let file_menu = SubmenuBuilder::new(app, "File")
@@ -691,25 +1119,39 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEve
 fn create_main_window<R: Runtime>(
     app: &AppHandle<R>,
     helper_context: &HelperContext,
-    startup: &StartupState,
+    startup: Option<&StartupState>,
 ) -> Result<()> {
-    let init_script = load_initialization_script(helper_context, startup)?;
-    let url = Url::parse(&format!("{UI_SCHEME}://{UI_HOST}/index.html"))
-        .context("Failed to build Lumina UI URL.")?;
+    let init_script = match startup {
+        Some(s) => load_initialization_script(helper_context, s)?,
+        None => {
+            // Splash-only mode: load tauri-init.js with a null payload so Tauri IPC
+            // is already wired up when the splash page runs.
+            match resolve_tauri_init_script_path(helper_context) {
+                Ok(path) => match std::fs::read_to_string(&path) {
+                    Ok(script) => format!("window.__LUMINA_TAURI_INIT__ = null;\n{script}"),
+                    Err(_) => "window.__LUMINA_TAURI_INIT__ = null;".to_string(),
+                },
+                Err(_) => "window.__LUMINA_TAURI_INIT__ = null;".to_string(),
+            }
+        }
+    };
+
+    // Start with splash so the user sees something immediately.
+    let url = Url::parse(&format!("{UI_SCHEME}://{UI_HOST}/splash.html"))
+        .context("Failed to build Lumina splash URL.")?;
 
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::CustomProtocol(url))
         .title("Lumina OpenClaw")
         .inner_size(1280.0, 820.0)
         .min_inner_size(900.0, 600.0)
         .background_color(Color(14, 16, 21, 255))
-        .visible(false)
-        .focused(false)
+        .visible(true)
+        .focused(true)
         .initialization_script(init_script)
         .on_navigation(|url| {
             if is_internal_url(url) {
                 return true;
             }
-
             if is_external_url(url) {
                 let _ = open::that_detached(url.as_str());
             }
@@ -722,8 +1164,8 @@ fn create_main_window<R: Runtime>(
             NewWindowResponse::Deny
         })
         .on_page_load(|window, payload| {
+            // Once the real OpenClaw UI loads, make sure the window is focused.
             if matches!(payload.event(), PageLoadEvent::Finished) && is_internal_url(payload.url()) {
-                let _ = window.show();
                 let _ = window.set_focus();
             }
         });
@@ -747,10 +1189,14 @@ fn is_internal_url(url: &Url) -> bool {
     }
 
     matches!(url.scheme(), "http" | "https")
-        && url
-            .host_str()
-            .map(|host| host.eq_ignore_ascii_case(UI_WINDOWS_HOST))
-            .unwrap_or(false)
+    && url
+        .host_str()
+        .map(|host| {
+            host.eq_ignore_ascii_case(UI_WINDOWS_HOST)
+                || host.eq_ignore_ascii_case("127.0.0.1")
+                || host.eq_ignore_ascii_case("localhost")
+        })
+        .unwrap_or(false)
 }
 
 fn is_external_url(url: &Url) -> bool {
@@ -806,6 +1252,7 @@ fn resolve_packaged_resource_root<R: Runtime>(app: &AppHandle<R>) -> Option<Path
     candidates
         .into_iter()
         .find(|candidate| has_packaged_desktop_shell(candidate))
+        .map(strip_unc_prefix)
 }
 
 fn resolve_tauri_init_script_path(helper_context: &HelperContext) -> Result<PathBuf> {
@@ -860,6 +1307,7 @@ fn run_node_helper_without_startup(helper_context: &HelperContext, args: &[&str]
     }
     apply_helper_environment(&mut command, helper_context);
     command.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
+    hide_child_console(&mut command);
 
     let output = command
         .output()
@@ -891,6 +1339,7 @@ fn run_node_helper(helper_context: &HelperContext, startup: &StartupState, args:
     }
     apply_helper_environment(&mut command, helper_context);
     command.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
+    hide_child_console(&mut command);
 
     let output = command
         .output()
@@ -915,9 +1364,9 @@ fn apply_helper_environment(command: &mut Command, helper_context: &HelperContex
     } else {
         helper_context.desktop_root.clone()
     };
-    command.env("LUMINA_REPO_ROOT", effective_repo_root);
+    command.env("LUMINA_REPO_ROOT", strip_unc_prefix(effective_repo_root));
     if let Some(resource_root) = &helper_context.resource_root {
-        command.env("LUMINA_RESOURCE_ROOT", resource_root);
+        command.env("LUMINA_RESOURCE_ROOT", strip_unc_prefix(resource_root.clone()));
     }
 }
 
@@ -929,7 +1378,11 @@ fn resolve_helper_script_path(helper_context: &HelperContext) -> Result<PathBuf>
     };
 
     if path.exists() {
-        Ok(path)
+        // Canonicalize to ensure node.exe always receives a fully-qualified
+        // absolute path (no drive-relative "C:..." forms that cause lstat 'C:').
+        std::fs::canonicalize(&path)
+            .map(strip_unc_prefix)
+            .with_context(|| format!("Failed to resolve path for tauri-bridge at {}", path.display()))
     } else {
         Err(anyhow!(
             "Tauri bridge helper not found at {}. Run the desktop TypeScript build first.",
@@ -953,10 +1406,30 @@ fn resolve_helper_node_path(helper_context: &HelperContext) -> Result<PathBuf> {
     );
 
     if let Some(found) = candidates.into_iter().find(|candidate| candidate.exists()) {
-        return Ok(found);
+        return std::fs::canonicalize(&found)
+            .map(strip_unc_prefix)
+            .with_context(|| format!("Failed to resolve node.exe path at {}", found.display()));
     }
 
     find_node_on_path().ok_or_else(|| anyhow!("Node.js runtime was not found for the Tauri bridge."))
+}
+
+/// On Windows, `std::fs::canonicalize` returns extended-length paths
+/// prefixed with `\\?\`. Node.js handles these, but stripping the prefix
+/// produces shorter, more compatible paths.
+#[cfg(windows)]
+fn strip_unc_prefix(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        path
+    }
+}
+
+#[cfg(not(windows))]
+fn strip_unc_prefix(path: PathBuf) -> PathBuf {
+    path
 }
 
 fn find_node_on_path() -> Option<PathBuf> {
@@ -978,6 +1451,8 @@ fn find_node_on_path() -> Option<PathBuf> {
 
     None
 }
+
+// ── Runtime manager ────────────────────────────────────────────────────────────
 
 fn start_runtime_manager(
     helper_context: &HelperContext,
@@ -1031,8 +1506,7 @@ fn start_runtime_manager(
         .arg(&startup.config.i24d_models_base_url)
         .arg("--skip-openclaw-channels")
         .arg(startup.config.skip_open_claw_channels.to_string())
-        .arg("--i24d-token")
-        .arg(&startup.config.i24d_token)
+        .arg(format!("--i24d-token={}", startup.config.i24d_token))
         .arg("--remote-brain-timeout-ms")
         .arg(startup.config.remote_brain_timeout_ms.to_string())
         .arg("--remote-brain-max-turns")
@@ -1040,10 +1514,12 @@ fn start_runtime_manager(
         .arg("--startup-timeout-ms")
         .arg(READY_TIMEOUT_MS.to_string())
         .current_dir(&startup.runtime_paths.repo_root)
-        .envs(std::env::vars_os().map(|(key, value)| (OsString::from(key), value)))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    sanitize_runtime_command_environment(&mut command);
+    hide_child_console(&mut command);
 
     if startup.config.remote_brain_enabled {
         command.arg("--remote-brain-enabled");
@@ -1084,6 +1560,38 @@ fn start_runtime_manager(
     Ok(())
 }
 
+fn sanitize_runtime_command_environment(command: &mut Command) {
+    let exact_keys = [
+        "ELECTRON_RUN_AS_NODE",
+        "INIT_CWD",
+        "NODE_OPTIONS",
+        "NODE_PATH",
+        "OPENCLAW_PLUGIN_CATALOG_PATHS",
+        "OPENCLAW_MPM_CATALOG_PATHS",
+    ];
+    for key in exact_keys {
+        command.env_remove(key);
+    }
+
+    for (key, _) in std::env::vars_os() {
+        let key_text = key.to_string_lossy().to_ascii_lowercase();
+        if key_text.starts_with("npm_")
+            || key_text.starts_with("pnpm_")
+            || key_text.starts_with("yarn_")
+            || key_text.starts_with("vite_")
+        {
+            command.env_remove(key);
+        }
+    }
+}
+
+fn hide_child_console(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+}
+
 fn spawn_output_reader<T>(stream: T, output: Arc<Mutex<String>>, prefix: &'static str)
 where
     T: IntoReader + Send + 'static,
@@ -1116,7 +1624,21 @@ fn wait_for_ports_or_exit(
 ) -> Result<()> {
     let deadline = Instant::now() + Duration::from_millis(READY_TIMEOUT_MS);
     while Instant::now() < deadline {
+        // Check ports first: on warm start the bootstrapper exits as soon as it
+        // confirms the existing session is healthy, which can happen before we
+        // reach the try_wait() check below — causing a false "exited before
+        // readiness" error and preventing navigation from firing.
+        if is_port_ready(proxy_port) && is_port_ready(gateway_port) {
+            return Ok(());
+        }
+
         if let Some(status) = child.try_wait().context("Failed while checking runtime manager status.")? {
+            // Give ports a final grace window in case they opened at the same
+            // instant the bootstrapper exited (warm-start race).
+            thread::sleep(Duration::from_millis(200));
+            if is_port_ready(proxy_port) && is_port_ready(gateway_port) {
+                return Ok(());
+            }
             let tail = output.lock().expect("runtime output mutex poisoned").trim().to_string();
             if tail.is_empty() {
                 return Err(anyhow!(
@@ -1125,10 +1647,6 @@ fn wait_for_ports_or_exit(
                 ));
             }
             return Err(anyhow!("Lumina runtime manager exited before readiness. {tail}"));
-        }
-
-        if is_port_ready(proxy_port) && is_port_ready(gateway_port) {
-            return Ok(());
         }
 
         thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
@@ -1172,15 +1690,17 @@ fn stop_runtime_manager(state: &AppState) -> Result<()> {
 
     let runtime_manager_binary = PathBuf::from(startup.runtime_paths.runtime_manager_binary_path.trim());
     if runtime_manager_binary.exists() {
-        let stop_output = Command::new(&runtime_manager_binary)
+        let mut stop_command = Command::new(&runtime_manager_binary);
+        stop_command
             .arg("stop")
             .arg("--timeout-ms")
             .arg("15000")
             .current_dir(&startup.runtime_paths.repo_root)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .output();
+            .stderr(Stdio::piped());
+        hide_child_console(&mut stop_command);
+        let stop_output = stop_command.output();
 
         if let Ok(stop_output) = stop_output {
             if !stop_output.status.success() {
@@ -1200,6 +1720,54 @@ fn stop_runtime_manager(state: &AppState) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn spawn_gateway_watchdog(app: AppHandle, helper_context: HelperContext, startup: StartupState) {
+    use std::sync::atomic::Ordering;
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(5));
+
+            let state = match app.try_state::<AppState>() {
+                Some(s) => s,
+                None => break,
+            };
+
+            if state.shutdown_requested.load(Ordering::Relaxed) {
+                break;
+            }
+
+            if is_port_ready(startup.config.gateway_port) {
+                continue;
+            }
+
+            if state.shutdown_requested.load(Ordering::Relaxed) {
+                break;
+            }
+
+            eprintln!(
+                "[watchdog] Gateway port {} is down, restarting runtime manager...",
+                startup.config.gateway_port
+            );
+
+            match start_runtime_manager(&helper_context, &startup, state) {
+                Ok(()) => {
+                    eprintln!("[watchdog] Runtime manager restarted successfully.");
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.eval("window.location.reload();");
+                    }
+                }
+                Err(err) => {
+                    eprintln!("[watchdog] Restart failed: {err:#}");
+                    emit_setup_error(
+                        &app,
+                        &format!("El gateway se desconectó y no pudo reiniciarse: {err:#}"),
+                    );
+                    break;
+                }
+            }
+        }
+    });
 }
 
 fn clone_startup_state(state: &State<AppState>) -> Result<StartupState> {

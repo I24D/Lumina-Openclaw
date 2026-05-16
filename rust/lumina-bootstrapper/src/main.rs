@@ -16,7 +16,6 @@ use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use tar::Archive;
 use url::Url;
-use walkdir::WalkDir;
 
 const STATE_SCHEMA_VERSION: u32 = 1;
 
@@ -118,7 +117,7 @@ struct StartArgs {
     remote_brain_timeout_ms: u64,
     #[arg(long, default_value_t = 8)]
     remote_brain_max_turns: u32,
-    #[arg(long, default_value_t = 30_000)]
+    #[arg(long, default_value_t = 600_000)]
     startup_timeout_ms: u64,
     #[arg(long, default_value_t = false)]
     json: bool,
@@ -149,6 +148,7 @@ pub struct InstallPaths {
     pub state_file: PathBuf,
     pub runtime_session_file: PathBuf,
     pub runtime_stop_signal_file: PathBuf,
+    pub runtime_startup_log_file: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -406,6 +406,7 @@ fn resolve_install_paths(install_root: Option<PathBuf>) -> InstallPaths {
         state_file: root.join("state.json"),
         runtime_session_file: root.join("runtime-session.json"),
         runtime_stop_signal_file: root.join("runtime-stop.signal"),
+        runtime_startup_log_file: root.join("last-startup.log"),
         install_root: root,
     }
 }
@@ -444,12 +445,14 @@ fn install_runtime(
 
     fs::create_dir_all(&transaction_root)?;
     fs::create_dir_all(&downloads_root)?;
+    emit_status("Descargando OpenClaw Runtime...");
     fetch_artifact_to_path(
         source,
         &runtime_bundle_artifact,
         &downloaded_bundle_path,
         &client,
     )?;
+    emit_status("Descargando manifiesto del runtime...");
     fetch_artifact_to_path(
         source,
         &detached_bundle_manifest_artifact,
@@ -457,6 +460,7 @@ fn install_runtime(
         &client,
     )?;
 
+    emit_status("Validando archivos descargados...");
     verify_file_artifact(&runtime_bundle_artifact, &downloaded_bundle_path)?;
     verify_file_artifact(
         &detached_bundle_manifest_artifact,
@@ -470,8 +474,15 @@ fn install_runtime(
     .context("failed to parse detached bundle manifest")?;
     bundle_manifest.validate_basic()?;
     release_manifest.validate_bundle_linkage(&display_source(source), &bundle_manifest)?;
+    let total_extract_bytes = bundle_manifest
+        .entries
+        .iter()
+        .map(|entry| entry.byte_size)
+        .sum::<u64>()
+        .max(1);
 
-    extract_runtime_bundle(&downloaded_bundle_path, &extracted_root)?;
+    emit_status("Extrayendo OpenClaw Runtime...");
+    extract_runtime_bundle(&downloaded_bundle_path, &extracted_root, total_extract_bytes)?;
 
     let extracted_bundle_manifest_path = extracted_root.join("bundle.manifest.json");
     let expected_bundle_manifest_sha = runtime_bundle_artifact
@@ -487,8 +498,10 @@ fn install_runtime(
         );
     }
 
+    emit_status("Validando estructura del runtime...");
     verify_extracted_payload(&bundle_manifest, &extracted_root)?;
-    assemble_runtime_root(
+    emit_status("Preparando instalacion final...");
+    let total_activation_steps = assemble_runtime_root(
         &bundle_manifest,
         &release_manifest_text,
         &detached_bundle_manifest_path,
@@ -542,6 +555,7 @@ fn install_runtime(
         }
     }
 
+    emit_status("Activando runtime instalado...");
     fs::rename(&assembled_runtime_root, &final_release_dir).with_context(|| {
         format!(
             "failed to activate assembled runtime {} -> {}",
@@ -549,6 +563,7 @@ fn install_runtime(
             final_release_dir.display()
         )
     })?;
+    emit_phase_progress("activate", total_activation_steps, total_activation_steps);
 
     let installed_release = InstalledRelease {
         release_id,
@@ -668,11 +683,119 @@ fn resolve_active_runtime(paths: &InstallPaths) -> Result<ResolvedRuntime> {
 
 fn build_http_client() -> Result<Client> {
     Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(20))
-        .timeout(std::time::Duration::from_secs(180))
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(1800))
         .user_agent("lumina-bootstrapper/1.0.8")
         .build()
         .context("failed to build HTTP client")
+}
+
+fn github_token() -> Option<String> {
+    std::env::var("LUMINA_GITHUB_TOKEN")
+        .or_else(|_| std::env::var("LUMINA_PC_GITHUB_TOKEN"))
+        .ok()
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty())
+}
+
+#[derive(Deserialize)]
+struct GithubRelease {
+    assets: Vec<GithubAsset>,
+}
+
+#[derive(Deserialize)]
+struct GithubAsset {
+    id: u64,
+    name: String,
+}
+
+/// Parses https://github.com/{owner}/{repo}/releases/download/{tag}/{filename}
+/// Returns (owner, repo, tag, filename) if it matches.
+fn parse_github_release_url(url_str: &str) -> Option<(String, String, String, String)> {
+    let url = Url::parse(url_str).ok()?;
+    if url.host_str() != Some("github.com") {
+        return None;
+    }
+    let mut segs = url.path_segments()?;
+    let owner = segs.next()?.to_string();
+    let repo = segs.next()?.to_string();
+    let kind = segs.next()?;
+    let verb = segs.next()?;
+    if kind != "releases" || verb != "download" {
+        return None;
+    }
+    let tag = segs.next()?.to_string();
+    let filename = segs.next()?.to_string();
+    if owner.is_empty() || repo.is_empty() || tag.is_empty() || filename.is_empty() {
+        return None;
+    }
+    Some((owner, repo, tag, filename))
+}
+
+/// Downloads a URL, routing private GitHub release assets through the GitHub API
+/// so authentication works correctly for private repositories.
+///
+/// For `github.com/{owner}/{repo}/releases/download/{tag}/{file}` URLs with a token:
+///   1. Queries the GitHub releases API to find the asset ID.
+///   2. Downloads via `api.github.com/repos/{owner}/{repo}/releases/assets/{id}`
+///      with `Accept: application/octet-stream`, which redirects to a pre-signed S3 URL.
+///
+/// Falls back to a plain GET (with optional auth header) for any other URL.
+fn github_get(client: &Client, url_str: &str) -> Result<reqwest::blocking::Response> {
+    if let Some((owner, repo, tag, filename)) = parse_github_release_url(url_str) {
+        let token = github_token();
+        let releases_api = format!(
+            "https://api.github.com/repos/{}/{}/releases/tags/{}",
+            owner, repo, tag
+        );
+        let mut release_request = client
+            .get(&releases_api)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28");
+        if let Some(token) = token.as_ref() {
+            release_request = release_request.header("Authorization", format!("token {}", token));
+        }
+        let release: GithubRelease = release_request
+            .send()
+            .context("GitHub releases API request failed")?
+            .error_for_status()
+            .context("GitHub releases API returned error")?
+            .json()
+            .context("failed to parse GitHub releases API response")?;
+
+        let asset = release
+            .assets
+            .iter()
+            .find(|a| a.name == filename)
+            .with_context(|| {
+                format!("asset '{}' not found in GitHub release '{}'", filename, tag)
+            })?;
+
+        let asset_url = format!(
+            "https://api.github.com/repos/{}/{}/releases/assets/{}",
+            owner, repo, asset.id
+        );
+        let mut asset_request = client
+            .get(&asset_url)
+            .header("Accept", "application/octet-stream")
+            .header("X-GitHub-Api-Version", "2022-11-28");
+        if let Some(token) = token.as_ref() {
+            asset_request = asset_request.header("Authorization", format!("token {}", token));
+        }
+        return asset_request
+            .send()
+            .context("GitHub asset API request failed")?
+            .error_for_status()
+            .context("GitHub asset download failed");
+    }
+
+    // Fallback: plain GET (no auth needed for public URLs).
+    client
+        .get(url_str)
+        .send()
+        .context("HTTP request failed")?
+        .error_for_status()
+        .context("HTTP request returned error")
 }
 
 fn ensure_install_dirs(paths: &InstallPaths) -> Result<()> {
@@ -683,19 +806,26 @@ fn ensure_install_dirs(paths: &InstallPaths) -> Result<()> {
     Ok(())
 }
 
+fn emit_status(message: &str) {
+    println!("STATUS:{message}");
+    let _ = std::io::stdout().flush();
+}
+
+fn emit_phase_progress(phase: &str, completed: u64, total: u64) {
+    println!("PROGRESS:{phase}:{completed}:{total}");
+    let _ = std::io::stdout().flush();
+}
+
 fn read_text_from_source(source: &ManifestSource, client: &Client) -> Result<String> {
-    match source {
-        ManifestSource::Url(url) => client
-            .get(url.clone())
-            .send()
+    let text = match source {
+        ManifestSource::Url(url) => github_get(client, url.as_str())
             .context("failed to fetch release manifest")?
-            .error_for_status()
-            .context("release manifest request failed")?
             .text()
             .context("failed to read release manifest body"),
         ManifestSource::File(path) => fs::read_to_string(path)
             .with_context(|| format!("failed to read release manifest {}", path.display())),
-    }
+    }?;
+    Ok(text.trim_start_matches('\u{feff}').to_string())
 }
 
 fn fetch_artifact_to_path(
@@ -708,51 +838,73 @@ fn fetch_artifact_to_path(
         fs::create_dir_all(parent)?;
     }
 
-    let bytes = if let Some(url) = &artifact.url {
-        client
-            .get(url)
-            .send()
+    // Local file source — read all at once, no progress needed
+    if artifact.url.is_none() {
+        if let ManifestSource::File(manifest_path) = release_source {
+            let base_dir = manifest_path
+                .parent()
+                .context("release manifest file path does not have a parent directory")?;
+            let bytes = fs::read(base_dir.join(&artifact.relative_path)).with_context(|| {
+                format!(
+                    "failed to read artifact {} relative to {}",
+                    artifact.id,
+                    manifest_path.display()
+                )
+            })?;
+            let mut file = File::create(target_path)
+                .with_context(|| format!("failed to create {}", target_path.display()))?;
+            file.write_all(&bytes)
+                .with_context(|| format!("failed to write {}", target_path.display()))?;
+            return Ok(());
+        }
+    }
+
+    // HTTP source — stream in chunks and print PROGRESS lines so the parent
+    // process can forward live download progress to the UI.
+    let mut response = if let Some(url) = &artifact.url {
+        github_get(client, url)
             .with_context(|| format!("failed to download artifact {}", artifact.id))?
-            .error_for_status()
-            .with_context(|| format!("artifact request failed for {}", artifact.id))?
-            .bytes()
-            .with_context(|| format!("failed to read artifact body for {}", artifact.id))?
-            .to_vec()
     } else {
         match release_source {
             ManifestSource::Url(base_url) => {
                 let artifact_url = base_url
                     .join(&artifact.relative_path)
                     .with_context(|| format!("failed to resolve artifact URL for {}", artifact.id))?;
-                client
-                    .get(artifact_url)
-                    .send()
+                github_get(client, artifact_url.as_str())
                     .with_context(|| format!("failed to download artifact {}", artifact.id))?
-                    .error_for_status()
-                    .with_context(|| format!("artifact request failed for {}", artifact.id))?
-                    .bytes()
-                    .with_context(|| format!("failed to read artifact body for {}", artifact.id))?
-                    .to_vec()
             }
-            ManifestSource::File(manifest_path) => {
-                let base_dir = manifest_path
-                    .parent()
-                    .context("release manifest file path does not have a parent directory")?;
-                fs::read(base_dir.join(&artifact.relative_path)).with_context(|| {
-                    format!(
-                        "failed to read artifact {} relative to {}",
-                        artifact.id,
-                        manifest_path.display()
-                    )
-                })?
-            }
+            ManifestSource::File(_) => unreachable!("local file case handled above"),
         }
     };
 
+    let total_bytes = artifact.byte_size;
+    let mut downloaded: u64 = 0;
+    let mut last_printed_percent: i64 = -1;
+    let should_emit_progress = total_bytes >= 1_048_576;
+    let mut buf = vec![0u8; 65536]; // 64 KB chunks
     let mut file = File::create(target_path)
         .with_context(|| format!("failed to create {}", target_path.display()))?;
-    file.write_all(&bytes)
-        .with_context(|| format!("failed to write {}", target_path.display()))?;
+
+    loop {
+        let n = response
+            .read(&mut buf)
+            .with_context(|| format!("failed to read download chunk for artifact {}", artifact.id))?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n])
+            .with_context(|| format!("failed to write chunk for artifact {}", artifact.id))?;
+        downloaded += n as u64;
+
+        if should_emit_progress && total_bytes > 0 {
+            let percent = (downloaded * 100 / total_bytes) as i64;
+            if percent != last_printed_percent {
+                last_printed_percent = percent;
+                emit_phase_progress("download", downloaded, total_bytes);
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -779,17 +931,27 @@ fn verify_file_artifact(artifact: &contract::ReleaseArtifact, target_path: &Path
     Ok(())
 }
 
-fn extract_runtime_bundle(archive_path: &Path, extract_root: &Path) -> Result<()> {
+fn extract_runtime_bundle(
+    archive_path: &Path,
+    extract_root: &Path,
+    total_extract_bytes: u64,
+) -> Result<()> {
     fs::create_dir_all(extract_root)?;
     let archive_file =
         File::open(archive_path).with_context(|| format!("failed to open {}", archive_path.display()))?;
     let decoder = flate2::read::GzDecoder::new(archive_file);
     let mut archive = Archive::new(decoder);
+    let mut extracted_bytes = 0u64;
+    let mut last_printed_percent: i64 = -1;
 
     for entry in archive.entries().context("failed to enumerate bundle archive entries")? {
         let mut entry = entry.context("failed to read bundle archive entry")?;
+        let entry_size = entry.size();
         let entry_path = entry.path().context("failed to read archive entry path")?;
-        let relative_path = normalize_archive_path(entry_path.as_ref())?;
+        let relative_path = match normalize_archive_path(entry_path.as_ref())? {
+            Some(p) => p,
+            None => continue,
+        };
         let destination = extract_root.join(&relative_path);
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent)?;
@@ -801,6 +963,15 @@ fn extract_runtime_bundle(archive_path: &Path, extract_root: &Path) -> Result<()
                 destination.display()
             )
         })?;
+
+        if total_extract_bytes > 0 {
+            extracted_bytes = extracted_bytes.saturating_add(entry_size);
+            let percent = (extracted_bytes.saturating_mul(100) / total_extract_bytes) as i64;
+            if percent != last_printed_percent {
+                last_printed_percent = percent;
+                emit_phase_progress("extract", extracted_bytes.min(total_extract_bytes), total_extract_bytes);
+            }
+        }
     }
 
     Ok(())
@@ -817,33 +988,56 @@ fn verify_extracted_payload(bundle_manifest: &BundleManifest, extracted_root: &P
                 target_path.display()
             );
         }
-        let digest = if target_path.is_dir() {
-            compute_directory_digest(&target_path)?
-        } else {
-            FileDigest {
-                byte_size: fs::metadata(&target_path)?.len(),
-                file_count: 1,
-                sha256: compute_file_sha256(&target_path)?,
+        match entry.layout.as_str() {
+            "directory" => {
+                // The downloaded archive is already content-addressed. Re-walking
+                // very large extracted directories on Windows makes first-run
+                // installs look frozen for many minutes, so here we only verify
+                // that the expected directory materialized successfully.
+                if !target_path.is_dir() {
+                    bail!(
+                        "bundle entry {} layout mismatch: expected directory at {}",
+                        entry.id,
+                        target_path.display()
+                    );
+                }
             }
-        };
-        if digest.byte_size != entry.byte_size {
-            bail!(
-                "bundle entry {} byte size mismatch: expected {}, got {}",
-                entry.id,
-                entry.byte_size,
-                digest.byte_size
-            );
-        }
-        if digest.file_count != entry.file_count {
-            bail!(
-                "bundle entry {} file count mismatch: expected {}, got {}",
-                entry.id,
-                entry.file_count,
-                digest.file_count
-            );
-        }
-        if digest.sha256 != entry.sha256 {
-            bail!("bundle entry {} sha256 mismatch", entry.id);
+            "file" => {
+                if !target_path.is_file() {
+                    bail!(
+                        "bundle entry {} layout mismatch: expected file at {}",
+                        entry.id,
+                        target_path.display()
+                    );
+                }
+                let digest = FileDigest {
+                    byte_size: fs::metadata(&target_path)?.len(),
+                    file_count: 1,
+                    sha256: compute_file_sha256(&target_path)?,
+                };
+                if digest.byte_size != entry.byte_size {
+                    bail!(
+                        "bundle entry {} byte size mismatch: expected {}, got {}",
+                        entry.id,
+                        entry.byte_size,
+                        digest.byte_size
+                    );
+                }
+                if digest.file_count != entry.file_count {
+                    bail!(
+                        "bundle entry {} file count mismatch: expected {}, got {}",
+                        entry.id,
+                        entry.file_count,
+                        digest.file_count
+                    );
+                }
+                if digest.sha256 != entry.sha256 {
+                    bail!("bundle entry {} sha256 mismatch", entry.id);
+                }
+            }
+            other => {
+                bail!("bundle entry {} has unsupported layout {}", entry.id, other);
+            }
         }
     }
 
@@ -856,7 +1050,7 @@ fn assemble_runtime_root(
     detached_bundle_manifest_path: &Path,
     extracted_root: &Path,
     assembled_runtime_root: &Path,
-) -> Result<()> {
+) -> Result<u64> {
     clean_directory_if_exists(assembled_runtime_root)?;
     fs::create_dir_all(assembled_runtime_root)?;
 
@@ -872,19 +1066,23 @@ fn assemble_runtime_root(
     .context("failed to stage release manifest into the runtime root")?;
 
     let payload_root = extracted_root.join(normalize_relative_path(&bundle_manifest.install.payload_root)?);
-    for entry in fs::read_dir(&payload_root)
+    let payload_entries = fs::read_dir(&payload_root)
         .with_context(|| format!("failed to enumerate payload root {}", payload_root.display()))?
-    {
-        let entry = entry?;
+        .collect::<std::result::Result<Vec<_>, std::io::Error>>()?;
+    let total_activation_steps = payload_entries.len().saturating_add(1) as u64;
+    let mut completed_activation_steps = 0u64;
+    for entry in payload_entries {
         let source_path = entry.path();
         let target = assembled_runtime_root.join(entry.file_name());
         if fs::rename(&source_path, &target).is_err() {
             copy_path_recursively(&source_path, &target)?;
             clean_path_if_exists(&source_path)?;
         }
+        completed_activation_steps = completed_activation_steps.saturating_add(1);
+        emit_phase_progress("activate", completed_activation_steps, total_activation_steps);
     }
 
-    Ok(())
+    Ok(total_activation_steps)
 }
 
 fn load_state(paths: &InstallPaths) -> Result<BootstrapState> {
@@ -1066,7 +1264,7 @@ fn normalize_relative_path(raw: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(normalized))
 }
 
-fn normalize_archive_path(raw: &Path) -> Result<PathBuf> {
+fn normalize_archive_path(raw: &Path) -> Result<Option<PathBuf>> {
     let mut normalized = PathBuf::new();
     for component in raw.components() {
         match component {
@@ -1078,9 +1276,10 @@ fn normalize_archive_path(raw: &Path) -> Result<PathBuf> {
         }
     }
     if normalized.as_os_str().is_empty() {
-        bail!("archive entry path resolved to an empty path");
+        // Root "." entry — skip it, nothing to extract.
+        return Ok(None);
     }
-    Ok(normalized)
+    Ok(Some(normalized))
 }
 
 fn compute_file_sha256(path: &Path) -> Result<String> {
@@ -1095,56 +1294,6 @@ fn compute_file_sha256(path: &Path) -> Result<String> {
         hasher.update(&buffer[..read]);
     }
     Ok(hex::encode(hasher.finalize()))
-}
-
-fn compute_directory_digest(root: &Path) -> Result<FileDigest> {
-    #[derive(Debug)]
-    struct FileEntry {
-        relative_path: String,
-        byte_size: u64,
-    }
-
-    let mut files = Vec::new();
-    for entry in WalkDir::new(root).follow_links(false) {
-        let entry = entry?;
-        if entry.file_type().is_symlink() {
-            bail!("bundle payloads must not contain symbolic links: {}", entry.path().display());
-        }
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let relative_path = entry
-            .path()
-            .strip_prefix(root)
-            .with_context(|| format!("failed to relativize {}", entry.path().display()))?;
-        let relative_path = relative_path.to_string_lossy().replace('\\', "/");
-        files.push(FileEntry {
-            relative_path,
-            byte_size: entry.metadata()?.len(),
-        });
-    }
-
-    files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
-
-    // Runtime-bundle directories can contain very large dependency trees.
-    // The archive itself is content-addressed; directory entries use a stable
-    // structural digest so install-time verification remains practical.
-    let mut byte_size = 0u64;
-    let mut hasher = Sha256::new();
-    for file in files.iter() {
-        hasher.update(b"file\0");
-        hasher.update(file.relative_path.as_bytes());
-        hasher.update(b"\0");
-        hasher.update(file.byte_size.to_string().as_bytes());
-        hasher.update(b"\0");
-        byte_size += file.byte_size;
-    }
-
-    Ok(FileDigest {
-        byte_size,
-        file_count: files.len() as u64,
-        sha256: hex::encode(hasher.finalize()),
-    })
 }
 
 fn copy_path_recursively(source: &Path, target: &Path) -> Result<()> {
@@ -1212,7 +1361,8 @@ mod tests {
     #[test]
     fn normalize_archive_path_rejects_parent_segments() {
         assert!(normalize_archive_path(Path::new("../escape")).is_err());
-        assert!(normalize_archive_path(Path::new("payload/ui/index.html")).is_ok());
+        assert!(normalize_archive_path(Path::new("payload/ui/index.html")).unwrap().is_some());
+        assert!(normalize_archive_path(Path::new(".")).unwrap().is_none());
     }
 
     #[test]

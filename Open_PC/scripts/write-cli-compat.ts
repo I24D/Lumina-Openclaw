@@ -9,6 +9,14 @@ import {
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = path.join(rootDir, "dist");
 const cliDir = path.join(distDir, "cli");
+const existingCliShimPath = path.join(cliDir, "daemon-cli.js");
+
+if (fs.existsSync(existingCliShimPath)) {
+  const existingSource = fs.readFileSync(existingCliShimPath, "utf8");
+  if (resolveLegacyDaemonCliAccessors(existingSource)) {
+    process.exit(0);
+  }
+}
 
 const findCandidates = () =>
   fs.readdirSync(distDir).filter((entry) => {

@@ -1,44 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Command } from "commander";
-import { readSecretFromFile } from "../../acp/secret-file.js";
-import type { GatewayAuthMode, GatewayTailscaleMode } from "../../config/config.js";
-import {
-  CONFIG_PATH,
-  loadConfig,
-  readConfigFileSnapshot,
-  resolveStateDir,
-  resolveGatewayPort,
-} from "../../config/config.js";
-import { hasConfiguredSecretInput } from "../../config/types.secrets.js";
-import { resolveGatewayAuth } from "../../gateway/auth.js";
-import type { GatewayWsLogStyle } from "../../gateway/ws-logging.js";
-import { setGatewayWsLogStyle } from "../../gateway/ws-logging.js";
-import { setVerbose } from "../../globals.js";
-import { resolveControlUiRootSync } from "../../infra/control-ui-assets.js";
-import { GatewayLockError } from "../../infra/gateway-lock.js";
-import { formatPortDiagnostics, inspectPortUsage } from "../../infra/ports.js";
-import { cleanStaleGatewayProcessesSync } from "../../infra/restart-stale-pids.js";
 import { traceStartup } from "../../infra/startup-trace.js";
-import { detectRespawnSupervisor } from "../../infra/supervisor-markers.js";
-import { setConsoleSubsystemFilter, setConsoleTimestampPrefix } from "../../logging/console.js";
-import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { defaultRuntime } from "../../runtime.js";
-import { formatCliCommand } from "../command-format.js";
 import { inheritOptionFromParent } from "../command-options.js";
-import { forceFreePortAndWait, waitForPortBindable } from "../ports.js";
-import { withProgress } from "../progress.js";
-import { ensureDevGatewayConfig } from "./dev.js";
-import { runGatewayLoop } from "./run-loop.js";
-import {
-  describeUnknownError,
-  extractGatewayMiskeys,
-  maybeExplainGatewayServiceStop,
-  parsePort,
-  toOptionString,
-} from "./shared.js";
 
-type GatewayRunOpts = {
+export type GatewayRunOpts = {
   port?: unknown;
   bind?: unknown;
   token?: unknown;
@@ -60,7 +27,14 @@ type GatewayRunOpts = {
   reset?: boolean;
 };
 
-const gatewayLog = createSubsystemLogger("gateway");
+const gatewayLog = {
+  info(message: string) {
+    defaultRuntime.log(message);
+  },
+  warn(message: string) {
+    defaultRuntime.error(message);
+  },
+};
 
 const GATEWAY_RUN_VALUE_KEYS = [
   "port",
@@ -88,14 +62,28 @@ const GATEWAY_RUN_BOOLEAN_KEYS = [
 ] as const;
 
 const SUPERVISED_GATEWAY_LOCK_RETRY_MS = 5000;
+const GATEWAY_AUTH_MODES = ["none", "token", "password", "trusted-proxy"] as const;
+const GATEWAY_TAILSCALE_MODES = ["off", "serve", "funnel"] as const;
 
-const GATEWAY_AUTH_MODES: readonly GatewayAuthMode[] = [
-  "none",
-  "token",
-  "password",
-  "trusted-proxy",
-];
-const GATEWAY_TAILSCALE_MODES: readonly GatewayTailscaleMode[] = ["off", "serve", "funnel"];
+function toOptionString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parsePort(value: unknown): number | null {
+  const raw = toOptionString(value);
+  if (!raw) {
+    return null;
+  }
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    return null;
+  }
+  return port;
+}
 
 function warnInlinePasswordFlag() {
   defaultRuntime.error(
@@ -109,10 +97,14 @@ function resolveGatewayPasswordOption(opts: GatewayRunOpts): string | undefined 
   if (direct && file) {
     throw new Error("Use either --password or --password-file.");
   }
-  if (file) {
-    return readSecretFromFile(file, "Gateway password");
+  if (!file) {
+    return direct;
   }
-  return direct;
+  const contents = fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "").trim();
+  if (!contents) {
+    throw new Error(`Gateway password file is empty: ${file}`);
+  }
+  return contents;
 }
 
 function parseEnumOption<T extends string>(
@@ -143,27 +135,6 @@ function formatModeErrorList<T extends string>(modes: readonly T[]): string {
   return `${quoted.slice(0, -1).join(", ")}, or ${quoted[quoted.length - 1]}`;
 }
 
-function maybeLogPendingControlUiBuild(cfg: ReturnType<typeof loadConfig>): void {
-  if (cfg.gateway?.controlUi?.enabled === false) {
-    return;
-  }
-  if (toOptionString(cfg.gateway?.controlUi?.root)) {
-    return;
-  }
-  if (
-    resolveControlUiRootSync({
-      moduleUrl: import.meta.url,
-      argv1: process.argv[1],
-      cwd: process.cwd(),
-    })
-  ) {
-    return;
-  }
-  gatewayLog.info(
-    "Control UI assets are missing; first startup may spend a few seconds building them before the gateway binds. Prebuild with `pnpm ui:build` for a faster first boot.",
-  );
-}
-
 function getGatewayStartGuardErrors(params: {
   allowUnconfigured?: boolean;
   configExists: boolean;
@@ -175,7 +146,7 @@ function getGatewayStartGuardErrors(params: {
   }
   if (!params.configExists) {
     return [
-      `Missing config. Run \`${formatCliCommand("openclaw setup")}\` or set gateway.mode=local (or pass --allow-unconfigured).`,
+      "Missing config. Run `openclaw setup` or set gateway.mode=local (or pass --allow-unconfigured).",
     ];
   }
   if (params.mode === undefined) {
@@ -183,7 +154,7 @@ function getGatewayStartGuardErrors(params: {
       [
         "Gateway start blocked: existing config is missing gateway.mode.",
         "Treat this as suspicious or clobbered config.",
-        `Re-run \`${formatCliCommand("openclaw onboard --mode local")}\` or \`${formatCliCommand("openclaw setup")}\`, set gateway.mode=local manually, or pass --allow-unconfigured.`,
+        "Re-run `openclaw onboard --mode local` or `openclaw setup`, set gateway.mode=local manually, or pass --allow-unconfigured.",
       ].join(" "),
       `Config write audit: ${params.configAuditPath}`,
     ];
@@ -194,13 +165,15 @@ function getGatewayStartGuardErrors(params: {
   ];
 }
 
-function resolveGatewayRunOptions(opts: GatewayRunOpts, command?: Command): GatewayRunOpts {
+export function resolveGatewayRunOptions(
+  opts: GatewayRunOpts,
+  command?: Command,
+): GatewayRunOpts {
   const resolved: GatewayRunOpts = { ...opts };
 
   for (const key of GATEWAY_RUN_VALUE_KEYS) {
     const inherited = inheritOptionFromParent(command, key);
     if (key === "wsLog") {
-      // wsLog has a child default ("auto"), so prefer inherited parent CLI value when present.
       resolved[key] = inherited ?? resolved[key];
       continue;
     }
@@ -215,11 +188,8 @@ function resolveGatewayRunOptions(opts: GatewayRunOpts, command?: Command): Gate
   return resolved;
 }
 
-function isGatewayLockError(err: unknown): err is GatewayLockError {
-  return (
-    err instanceof GatewayLockError ||
-    (!!err && typeof err === "object" && (err as { name?: string }).name === "GatewayLockError")
-  );
+function isGatewayLockError(err: unknown): err is Error {
+  return !!err && typeof err === "object" && (err as { name?: string }).name === "GatewayLockError";
 }
 
 function isHealthyGatewayLockError(err: unknown): boolean {
@@ -232,8 +202,42 @@ function isHealthyGatewayLockError(err: unknown): boolean {
   );
 }
 
-async function runGatewayCommand(opts: GatewayRunOpts) {
+function describeUnknownError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+export async function runGatewayCommand(opts: GatewayRunOpts) {
   traceStartup("gateway.run.begin");
+  traceStartup("gateway.run.import-core.begin");
+  traceStartup("gateway.run.import.config.begin");
+  const configMod = await import("../../config/config.js");
+  traceStartup("gateway.run.import.config.ready");
+
+  traceStartup("gateway.run.import.types-secrets.begin");
+  const { hasConfiguredSecretInput } = await import("../../config/types.secrets.js");
+  traceStartup("gateway.run.import.types-secrets.ready");
+
+  traceStartup("gateway.run.import.auth.begin");
+  const { resolveGatewayAuth } = await import("../../gateway/auth.js");
+  traceStartup("gateway.run.import.auth.ready");
+
+  traceStartup("gateway.run.import.supervisor.begin");
+  const { detectRespawnSupervisor } = await import("../../infra/supervisor-markers.js");
+  traceStartup("gateway.run.import.supervisor.ready");
+
+  traceStartup("gateway.run.import.run-loop.begin");
+  const { runGatewayLoop } = await import("./run-loop.js");
+  traceStartup("gateway.run.import.run-loop.ready");
+
+  traceStartup("gateway.run.import.ports.begin");
+  const { inspectPortUsage, formatPortDiagnostics } = await import("../../infra/ports.js");
+  traceStartup("gateway.run.import.ports.ready");
+
+  traceStartup("gateway.run.import.shared.begin");
+  const { maybeExplainGatewayServiceStop, extractGatewayMiskeys } = await import("./shared.js");
+  traceStartup("gateway.run.import.shared.ready");
+  traceStartup("gateway.run.import-core.ready");
+
   const isDevProfile = process.env.OPENCLAW_PROFILE?.trim().toLowerCase() === "dev";
   const devMode = Boolean(opts.dev) || isDevProfile;
   if (opts.reset && !devMode) {
@@ -241,25 +245,6 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
     defaultRuntime.exit(1);
     return;
   }
-
-  setVerbose(Boolean(opts.verbose));
-  if (opts.cliBackendLogs || opts.claudeCliLogs) {
-    setConsoleSubsystemFilter(["agent/cli-backend"]);
-    process.env.OPENCLAW_CLI_BACKEND_LOG_OUTPUT = "1";
-  }
-  const wsLogRaw = (opts.compact ? "compact" : opts.wsLog) as string | undefined;
-  const wsLogStyle: GatewayWsLogStyle =
-    wsLogRaw === "compact" ? "compact" : wsLogRaw === "full" ? "full" : "auto";
-  if (
-    wsLogRaw !== undefined &&
-    wsLogRaw !== "auto" &&
-    wsLogRaw !== "compact" &&
-    wsLogRaw !== "full"
-  ) {
-    defaultRuntime.error('Invalid --ws-log (use "auto", "full", "compact")');
-    defaultRuntime.exit(1);
-  }
-  setGatewayWsLogStyle(wsLogStyle);
 
   if (opts.rawStream) {
     process.env.OPENCLAW_RAW_STREAM = "1";
@@ -269,37 +254,31 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
     process.env.OPENCLAW_RAW_STREAM_PATH = rawStreamPath;
   }
 
-  traceStartup("gateway.run.import-server.begin");
-  // The heaviest part of gateway startup is loading the server module tree
-  // (channels, plugins, HTTP stack, etc.). Show a spinner so the user sees
-  // progress instead of a silent 15-20 s pause (especially on Windows/NTFS).
-  const { startGatewayServer } = await withProgress(
-    { label: "Loading gateway modules…", indeterminate: true },
-    async () => import("../../gateway/server.js"),
-  );
-  traceStartup("gateway.run.import-server.ready");
-
-  setConsoleTimestampPrefix(true);
-
   if (devMode) {
+    traceStartup("gateway.run.dev-config.begin");
+    const { ensureDevGatewayConfig } = await import("./dev.js");
     await ensureDevGatewayConfig({ reset: Boolean(opts.reset) });
+    traceStartup("gateway.run.dev-config.ready");
   }
 
-  gatewayLog.info("loading configuration…");
+  gatewayLog.info("loading configuration...");
   traceStartup("gateway.run.load-config.begin");
-  const cfg = loadConfig();
+  const cfg = configMod.loadConfig();
   traceStartup("gateway.run.load-config.ready");
-  maybeLogPendingControlUiBuild(cfg);
+
   const portOverride = parsePort(opts.port);
   if (opts.port !== undefined && portOverride === null) {
     defaultRuntime.error("Invalid port");
     defaultRuntime.exit(1);
+    return;
   }
-  const port = portOverride ?? resolveGatewayPort(cfg);
+  const port = portOverride ?? configMod.resolveGatewayPort(cfg);
   if (!Number.isFinite(port) || port <= 0) {
     defaultRuntime.error("Invalid port");
     defaultRuntime.exit(1);
+    return;
   }
+
   const bindRaw = toOptionString(opts.bind) ?? cfg.gateway?.bind ?? "loopback";
   const bind =
     bindRaw === "loopback" ||
@@ -314,7 +293,9 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
     defaultRuntime.exit(1);
     return;
   }
+
   if (process.env.OPENCLAW_SERVICE_MARKER?.trim()) {
+    const { cleanStaleGatewayProcessesSync } = await import("../../infra/restart-stale-pids.js");
     const stale = cleanStaleGatewayProcessesSync(port);
     if (stale.length > 0) {
       gatewayLog.info(
@@ -322,8 +303,10 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
       );
     }
   }
+
   if (opts.force) {
     try {
+      const { forceFreePortAndWait, waitForPortBindable } = await import("../ports.js");
       const { killed, waitedMs, escalatedToSigkill } = await forceFreePortAndWait(port, {
         timeoutMs: 2000,
         intervalMs: 100,
@@ -344,7 +327,6 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
           gatewayLog.info(`force: waited ${waitedMs}ms for port ${port} to free`);
         }
       }
-      // After killing, verify the port is actually bindable (handles TIME_WAIT).
       const bindProbeHost =
         bind === "loopback"
           ? "127.0.0.1"
@@ -367,12 +349,14 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
       return;
     }
   }
+
   if (opts.token) {
     const token = toOptionString(opts.token);
     if (token) {
       process.env.OPENCLAW_GATEWAY_TOKEN = token;
     }
   }
+
   const authModeRaw = toOptionString(opts.auth);
   const authMode = parseEnumOption(authModeRaw, GATEWAY_AUTH_MODES);
   if (authModeRaw && !authMode) {
@@ -380,6 +364,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
     defaultRuntime.exit(1);
     return;
   }
+
   const tailscaleRaw = toOptionString(opts.tailscale);
   const tailscaleMode = parseEnumOption(tailscaleRaw, GATEWAY_TAILSCALE_MODES);
   if (tailscaleRaw && !tailscaleMode) {
@@ -389,6 +374,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
     defaultRuntime.exit(1);
     return;
   }
+
   let passwordRaw: string | undefined;
   try {
     passwordRaw = resolveGatewayPasswordOption(opts);
@@ -400,12 +386,12 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
   if (toOptionString(opts.password)) {
     warnInlinePasswordFlag();
   }
-  const tokenRaw = toOptionString(opts.token);
 
-  gatewayLog.info("resolving authentication…");
-  const snapshot = await readConfigFileSnapshot().catch(() => null);
-  const configExists = snapshot?.exists ?? fs.existsSync(CONFIG_PATH);
-  const configAuditPath = path.join(resolveStateDir(process.env), "logs", "config-audit.jsonl");
+  const tokenRaw = toOptionString(opts.token);
+  gatewayLog.info("resolving authentication...");
+  const snapshot = await configMod.readConfigFileSnapshot().catch(() => null);
+  const configExists = snapshot?.exists ?? fs.existsSync(configMod.CONFIG_PATH);
+  const configAuditPath = path.join(configMod.resolveStateDir(process.env), "logs", "config-audit.jsonl");
   const effectiveCfg = snapshot?.valid ? snapshot.config : cfg;
   const mode = effectiveCfg.gateway?.mode;
   const guardErrors = getGatewayStartGuardErrors({
@@ -421,6 +407,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
     defaultRuntime.exit(1);
     return;
   }
+
   const miskeys = extractGatewayMiskeys(snapshot?.parsed);
   const authOverride =
     authMode || passwordRaw || tokenRaw || authModeRaw
@@ -440,7 +427,8 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
   const tokenValue = resolvedAuth.token;
   const passwordValue = resolvedAuth.password;
   const hasToken = typeof tokenValue === "string" && tokenValue.trim().length > 0;
-  const hasPassword = typeof passwordValue === "string" && passwordValue.trim().length > 0;
+  const hasPassword =
+    typeof passwordValue === "string" && passwordValue.trim().length > 0;
   const tokenConfigured =
     hasToken ||
     hasConfiguredSecretInput(
@@ -502,6 +490,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
     defaultRuntime.exit(1);
     return;
   }
+
   const tailscaleOverride =
     tailscaleMode || opts.tailscaleResetOnExit
       ? {
@@ -511,6 +500,10 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
       : undefined;
 
   gatewayLog.info("starting...");
+  traceStartup("gateway.run.import-server.begin");
+  const { startGatewayServer } = await import("../../gateway/server.js");
+  traceStartup("gateway.run.import-server.ready");
+
   traceStartup("gateway.run.start-loop.begin");
   const startLoop = async () =>
     await runGatewayLoop({
@@ -537,7 +530,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
         break;
       } catch (err) {
         const isGatewayAlreadyRunning =
-          err instanceof GatewayLockError &&
+          isGatewayLockError(err) &&
           typeof err.message === "string" &&
           err.message.includes("gateway already running");
         if (!supervisor || !isGatewayAlreadyRunning) {
@@ -553,7 +546,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
     if (isGatewayLockError(err)) {
       const errMessage = describeUnknownError(err);
       defaultRuntime.error(
-        `Gateway failed to start: ${errMessage}\nIf the gateway is supervised, stop it with: ${formatCliCommand("openclaw gateway stop")}`,
+        `Gateway failed to start: ${errMessage}\nIf the gateway is supervised, stop it with: openclaw gateway stop`,
       );
       try {
         const diagnostics = await inspectPortUsage(port);
