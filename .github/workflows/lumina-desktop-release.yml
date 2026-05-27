@@ -63,7 +63,7 @@ jobs:
 
       - name: Install Open_PC dependencies
         working-directory: Open_PC
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: "Pre-flight: disk space"
         run: |
@@ -165,7 +165,7 @@ jobs:
         shell: bash
         run: |
           cd Open_PC
-          pnpm install --no-frozen-lockfile
+          pnpm install --frozen-lockfile
           pnpm build:docker
           pnpm ui:build
 
@@ -245,7 +245,7 @@ jobs:
         if: steps.dl-openclaw-mac.outcome == 'failure' || steps.dl-openclaw-mac.outcome == 'skipped'
         run: |
           cd Open_PC
-          pnpm install --no-frozen-lockfile
+          pnpm install --frozen-lockfile
           pnpm build:docker
           pnpm ui:build
 
@@ -339,7 +339,7 @@ jobs:
         if: steps.dl-openclaw-linux.outcome == 'failure' || steps.dl-openclaw-linux.outcome == 'skipped'
         run: |
           cd Open_PC
-          pnpm install --no-frozen-lockfile
+          pnpm install --frozen-lockfile
           pnpm build:docker
           pnpm ui:build
 
