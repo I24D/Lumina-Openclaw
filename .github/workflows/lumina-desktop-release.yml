@@ -108,11 +108,50 @@ jobs:
             Open_PC/pnpm-lock.yaml
           gh release upload "${{ github.ref_name }}" openclaw-build.tar.gz --clobber
 
+  build-lumina-code:
+    name: "1b/5 build-lumina-code"
+    if: ${{ github.event.inputs.release_only != 'true' }}
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Lumina Code source
+        uses: actions/checkout@v4
+        with:
+          repository: I24D/Lumina-i24d-bot
+          token: ${{ secrets.I24D_GITHUB }}
+          path: lumina-code-source
+          sparse-checkout: |
+            src/lumina-code/official
+          sparse-checkout-cone-mode: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build Lumina Code VSIX
+        shell: pwsh
+        working-directory: lumina-code-source/src/lumina-code/official/extensions/vscode
+        run: |
+          npm ci
+          npm run package
+          $vsix = Get-ChildItem -LiteralPath build -Filter 'lumina-code-*.vsix' | Sort-Object Name | Select-Object -Last 1
+          if (-not $vsix) { throw 'Lumina Code VSIX was not generated.' }
+          Copy-Item -LiteralPath $vsix.FullName -Destination (Join-Path $env:RUNNER_TEMP $vsix.Name) -Force
+
+      - name: Upload Lumina Code VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumina-code-vsix
+          path: ${{ runner.temp }}/lumina-code-*.vsix
+          if-no-files-found: error
+          retention-days: 1
+
   # ── 2 of 5 ────────────────────────────────────────────────────────────────────
   build-windows:
     name: "2/5 build-windows"
     if: ${{ github.event.inputs.release_only != 'true' }}
-    needs: build-openclaw
+    needs: [build-openclaw, build-lumina-code]
     runs-on: windows-latest
     timeout-minutes: 90
 
@@ -138,6 +177,19 @@ jobs:
           shared-key: "lumina-rust-windows"
           cache-on-failure: false
           save-if: "false"
+
+      - name: Download Lumina Code VSIX artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lumina-code-vsix
+          path: lumina-code-vsix
+
+      - name: Export Lumina Code VSIX path
+        shell: pwsh
+        run: |
+          $vsix = Get-ChildItem -LiteralPath lumina-code-vsix -Filter '*.vsix' | Sort-Object Name | Select-Object -Last 1
+          if (-not $vsix) { throw 'Lumina Code VSIX artifact is missing.' }
+          "LUMINA_CODE_VSIX_PATH=$($vsix.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: "Pre-flight: source layout"
         run: node --experimental-strip-types scripts/preflight-check.ts --mode=source
@@ -222,6 +274,19 @@ jobs:
           shared-key: "lumina-rust-macos"
           cache-on-failure: false
           save-if: "false"
+
+      - name: Download Lumina Code VSIX artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lumina-code-vsix
+          path: lumina-code-vsix
+
+      - name: Export Lumina Code VSIX path
+        shell: pwsh
+        run: |
+          $vsix = Get-ChildItem -LiteralPath lumina-code-vsix -Filter '*.vsix' | Sort-Object Name | Select-Object -Last 1
+          if (-not $vsix) { throw 'Lumina Code VSIX artifact is missing.' }
+          "LUMINA_CODE_VSIX_PATH=$($vsix.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: "Pre-flight: source layout"
         run: node --experimental-strip-types scripts/preflight-check.ts --mode=source
@@ -316,6 +381,19 @@ jobs:
           shared-key: "lumina-rust-linux"
           cache-on-failure: false
           save-if: "false"
+
+      - name: Download Lumina Code VSIX artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lumina-code-vsix
+          path: lumina-code-vsix
+
+      - name: Export Lumina Code VSIX path
+        shell: pwsh
+        run: |
+          $vsix = Get-ChildItem -LiteralPath lumina-code-vsix -Filter '*.vsix' | Sort-Object Name | Select-Object -Last 1
+          if (-not $vsix) { throw 'Lumina Code VSIX artifact is missing.' }
+          "LUMINA_CODE_VSIX_PATH=$($vsix.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: "Pre-flight: source layout"
         run: node --experimental-strip-types scripts/preflight-check.ts --mode=source
