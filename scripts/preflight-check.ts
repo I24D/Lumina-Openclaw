@@ -104,16 +104,28 @@ function checkFileNotEmpty(p: string, label: string) {
 }
 
 function readVsixPackageJson(p: string, label: string) {
-  try {
-    const raw = execFileSync("tar", ["-xOf", p, "extension/package.json"], {
-      encoding: "utf8",
-      maxBuffer: 2 * 1024 * 1024,
-    });
-    return JSON.parse(raw);
-  } catch (err: any) {
-    fail(`Could not read ${label} package.json from VSIX: ${err?.message ?? String(err)}`);
-    return null;
+  const attempts: Array<[string, string[]]> = [
+    ["tar", ["-xOf", p, "extension/package.json"]],
+    ["unzip", ["-p", p, "extension/package.json"]],
+  ];
+  const failures: string[] = [];
+
+  for (const [command, args] of attempts) {
+    try {
+      const raw = execFileSync(command, args, {
+        encoding: "utf8",
+        maxBuffer: 2 * 1024 * 1024,
+      });
+      return JSON.parse(raw);
+    } catch (err: any) {
+      failures.push(`${command}: ${err?.message ?? String(err)}`);
+    }
   }
+
+  fail(
+    `Could not read ${label} package.json from VSIX using tar or unzip:\n${failures.join("\n")}`,
+  );
+  return null;
 }
 
 function checkLuminaCodeVsixManifest(p: string) {

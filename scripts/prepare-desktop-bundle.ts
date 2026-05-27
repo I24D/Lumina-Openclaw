@@ -135,24 +135,37 @@ function readPackageJson(targetPath) {
 }
 
 function readVsixPackageJson(targetPath, label) {
-  const result = spawnSync("tar", ["-xOf", targetPath, "extension/package.json"], {
-    encoding: "utf8",
-    maxBuffer: 2 * 1024 * 1024,
-  });
-  if ((result.status ?? 1) !== 0) {
-    const details = [result.stderr, result.stdout]
-      .map((value) => String(value ?? "").trim())
-      .filter(Boolean)
-      .join("\n");
-    fail(`Could not read ${label} package.json from VSIX.${details ? ` ${details}` : ""}`);
+  const attempts = [
+    ["tar", ["-xOf", targetPath, "extension/package.json"]],
+    ["unzip", ["-p", targetPath, "extension/package.json"]],
+  ];
+  const failures = [];
+
+  for (const [command, args] of attempts) {
+    const result = spawnSync(command, args, {
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    if ((result.status ?? 1) !== 0) {
+      const details = [result.error?.message, result.stderr, result.stdout]
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean)
+        .join("\n");
+      failures.push(`${command}: ${details || `exit ${result.status ?? 1}`}`);
+      continue;
+    }
+    try {
+      return JSON.parse(String(result.stdout ?? ""));
+    } catch (err) {
+      fail(
+        `Could not parse ${label} package.json from VSIX: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
-  try {
-    return JSON.parse(String(result.stdout ?? ""));
-  } catch (err) {
-    fail(
-      `Could not parse ${label} package.json from VSIX: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+
+  fail(
+    `Could not read ${label} package.json from VSIX using tar or unzip.\n${failures.join("\n")}`,
+  );
 }
 
 function verifyLuminaCodeVsixManifest(targetPath) {
