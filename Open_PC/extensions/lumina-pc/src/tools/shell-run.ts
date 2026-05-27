@@ -13,7 +13,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { ToolInputError, jsonResult } from "../../../../src/agents/tools/common.js";
 import type { AnyAgentTool } from "../../../../src/agents/tools/common.js";
 

@@ -14,6 +14,7 @@ export function renderLuminaCode(state: AppViewState) {
   const vscodeReady = status?.vscode.available;
   const vsixReady = status?.extension.vsixAvailable;
   const canOpen = !state.luminaCodeOpening && vscodeReady !== false && vsixReady !== false;
+  const connecting = state.luminaCodeStatusLoading && !status && !state.luminaCodeError;
 
   return html`
     <section class="lumina-code-page stack">
@@ -23,14 +24,14 @@ export function renderLuminaCode(state: AppViewState) {
           <p class="lumina-code-hero__eyebrow">Lumina Code</p>
           <h2 class="lumina-code-hero__title">Conecta OpenClaw con VS Code</h2>
           <p class="lumina-code-hero__text">
-            Abre VS Code, instala la extensión Lumina Code incluida en el runtime y deja
-            listo el panel de Lumina Code para trabajar sobre el workspace local.
+            Abre VS Code, instala la extension Lumina Code incluida en el runtime y deja listo el
+            panel de Lumina Code para trabajar sobre el workspace local.
           </p>
           <div class="row lumina-code-actions">
             <button
               type="button"
               class="btn primary"
-              ?disabled=${state.luminaCodeOpening || state.luminaCodeStatusLoading || !canOpen}
+              ?disabled=${state.luminaCodeOpening || !canOpen}
               @click=${() => state.openLuminaCode()}
             >
               ${state.luminaCodeOpening ? "Abriendo..." : "Abrir Lumina Code"}
@@ -47,6 +48,12 @@ export function renderLuminaCode(state: AppViewState) {
         </div>
       </div>
 
+      ${connecting
+        ? html`<div class="callout info" role="status">
+            Conectando con el proxy local de Lumina Code. Esto puede tardar unos segundos despues de
+            abrir Lumina.
+          </div>`
+        : nothing}
       ${state.luminaCodeError
         ? html`<div class="callout danger" role="alert">${state.luminaCodeError}</div>`
         : nothing}
@@ -57,25 +64,23 @@ export function renderLuminaCode(state: AppViewState) {
       <div class="grid grid-cols-3 lumina-code-status-grid">
         <div class="card">
           <div class="card-title">VS Code</div>
-          <p class="card-sub">
-            ${statusLabel(vscodeReady, "Detectado", "No detectado")}
-          </p>
+          <p class="card-sub">${statusLabel(vscodeReady, "Detectado", "No detectado")}</p>
           ${status?.vscode.executablePath
             ? html`<p class="lumina-code-path">${status.vscode.executablePath}</p>`
             : nothing}
         </div>
         <div class="card">
-          <div class="card-title">Extensión Lumina</div>
-          <p class="card-sub">
-            ${statusLabel(vsixReady, "VSIX listo", "VSIX no incluido")}
-          </p>
+          <div class="card-title">Extension Lumina</div>
+          <p class="card-sub">${statusLabel(vsixReady, "VSIX listo", "VSIX no incluido")}</p>
           ${status?.extension.version
-            ? html`<p class="lumina-code-path">${status.extension.id} v${status.extension.version}</p>`
+            ? html`<p class="lumina-code-path">
+                ${status.extension.id} v${status.extension.version}
+              </p>`
             : nothing}
         </div>
         <div class="card">
           <div class="card-title">Workspace</div>
-          <p class="card-sub">${status?.workspace.exists ? "Existe" : "Se creará al abrir"}</p>
+          <p class="card-sub">${status?.workspace.exists ? "Existe" : "Se creara al abrir"}</p>
           ${status?.workspace.path
             ? html`<p class="lumina-code-path">${status.workspace.path}</p>`
             : nothing}
@@ -83,8 +88,8 @@ export function renderLuminaCode(state: AppViewState) {
       </div>
 
       <div class="callout info">
-        Si VS Code no está instalado, instala VS Code 1.85 o superior. Después vuelve a esta sección
-        y pulsa “Abrir Lumina Code”; Lumina instalará la extensión incluida automáticamente.
+        Si VS Code no esta instalado, instala VS Code 1.85 o superior. Despues vuelve a esta seccion
+        y pulsa "Abrir Lumina Code"; Lumina instalara la extension incluida automaticamente.
       </div>
     </section>
   `;

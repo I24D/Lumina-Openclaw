@@ -9,10 +9,10 @@
  * No external dependencies required.
  */
 
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import fs from "node:fs/promises";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { imageResultFromFile, jsonResult } from "../../../../src/agents/tools/common.js";
 import type { AnyAgentTool } from "../../../../src/agents/tools/common.js";
 import { runPowerShell, psEscape } from "../utils/powershell.js";
@@ -98,8 +98,7 @@ export function createScreenCaptureTool(config: ScreenCaptureConfig = {}): AnyAg
         });
       }
 
-      const screenshotDir =
-        config.screenshotDir ?? path.join(os.tmpdir(), "lumina-pc-screenshots");
+      const screenshotDir = config.screenshotDir ?? path.join(os.tmpdir(), "lumina-pc-screenshots");
 
       await fs.mkdir(screenshotDir, { recursive: true });
 
@@ -107,22 +106,21 @@ export function createScreenCaptureTool(config: ScreenCaptureConfig = {}): AnyAg
       const outPath = path.join(screenshotDir, filename);
 
       // Take screenshot
-      const screenshotCmd = SCREENSHOT_PS
-        .replace("{OUTPATH}", psEscape(outPath))
+      const screenshotCmd = SCREENSHOT_PS.replace("{OUTPATH}", psEscape(outPath))
         .replace(/\{WIDTH\}/g, "")
         .replace(/\{HEIGHT\}/g, "");
 
       const ssResult = await runPowerShell(
         `$bounds = ([System.Windows.Forms.Screen]::PrimaryScreen).Bounds; ` +
-        `Add-Type -AssemblyName System.Windows.Forms; ` +
-        `Add-Type -AssemblyName System.Drawing; ` +
-        `$bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height); ` +
-        `$g = [System.Drawing.Graphics]::FromImage($bmp); ` +
-        `$g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size); ` +
-        `$g.Dispose(); ` +
-        `$bmp.Save("${psEscape(outPath)}", [System.Drawing.Imaging.ImageFormat]::Png); ` +
-        `$bmp.Dispose(); ` +
-        `Write-Output "$($bounds.Width)x$($bounds.Height)"`,
+          `Add-Type -AssemblyName System.Windows.Forms; ` +
+          `Add-Type -AssemblyName System.Drawing; ` +
+          `$bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height); ` +
+          `$g = [System.Drawing.Graphics]::FromImage($bmp); ` +
+          `$g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size); ` +
+          `$g.Dispose(); ` +
+          `$bmp.Save("${psEscape(outPath)}", [System.Drawing.Imaging.ImageFormat]::Png); ` +
+          `$bmp.Dispose(); ` +
+          `Write-Output "$($bounds.Width)x$($bounds.Height)"`,
         20_000,
       );
 

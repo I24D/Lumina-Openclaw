@@ -14,16 +14,17 @@
  */
 
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import { createSystemMetricsTool } from "./src/tools/system-metrics.js";
-import { createShellRunTool } from "./src/tools/shell-run.js";
-import { createScreenCaptureTool } from "./src/tools/screen-capture.js";
-import { createFileOpsTool } from "./src/tools/file-ops.js";
-import { createClipboardTool } from "./src/tools/clipboard.js";
-import { createNotifyToastTool } from "./src/tools/notify-toast.js";
-import { createWindowControlTool } from "./src/tools/window-control.js";
-import { createProcessListTool } from "./src/tools/process-list.js";
 import { createHeartbeatService } from "./src/services/heartbeat.js";
 import { createWatcherService } from "./src/services/watcher.js";
+import { createClipboardTool } from "./src/tools/clipboard.js";
+import { createFileOpsTool } from "./src/tools/file-ops.js";
+import { createLuminaCodeTool } from "./src/tools/lumina-code.js";
+import { createNotifyToastTool } from "./src/tools/notify-toast.js";
+import { createProcessListTool } from "./src/tools/process-list.js";
+import { createScreenCaptureTool } from "./src/tools/screen-capture.js";
+import { createShellRunTool } from "./src/tools/shell-run.js";
+import { createSystemMetricsTool } from "./src/tools/system-metrics.js";
+import { createWindowControlTool } from "./src/tools/window-control.js";
 
 // ── Config type ───────────────────────────────────────────────────
 type LuminaConfig = {
@@ -76,12 +77,13 @@ export default definePluginEntry({
 
     // ── EXECUTION TOOLS ───────────────────────────────────────────
     // I24D hands: run PowerShell commands
-    api.registerTool(
-      createShellRunTool({ shellApprovalRequired: cfg.shellApprovalRequired }),
-    );
+    api.registerTool(createShellRunTool({ shellApprovalRequired: cfg.shellApprovalRequired }));
 
     // I24D hands: read/write files
     api.registerTool(createFileOpsTool());
+
+    // I24D development bridge: delegate coding work to Lumina Code in VS Code
+    api.registerTool(createLuminaCodeTool());
 
     // I24D voice: notify user via Windows Toast
     api.registerTool(createNotifyToastTool());

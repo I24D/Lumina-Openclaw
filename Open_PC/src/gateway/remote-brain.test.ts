@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
-import {
-  type GatewayRemoteBrainLoopParams,
-  runGatewayRemoteBrainLoop,
-} from "./remote-brain.js";
+import { onAgentEvent } from "../infra/agent-events.js";
+import { type GatewayRemoteBrainLoopParams, runGatewayRemoteBrainLoop } from "./remote-brain.js";
 
 const TEST_CFG = {} as OpenClawConfig;
 
@@ -73,39 +71,60 @@ describe("runGatewayRemoteBrainLoop", () => {
       content: [{ type: "text", text: "72F and sunny" }],
       details: { city: "New York" },
     }));
+    const toolEvents: Array<Record<string, unknown>> = [];
+    const unsubscribe = onAgentEvent((event) => {
+      if (event.runId === "req_1" && event.stream === "tool") {
+        toolEvents.push(event.data);
+      }
+    });
 
-    const result = await runGatewayRemoteBrainLoop(
-      createLoopParams({
-        deps: {
-          fetchImpl,
-          localTools: [
-            {
-              definition: {
-                name: "weather_lookup",
-                description: "Get weather for a city.",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    city: { type: "string" },
+    let result: Awaited<ReturnType<typeof runGatewayRemoteBrainLoop>> | undefined;
+    try {
+      result = await runGatewayRemoteBrainLoop(
+        createLoopParams({
+          deps: {
+            fetchImpl,
+            localTools: [
+              {
+                definition: {
+                  name: "weather_lookup",
+                  description: "Get weather for a city.",
+                  parameters: {
+                    type: "object",
+                    properties: {
+                      city: { type: "string" },
+                    },
+                    required: ["city"],
                   },
-                  required: ["city"],
                 },
+                execute,
               },
-              execute,
-            },
-          ],
-          runtimeVersion: "2026.4.4",
-        },
-      }),
-    );
+            ],
+            runtimeVersion: "2026.4.4",
+          },
+        }),
+      );
+    } finally {
+      unsubscribe();
+    }
 
-    if (!result.enabled || !result.ok) {
+    if (!result?.enabled || !result.ok) {
       throw new Error("expected successful remote brain result");
     }
     expect(result.reply).toContain("72F");
     expect(result.executedToolCalls).toBe(1);
     expect(execute).toHaveBeenCalledWith("call_1", { city: "New York" });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(toolEvents).toMatchObject([
+      { phase: "start", name: "weather_lookup", toolCallId: "call_1" },
+      {
+        phase: "result",
+        name: "weather_lookup",
+        toolCallId: "call_1",
+        isError: false,
+        result: { content: [{ type: "text", text: "Completed." }] },
+      },
+    ]);
 
     const secondBody = JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body)) as {
       messages: Array<{ role: string; tool_call_id?: string; content: string }>;

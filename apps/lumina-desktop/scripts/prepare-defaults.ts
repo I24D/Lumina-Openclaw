@@ -39,10 +39,7 @@ function readBool(name, fallback) {
 }
 
 const embedRuntimeSecrets = readBool("LUMINA_EMBED_RUNTIME_SECRETS", false);
-const i24dModelsBaseUrl = readString(
-  "LUMINA_I24D_BASE_URL",
-  renderPreset.i24dModelsBaseUrl,
-);
+const i24dModelsBaseUrl = readString("LUMINA_I24D_BASE_URL", renderPreset.i24dModelsBaseUrl);
 const remoteBrainUrl = readString(
   "LUMINA_REMOTE_BRAIN_URL",
   renderPreset.remoteBrainUrl ?? `${i24dModelsBaseUrl.replace(/\/$/, "")}/api/openclaw/brain/turn`,
@@ -64,7 +61,10 @@ const defaults = {
   authServiceUrl: readString("LUMINA_AUTH_URL", renderPreset.authServiceUrl),
   providerId,
   modelId,
-  preferredModelRef: readString("LUMINA_PREFERRED_MODEL_REF", `${providerId}/${modelId}`),
+  preferredModelRef: readString(
+    "LUMINA_PREFERRED_MODEL_REF",
+    renderPreset.preferredModelRef ?? `${providerId}/${modelId}`,
+  ),
   modelName: readString("LUMINA_MODEL_NAME", renderPreset.modelName),
   modelContextWindow: readInt("LUMINA_MODEL_CONTEXT_WINDOW", renderPreset.modelContextWindow),
   modelMaxTokens: readInt("LUMINA_MODEL_MAX_TOKENS", renderPreset.modelMaxTokens),
@@ -77,20 +77,16 @@ const defaults = {
     renderPreset.i24dChatUrl ?? `${i24dModelsBaseUrl.replace(/\/$/, "")}/v1/chat/completions`,
   ),
   i24dToken: bundledI24dToken,
-  remoteBrainEnabled: readBool(
-    "LUMINA_REMOTE_BRAIN_ENABLED",
-    defaultRemoteBrainEnabled,
-  ) && Boolean(remoteBrainUrl && bundledRemoteBrainSecret),
+  remoteBrainEnabled:
+    readBool("LUMINA_REMOTE_BRAIN_ENABLED", defaultRemoteBrainEnabled) &&
+    Boolean(remoteBrainUrl && bundledRemoteBrainSecret),
   remoteBrainUrl,
   remoteBrainSecret: bundledRemoteBrainSecret,
   remoteBrainTimeoutMs: readInt(
     "LUMINA_REMOTE_BRAIN_TIMEOUT_MS",
     renderPreset.remoteBrainTimeoutMs,
   ),
-  remoteBrainMaxTurns: readInt(
-    "LUMINA_REMOTE_BRAIN_MAX_TURNS",
-    renderPreset.remoteBrainMaxTurns,
-  ),
+  remoteBrainMaxTurns: readInt("LUMINA_REMOTE_BRAIN_MAX_TURNS", renderPreset.remoteBrainMaxTurns),
   runtimeReleaseManifestUrl: readString(
     "LUMINA_RUNTIME_RELEASE_MANIFEST_URL",
     renderPreset.runtimeReleaseManifestUrl,
@@ -99,7 +95,10 @@ const defaults = {
     "LUMINA_RUNTIME_RELEASE_CHANNEL",
     renderPreset.runtimeReleaseChannel,
   ),
-  skipOpenClawChannels: readBool("LUMINA_SKIP_OPENCLAW_CHANNELS", renderPreset.skipOpenClawChannels),
+  skipOpenClawChannels: readBool(
+    "LUMINA_SKIP_OPENCLAW_CHANNELS",
+    renderPreset.skipOpenClawChannels,
+  ),
   defaultTab: readString("LUMINA_DEFAULT_TAB", renderPreset.defaultTab),
   requireLuminaAuth: readBool("LUMINA_REQUIRE_AUTH", renderPreset.requireLuminaAuth),
   updateRepoOwner: readString("LUMINA_GITHUB_OWNER", renderPreset.updateRepoOwner),

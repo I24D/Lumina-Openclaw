@@ -8,11 +8,21 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { ToolInputError, jsonResult } from "../../../../src/agents/tools/common.js";
 import type { AnyAgentTool } from "../../../../src/agents/tools/common.js";
 
-const ACTIONS = ["read", "write", "append", "list", "delete", "move", "copy", "exists", "stat"] as const;
+const ACTIONS = [
+  "read",
+  "write",
+  "append",
+  "list",
+  "delete",
+  "move",
+  "copy",
+  "exists",
+  "stat",
+] as const;
 type FileAction = (typeof ACTIONS)[number];
 
 async function safeReadText(filePath: string, maxBytes = 512_000): Promise<string> {
@@ -84,14 +94,21 @@ export function createFileOpsTool(): AnyAgentTool {
         }
 
         case "write": {
-          if (params.content === undefined) throw new ToolInputError("content is required for write.");
+          if (params.content === undefined)
+            throw new ToolInputError("content is required for write.");
           await fs.mkdir(path.dirname(resolved), { recursive: true });
           await fs.writeFile(resolved, params.content, params.encoding ?? "utf8");
-          return jsonResult({ ok: true, action: "write", path: resolved, bytes: Buffer.byteLength(params.content) });
+          return jsonResult({
+            ok: true,
+            action: "write",
+            path: resolved,
+            bytes: Buffer.byteLength(params.content),
+          });
         }
 
         case "append": {
-          if (params.content === undefined) throw new ToolInputError("content is required for append.");
+          if (params.content === undefined)
+            throw new ToolInputError("content is required for append.");
           await fs.mkdir(path.dirname(resolved), { recursive: true });
           await fs.appendFile(resolved, params.content, params.encoding ?? "utf8");
           return jsonResult({ ok: true, action: "append", path: resolved });

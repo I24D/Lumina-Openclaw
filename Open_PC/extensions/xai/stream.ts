@@ -1,10 +1,10 @@
-import type { StreamFn } from "@mariozechner/pi-agent-core";
-import { streamSimple } from "@mariozechner/pi-ai";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
+import { streamSimple } from "@earendil-works/pi-ai";
 import type { ProviderWrapStreamFnContext } from "openclaw/plugin-sdk/plugin-entry";
 import {
   composeProviderStreamWrappers,
   createToolStreamWrapper,
-} from "openclaw/plugin-sdk/provider-stream";
+} from "openclaw/plugin-sdk/provider-stream-shared";
 
 const XAI_FAST_MODEL_IDS = new Map<string, string>([
   ["grok-3", "grok-3-fast"],
@@ -42,7 +42,90 @@ function supportsExplicitImageInput(model: { input?: unknown }): boolean {
   return Array.isArray(model.input) && model.input.includes("image");
 }
 
+function supportsReasoningControls(model: { compat?: unknown; reasoning?: unknown }): boolean {
+  const compat =
+    model.compat && typeof model.compat === "object"
+      ? (model.compat as { supportsReasoningEffort?: unknown })
+      : undefined;
+  return model.reasoning === true && compat?.supportsReasoningEffort !== false;
+}
+
 const TOOL_RESULT_IMAGE_REPLAY_TEXT = "Attached image(s) from tool result:";
+const HTML_ENTITY_RE = /&(?:amp|lt|gt|quot|apos|#39|#x[0-9a-f]+|#\d+);/i;
+const NAMED_HTML_ENTITIES = new Map<string, string>([
+  ["amp", "&"],
+  ["apos", "'"],
+  ["gt", ">"],
+  ["lt", "<"],
+  ["quot", '"'],
+]);
+
+function decodeHtmlEntities(value: string): string {
+  return value.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|#39);/gi, (match, entity) => {
+    const normalized = String(entity).toLowerCase();
+    if (normalized === "#39") {
+      return "'";
+    }
+    if (normalized.startsWith("#x")) {
+      return String.fromCodePoint(Number.parseInt(normalized.slice(2), 16));
+    }
+    if (normalized.startsWith("#")) {
+      return String.fromCodePoint(Number.parseInt(normalized.slice(1), 10));
+    }
+    return NAMED_HTML_ENTITIES.get(normalized) ?? match;
+  });
+}
+
+function decodeHtmlEntitiesInObject(value: unknown): unknown {
+  switch (typeof value) {
+    case "string":
+      return HTML_ENTITY_RE.test(value) ? decodeHtmlEntities(value) : value;
+    case "object":
+      if (!value) {
+        return value;
+      }
+      if (Array.isArray(value)) {
+        return value.map((entry) => decodeHtmlEntitiesInObject(entry));
+      }
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+          key,
+          decodeHtmlEntitiesInObject(entry),
+        ]),
+      );
+    default:
+      return value;
+  }
+}
+
+function visitContentBlocks(
+  value: unknown,
+  visitor: (block: Record<string, unknown>) => void,
+): void {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      visitContentBlocks(entry, visitor);
+    }
+    return;
+  }
+  if (!value || typeof value !== "object") {
+    return;
+  }
+  const block = value as Record<string, unknown>;
+  visitor(block);
+  if ("content" in block) {
+    visitContentBlocks(block.content, visitor);
+  }
+}
+
+function decodeToolCallArgumentsHtmlEntitiesInMessage(message: unknown): void {
+  visitContentBlocks(message, (block) => {
+    if (block.type !== "toolCall" || !block.arguments || typeof block.arguments !== "object") {
+      return;
+    }
+    block.arguments = decodeHtmlEntitiesInObject(block.arguments);
+  });
+}
 
 type ReplayableInputImagePart =
   | {
@@ -169,9 +252,11 @@ export function createXaiToolPayloadCompatibilityWrapper(
             payloadObj.tools = payloadObj.tools.map((tool) => stripUnsupportedStrictFlag(tool));
           }
           normalizeXaiResponsesToolResultPayload(payloadObj, model);
-          delete payloadObj.reasoning;
-          delete payloadObj.reasoningEffort;
-          delete payloadObj.reasoning_effort;
+          if (!supportsReasoningControls(model)) {
+            delete payloadObj.reasoning;
+            delete payloadObj.reasoningEffort;
+            delete payloadObj.reasoning_effort;
+          }
         }
         return originalOnPayload?.(payload, model);
       },
@@ -200,66 +285,26 @@ export function createXaiFastModeWrapper(
   };
 }
 
-function decodeHtmlEntities(value: string): string {
-  return value
-    .replaceAll("&quot;", '"')
-    .replaceAll("&#34;", '"')
-    .replaceAll("&apos;", "'")
-    .replaceAll("&#39;", "'")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&#60;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&#62;", ">")
-    .replaceAll("&amp;", "&")
-    .replaceAll("&#38;", "&");
-}
-
-function decodeHtmlEntitiesInObject(value: unknown): unknown {
-  if (typeof value === "string") {
-    return decodeHtmlEntities(value);
-  }
+function transformXaiStreamEvent(
+  value: unknown,
+  transformMessage: (message: unknown) => void,
+): void {
   if (!value || typeof value !== "object") {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => decodeHtmlEntitiesInObject(entry));
-  }
-  const record = value as Record<string, unknown>;
-  for (const [key, entry] of Object.entries(record)) {
-    record[key] = decodeHtmlEntitiesInObject(entry);
-  }
-  return record;
-}
-
-function decodeXaiToolCallArgumentsInMessage(message: unknown): void {
-  if (!message || typeof message !== "object") {
     return;
   }
-  const content = (message as { content?: unknown }).content;
-  if (!Array.isArray(content)) {
-    return;
-  }
-  for (const block of content) {
-    if (!block || typeof block !== "object") {
-      continue;
-    }
-    const typedBlock = block as { type?: unknown; arguments?: unknown };
-    if (typedBlock.type !== "toolCall" || !typedBlock.arguments) {
-      continue;
-    }
-    if (typeof typedBlock.arguments === "object") {
-      typedBlock.arguments = decodeHtmlEntitiesInObject(typedBlock.arguments);
-    }
-  }
+  const event = value as { partial?: unknown; message?: unknown };
+  transformMessage(event.partial);
+  transformMessage(event.message);
 }
 
-function wrapStreamDecodeXaiToolCallArguments(
+function wrapStreamMessageObjects(
   stream: ReturnType<typeof streamSimple>,
+  transformMessage: (message: unknown) => void,
 ): ReturnType<typeof streamSimple> {
   const originalResult = stream.result.bind(stream);
   stream.result = async () => {
     const message = await originalResult();
-    decodeXaiToolCallArgumentsInMessage(message);
+    transformMessage(message);
     return message;
   };
 
@@ -270,10 +315,8 @@ function wrapStreamDecodeXaiToolCallArguments(
       return {
         async next() {
           const result = await iterator.next();
-          if (!result.done && result.value && typeof result.value === "object") {
-            const event = result.value as { partial?: unknown; message?: unknown };
-            decodeXaiToolCallArgumentsInMessage(event.partial);
-            decodeXaiToolCallArgumentsInMessage(event.message);
+          if (!result.done) {
+            transformXaiStreamEvent(result.value, transformMessage);
           }
           return result;
         },
@@ -288,15 +331,16 @@ function wrapStreamDecodeXaiToolCallArguments(
   return stream;
 }
 
-export function createXaiToolCallArgumentDecodingWrapper(baseStreamFn: StreamFn): StreamFn {
+function createXaiToolCallArgumentDecodingWrapper(baseStreamFn: StreamFn | undefined): StreamFn {
+  const underlying = baseStreamFn ?? streamSimple;
   return (model, context, options) => {
-    const maybeStream = baseStreamFn(model, context, options);
+    const maybeStream = underlying(model, context, options);
     if (maybeStream && typeof maybeStream === "object" && "then" in maybeStream) {
       return Promise.resolve(maybeStream).then((stream) =>
-        wrapStreamDecodeXaiToolCallArguments(stream),
+        wrapStreamMessageObjects(stream, decodeToolCallArgumentsHtmlEntitiesInMessage),
       );
     }
-    return wrapStreamDecodeXaiToolCallArguments(maybeStream);
+    return wrapStreamMessageObjects(maybeStream, decodeToolCallArgumentsHtmlEntitiesInMessage);
   };
 }
 

@@ -1,33 +1,61 @@
-import { afterEach, beforeEach, vi } from "vitest";
-import { withTempHome as withTempHomeBase } from "../../test/helpers/temp-home.js";
-import type { OpenClawConfig } from "../config/config.js";
-import { resolveBundledPluginsDir } from "../plugins/bundled-dir.js";
+import { afterEach, beforeEach } from "vitest";
+import { clearConfigCache, clearRuntimeConfigSnapshot } from "../config/config.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { withTempHome as withTempHomeBase } from "../plugin-sdk/test-helpers/temp-home.js";
 import { resetPluginLoaderTestStateForTest } from "../plugins/loader.test-fixtures.js";
-import { resetProviderRuntimeHookCacheForTest } from "../plugins/provider-runtime.js";
-import type { MockFn } from "../test-utils/vitest-mock-fn.js";
-import { resetModelsJsonReadyCacheForTest } from "./models-config.js";
-import { resolveImplicitProviders } from "./models-config.providers.implicit.js";
+import { resetModelsJsonReadyCacheForTest } from "./models-config-state.js";
 
 export function withModelsTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
-  return withTempHomeBase(fn, { prefix: "openclaw-models-" });
+  // Models-config tests do not exercise session persistence; skip draining
+  // unrelated session lock state during temp-home teardown.
+  return withTempHomeBase(fn, {
+    prefix: "openclaw-models-",
+    skipSessionCleanup: true,
+  });
 }
 
-export function installModelsConfigTestHooks(opts?: { restoreFetch?: boolean }) {
+export function installModelsConfigTestHooks(opts?: {
+  restoreFetch?: boolean;
+  resetPluginLoaderState?: boolean;
+}) {
   let previousHome: string | undefined;
+  let previousOpenClawAgentDir: string | undefined;
+  let previousPiCodingAgentDir: string | undefined;
   const originalFetch = globalThis.fetch;
+  const shouldResetPluginLoaderState = opts?.resetPluginLoaderState !== false;
 
   beforeEach(() => {
     previousHome = process.env.HOME;
-    resetPluginLoaderTestStateForTest();
+    previousOpenClawAgentDir = process.env.OPENCLAW_AGENT_DIR;
+    previousPiCodingAgentDir = process.env.PI_CODING_AGENT_DIR;
+    delete process.env.OPENCLAW_AGENT_DIR;
+    delete process.env.PI_CODING_AGENT_DIR;
+    clearRuntimeConfigSnapshot();
+    clearConfigCache();
+    if (shouldResetPluginLoaderState) {
+      resetPluginLoaderTestStateForTest();
+    }
     resetModelsJsonReadyCacheForTest();
-    resetProviderRuntimeHookCacheForTest();
   });
 
   afterEach(() => {
     process.env.HOME = previousHome;
-    resetPluginLoaderTestStateForTest();
+    if (previousOpenClawAgentDir === undefined) {
+      delete process.env.OPENCLAW_AGENT_DIR;
+    } else {
+      process.env.OPENCLAW_AGENT_DIR = previousOpenClawAgentDir;
+    }
+    if (previousPiCodingAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = previousPiCodingAgentDir;
+    }
+    clearRuntimeConfigSnapshot();
+    clearConfigCache();
+    if (shouldResetPluginLoaderState) {
+      resetPluginLoaderTestStateForTest();
+    }
     resetModelsJsonReadyCacheForTest();
-    resetProviderRuntimeHookCacheForTest();
     if (opts?.restoreFetch && originalFetch) {
       globalThis.fetch = originalFetch;
     }
@@ -60,40 +88,8 @@ export function unsetEnv(vars: string[]) {
   }
 }
 
-export const COPILOT_TOKEN_ENV_VARS = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"];
-
-export async function withUnsetCopilotTokenEnv<T>(fn: () => Promise<T>): Promise<T> {
-  return withTempEnv(COPILOT_TOKEN_ENV_VARS, async () => {
-    unsetEnv(COPILOT_TOKEN_ENV_VARS);
-    return fn();
-  });
-}
-
-export function mockCopilotTokenExchangeSuccess(): MockFn {
-  const fetchMock = vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    json: async () => ({
-      token: "copilot-token;proxy-ep=proxy.copilot.example",
-      expires_at: Math.floor(Date.now() / 1000) + 3600,
-    }),
-  });
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
-  return fetchMock;
-}
-
-export async function withCopilotGithubToken<T>(
-  token: string,
-  fn: (fetchMock: MockFn) => Promise<T>,
-): Promise<T> {
-  return withTempEnv(["COPILOT_GITHUB_TOKEN"], async () => {
-    process.env.COPILOT_GITHUB_TOKEN = token;
-    const fetchMock = mockCopilotTokenExchangeSuccess();
-    return fn(fetchMock);
-  });
-}
-
 export const MODELS_CONFIG_IMPLICIT_ENV_VARS = [
+  "OPENCLAW_TEST_ONLY_PROVIDER_PLUGIN_IDS",
   "VITEST",
   "NODE_ENV",
   "AI_GATEWAY_API_KEY",
@@ -104,6 +100,7 @@ export const MODELS_CONFIG_IMPLICIT_ENV_VARS = [
   "HF_TOKEN",
   "HUGGINGFACE_HUB_TOKEN",
   "MINIMAX_API_KEY",
+  "MINIMAX_API_HOST",
   "MINIMAX_OAUTH_TOKEN",
   "MOONSHOT_API_KEY",
   "NVIDIA_API_KEY",
@@ -120,6 +117,8 @@ export const MODELS_CONFIG_IMPLICIT_ENV_VARS = [
   "TOGETHER_API_KEY",
   "VOLCANO_ENGINE_API_KEY",
   "BYTEPLUS_API_KEY",
+  "CHUTES_API_KEY",
+  "CHUTES_OAUTH_TOKEN",
   "KILOCODE_API_KEY",
   "KIMI_API_KEY",
   "KIMICODE_API_KEY",
@@ -146,35 +145,6 @@ export const MODELS_CONFIG_IMPLICIT_ENV_VARS = [
   "AWS_SECRET_ACCESS_KEY",
   "AWS_SHARED_CREDENTIALS_FILE",
 ];
-
-export function snapshotImplicitProviderEnv(env?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const source = env ?? process.env;
-  const snapshot: NodeJS.ProcessEnv = {};
-
-  for (const envVar of MODELS_CONFIG_IMPLICIT_ENV_VARS) {
-    const value = source[envVar];
-    if (value !== undefined) {
-      snapshot[envVar] = value;
-    }
-  }
-
-  // Provider discovery tests can temporarily scrub VITEST/NODE_ENV to exercise
-  // live HTTP paths. Keep the bundled plugin root pinned to the source checkout
-  // so those tests do not fall back to potentially stale dist-runtime wrappers.
-  snapshot.OPENCLAW_BUNDLED_PLUGINS_DIR ??=
-    resolveBundledPluginsDir({ VITEST: "true" } as NodeJS.ProcessEnv) ?? undefined;
-
-  return snapshot;
-}
-
-export function resolveImplicitProvidersForTest(
-  params: Parameters<typeof resolveImplicitProviders>[0],
-) {
-  return resolveImplicitProviders({
-    ...params,
-    env: snapshotImplicitProviderEnv(params.env),
-  });
-}
 
 export const CUSTOM_PROXY_MODELS_CONFIG: OpenClawConfig = {
   models: {

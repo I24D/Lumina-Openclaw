@@ -1,15 +1,21 @@
+import process from "node:process";
 import { Command } from "commander";
 import { registerProgramCommands } from "./command-registry.js";
 import { createProgramContext } from "./context.js";
 import { configureProgramHelp } from "./help.js";
 import { registerPreActionHooks } from "./preaction.js";
 import { setProgramContext } from "./program-context.js";
-import { traceStartup } from "../../infra/startup-trace.js";
 
 export function buildProgram() {
-  traceStartup("program.build.begin");
   const program = new Command();
   program.enablePositionalOptions();
+  // Preserve Commander-computed exit codes while still aborting parse flow.
+  // Without this, unknown nested commands can print an error
+  // but still report success when exits are intercepted.
+  program.exitOverride((err) => {
+    process.exitCode = typeof err.exitCode === "number" ? err.exitCode : 1;
+    throw err;
+  });
   const ctx = createProgramContext();
   const argv = process.argv;
 
@@ -17,9 +23,7 @@ export function buildProgram() {
   configureProgramHelp(program, ctx);
   registerPreActionHooks(program, ctx.programVersion);
 
-  traceStartup("program.build.register-commands.begin");
   registerProgramCommands(program, ctx, argv);
-  traceStartup("program.build.register-commands.ready");
 
   return program;
 }

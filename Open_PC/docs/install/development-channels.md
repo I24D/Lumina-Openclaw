@@ -4,11 +4,9 @@ read_when:
   - You want to switch between stable/beta/dev
   - You want to pin a specific version, tag, or SHA
   - You are tagging or publishing prereleases
-title: "Release Channels"
+title: "Release channels"
 sidebarTitle: "Release Channels"
 ---
-
-# Development channels
 
 OpenClaw ships three update channels:
 
@@ -46,8 +44,9 @@ install method:
   `OPENCLAW_GIT_DIR`), switches to `main`, rebases on upstream, builds, and
   installs the global CLI from that checkout.
 
-Tip: if you want stable + dev in parallel, keep two clones and point your
-gateway at the stable one.
+<Tip>
+If you want stable and dev in parallel, keep two clones and point your gateway at the stable one.
+</Tip>
 
 ## One-off version or tag targeting
 
@@ -61,11 +60,14 @@ openclaw update --tag 2026.4.1-beta.1
 # Install from the beta dist-tag (one-off, does not persist)
 openclaw update --tag beta
 
-# Install from GitHub main branch (npm tarball)
-openclaw update --tag main
+# Switch to the moving GitHub main checkout
+openclaw update --channel dev
 
 # Install a specific npm package spec
 openclaw update --tag openclaw@2026.4.1-beta.1
+
+# Install from GitHub main once without persisting the channel
+openclaw update --tag main
 ```
 
 Notes:
@@ -73,6 +75,10 @@ Notes:
 - `--tag` applies to **package (npm) installs only**. Git installs ignore it.
 - The tag is not persisted. Your next `openclaw update` uses your configured
   channel as usual.
+- For package installs, OpenClaw pre-packs GitHub/git source specs into a
+  temporary tarball before the staged npm install. Use `--channel dev` or
+  `--install-method git --version main` when you want the moving `main`
+  checkout as your persistent install.
 - Downgrade protection: if the target version is older than your current version,
   OpenClaw prompts for confirmation (skip with `--yes`).
 - `--channel beta` is different from `--tag beta`: the channel flow can fall back
@@ -129,3 +135,8 @@ Beta and dev builds may **not** include a macOS app release. That is OK:
 
 - The git tag and npm dist-tag can still be published.
 - Call out "no macOS build for this beta" in release notes or changelog.
+
+## Related
+
+- [Updating](/install/updating)
+- [Installer internals](/install/installer)

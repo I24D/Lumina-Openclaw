@@ -27,8 +27,22 @@ type LuminaCodeState = {
   luminaCodeMessage: string | null;
 };
 
+type LuminaCodeBridgeRequest = (
+  method: string,
+  path: string,
+  body?: string,
+) => Promise<{ status: number; body: unknown }>;
+
+const STATUS_RETRY_COUNT = 25;
+const OPEN_RETRY_COUNT = 45;
+const STARTUP_RETRY_DELAY_MS = 1_000;
+
 function uniqueValues(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
+}
+
+function isLuminaDesktopShell(): boolean {
+  return typeof window !== "undefined" && window.__LUMINA__?.shell === "tauri";
 }
 
 function resolveProxyBaseUrls(): string[] {
@@ -39,6 +53,13 @@ function resolveProxyBaseUrls(): string[] {
     "http://127.0.0.1:4321",
     "http://localhost:4321",
   ]);
+}
+
+function resolveDesktopBridgeRequest(): LuminaCodeBridgeRequest | null {
+  const bridge = window.__LUMINA__?.luminaCodeRequest;
+  return isLuminaDesktopShell() && typeof bridge === "function"
+    ? bridge.bind(window.__LUMINA__)
+    : null;
 }
 
 async function readJsonResponse(response: Response): Promise<Record<string, unknown>> {
@@ -55,33 +76,106 @@ function messageFromPayload(payload: Record<string, unknown>, fallback: string):
   return typeof message === "string" && message.trim() ? message : fallback;
 }
 
+async function messageFromResponse(response: Response, fallback: string): Promise<string> {
+  try {
+    const payload = await readJsonResponse(response.clone());
+    return messageFromPayload(payload, fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function isRetryableBridgeResponse(response: Response): boolean {
+  return response.status === 502 || response.status === 503 || response.status === 504;
+}
+
 function describeFetchFailure(baseUrl: string, err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
+  const target = baseUrl || "bridge interno";
   if (/failed to fetch|networkerror|load failed|fetch/i.test(message)) {
-    return `${baseUrl} no responde o el WebView bloqueo CORS. Reinicia Lumina OpenClaw para cargar el proxy local actualizado.`;
+    return `${target} no respondio a tiempo. Lumina va a reintentar automaticamente.`;
   }
-  return `${baseUrl}: ${message}`;
+  return `${target}: ${message}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function responseFromBridgeResult(result: { status: number; body: unknown }): Response {
+  const status = Number.isFinite(result.status) ? Math.trunc(result.status) : 500;
+  return new Response(JSON.stringify(result.body ?? {}), {
+    status: Math.min(599, Math.max(200, status)),
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function bodyAsString(init: RequestInit): string {
+  return typeof init.body === "string" ? init.body : "";
 }
 
 async function fetchLuminaCodeEndpoint(
   path: string,
   init: RequestInit,
+  retryCount = 0,
 ): Promise<{ response: Response; baseUrl: string }> {
-  const errors: string[] = [];
-  for (const baseUrl of resolveProxyBaseUrls()) {
-    try {
-      return {
-        response: await fetch(`${baseUrl}${path}`, init),
-        baseUrl,
-      };
-    } catch (err) {
-      errors.push(describeFetchFailure(baseUrl, err));
+  const bridgeRequest = resolveDesktopBridgeRequest();
+  let lastErrors: string[] = [];
+
+  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+    const errors: string[] = [];
+    if (bridgeRequest) {
+      try {
+        const result = await bridgeRequest(String(init.method ?? "GET"), path, bodyAsString(init));
+        const response = responseFromBridgeResult(result);
+        if (response.ok || !isRetryableBridgeResponse(response) || attempt >= retryCount) {
+          return { response, baseUrl: "Lumina desktop bridge" };
+        }
+        errors.push(
+          await messageFromResponse(
+            response,
+            "El puente interno de Lumina Code todavia no esta listo. Lumina va a reintentar automaticamente.",
+          ),
+        );
+      } catch (err) {
+        errors.push(describeFetchFailure("Lumina desktop bridge", err));
+      }
+
+      lastErrors = errors;
+      if (attempt < retryCount) {
+        await sleep(STARTUP_RETRY_DELAY_MS);
+        continue;
+      }
+      break;
+    }
+
+    for (const baseUrl of resolveProxyBaseUrls()) {
+      try {
+        const response = await fetch(`${baseUrl}${path}`, {
+          cache: "no-store",
+          ...init,
+        });
+        if (response.ok || !isRetryableBridgeResponse(response) || attempt >= retryCount) {
+          return { response, baseUrl };
+        }
+        errors.push(
+          await messageFromResponse(
+            response,
+            `${baseUrl || "bridge interno"} todavia no esta listo. Lumina va a reintentar automaticamente.`,
+          ),
+        );
+      } catch (err) {
+        errors.push(describeFetchFailure(baseUrl, err));
+      }
+    }
+
+    lastErrors = errors;
+    if (attempt < retryCount) {
+      await sleep(STARTUP_RETRY_DELAY_MS);
     }
   }
 
-  throw new Error(
-    `No pude conectar con el proxy local de Lumina Code. ${errors.join(" ")}`,
-  );
+  throw new Error(`No pude conectar con Lumina Code. ${lastErrors.join(" ")}`);
 }
 
 export async function loadLuminaCodeStatus(state: LuminaCodeState): Promise<void> {
@@ -91,10 +185,14 @@ export async function loadLuminaCodeStatus(state: LuminaCodeState): Promise<void
   state.luminaCodeStatusLoading = true;
   state.luminaCodeError = null;
   try {
-    const { response } = await fetchLuminaCodeEndpoint("/__lumina/code/status", {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    });
+    const { response } = await fetchLuminaCodeEndpoint(
+      "/__lumina/code/status",
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      },
+      STATUS_RETRY_COUNT,
+    );
     const payload = await readJsonResponse(response);
     if (!response.ok) {
       throw new Error(messageFromPayload(payload, "No se pudo leer el estado de Lumina Code."));
@@ -115,14 +213,18 @@ export async function openLuminaCode(state: LuminaCodeState): Promise<void> {
   state.luminaCodeError = null;
   state.luminaCodeMessage = null;
   try {
-    const { response } = await fetchLuminaCodeEndpoint("/__lumina/code/open", {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
+    const { response } = await fetchLuminaCodeEndpoint(
+      "/__lumina/code/open",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: "{}",
       },
-      body: "{}",
-    });
+      OPEN_RETRY_COUNT,
+    );
     const payload = await readJsonResponse(response);
     if (!response.ok || payload.ok === false) {
       throw new Error(messageFromPayload(payload, "No se pudo abrir Lumina Code."));

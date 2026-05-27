@@ -1,9 +1,6 @@
-import type { AuthProfileStore } from "../agents/auth-profiles.js";
-import type { OpenClawConfig } from "../config/config.js";
-import {
-  resolveManifestProviderSetupFlowContributions,
-  resolveProviderSetupFlowContributions,
-} from "../flows/provider-flow.js";
+import type { AuthProfileStore } from "../agents/auth-profiles/types.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { resolveProviderSetupFlowContributions } from "../flows/provider-flow.js";
 import {
   CORE_AUTH_CHOICE_OPTIONS,
   type AuthChoiceGroup,
@@ -16,14 +13,31 @@ function compareOptionLabels(a: AuthChoiceOption, b: AuthChoiceOption): number {
   return a.label.localeCompare(b.label);
 }
 
+const FEATURED_AUTH_GROUP_ORDER = new Map<string, number>([
+  ["openai", 0],
+  ["anthropic", 1],
+  ["xai", 2],
+  ["google", 3],
+]);
+
 function compareAssistantOptions(a: AuthChoiceOption, b: AuthChoiceOption): number {
   const priorityA = a.assistantPriority ?? 0;
   const priorityB = b.assistantPriority ?? 0;
   return priorityA - priorityB || compareOptionLabels(a, b);
 }
 
-function compareGroupLabels(a: AuthChoiceGroup, b: AuthChoiceGroup): number {
-  return a.label.localeCompare(b.label);
+function compareLabelsCaseInsensitive(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { sensitivity: "base" });
+}
+
+export function compareAuthChoiceGroups(a: AuthChoiceGroup, b: AuthChoiceGroup): number {
+  const priorityA = FEATURED_AUTH_GROUP_ORDER.get(a.value) ?? Number.POSITIVE_INFINITY;
+  const priorityB = FEATURED_AUTH_GROUP_ORDER.get(b.value) ?? Number.POSITIVE_INFINITY;
+  return (
+    priorityA - priorityB ||
+    compareLabelsCaseInsensitive(a.label, b.label) ||
+    compareLabelsCaseInsensitive(a.value, b.value)
+  );
 }
 
 function resolveProviderChoiceOptions(params?: {
@@ -34,18 +48,29 @@ function resolveProviderChoiceOptions(params?: {
   return resolveProviderSetupFlowContributions({
     ...params,
     scope: "text-inference",
-  }).map((contribution) => ({
-    value: contribution.option.value as AuthChoice,
-    label: contribution.option.label,
-    ...(contribution.option.hint ? { hint: contribution.option.hint } : {}),
-    ...(contribution.option.group
-      ? {
-          groupId: contribution.option.group.id as AuthChoiceGroupId,
-          groupLabel: contribution.option.group.label,
-          ...(contribution.option.group.hint ? { groupHint: contribution.option.group.hint } : {}),
-        }
-      : {}),
-  }));
+  }).map((contribution) =>
+    Object.assign(
+      {},
+      { value: contribution.option.value as AuthChoice, label: contribution.option.label },
+      contribution.option.hint ? { hint: contribution.option.hint } : {},
+      contribution.option.assistantPriority !== undefined
+        ? { assistantPriority: contribution.option.assistantPriority }
+        : {},
+      contribution.option.assistantVisibility
+        ? { assistantVisibility: contribution.option.assistantVisibility }
+        : {},
+      contribution.option.group
+        ? {
+            groupId: contribution.option.group.id as AuthChoiceGroupId,
+            groupLabel: contribution.option.group.label,
+            ...(contribution.option.group.hint
+              ? { groupHint: contribution.option.group.hint }
+              : {}),
+          }
+        : {},
+      contribution.option.onboardingFeatured ? { onboardingFeatured: true } : {},
+    ),
+  );
 }
 
 export function formatAuthChoiceChoicesForCli(params?: {
@@ -57,7 +82,7 @@ export function formatAuthChoiceChoicesForCli(params?: {
 }): string {
   const values = [
     ...formatStaticAuthChoiceChoicesForCli(params).split("|"),
-    ...resolveManifestProviderSetupFlowContributions({
+    ...resolveProviderSetupFlowContributions({
       ...params,
       scope: "text-inference",
     }).map((contribution) => contribution.option.value),
@@ -134,11 +159,10 @@ export function buildAuthChoiceGroups(params: {
     });
   }
   const groups = Array.from(groupsById.values())
-    .map((group) => ({
-      ...group,
-      options: [...group.options].toSorted(compareAssistantOptions),
-    }))
-    .toSorted(compareGroupLabels);
+    .map((group) =>
+      Object.assign({}, group, { options: [...group.options].toSorted(compareAssistantOptions) }),
+    )
+    .toSorted(compareAuthChoiceGroups);
 
   const skipOption = params.includeSkip
     ? ({ value: "skip", label: "Skip for now" } satisfies AuthChoiceOption)

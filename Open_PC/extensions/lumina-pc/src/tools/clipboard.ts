@@ -6,7 +6,7 @@
  * Allows I24D to see what the user copied and to paste content programmatically.
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { ToolInputError, jsonResult } from "../../../../src/agents/tools/common.js";
 import type { AnyAgentTool } from "../../../../src/agents/tools/common.js";
 import { psEscape, runPowerShell } from "../utils/powershell.js";
@@ -45,10 +45,7 @@ export function createClipboardTool(): AnyAgentTool {
       if (params.action === "set") {
         const text = params.text;
         if (text === undefined) throw new ToolInputError("text is required for set action.");
-        const result = await runPowerShell(
-          `Set-Clipboard -Value "${psEscape(text)}"`,
-          5_000,
-        );
+        const result = await runPowerShell(`Set-Clipboard -Value "${psEscape(text)}"`, 5_000);
         return jsonResult({
           ok: result.ok,
           text,

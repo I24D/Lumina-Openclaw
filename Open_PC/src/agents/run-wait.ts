@@ -1,4 +1,11 @@
 import { callGateway } from "../gateway/call.js";
+import { formatErrorMessage } from "../infra/errors.js";
+import { normalizeBlockedLivenessWaitStatus } from "../shared/agent-liveness.js";
+import {
+  normalizeAgentRunTimeoutPhase,
+  normalizeProviderStarted,
+  type AgentRunTimeoutPhase,
+} from "./run-timeout-attribution.js";
 import { extractAssistantText, stripToolMessages } from "./tools/chat-history-text.js";
 
 type GatewayCaller = typeof callGateway;
@@ -17,10 +24,15 @@ export type AssistantReplySnapshot = {
 };
 
 export type AgentWaitResult = {
-  status: "ok" | "timeout" | "error";
+  status: "ok" | "timeout" | "error" | "pending";
   error?: string;
   startedAt?: number;
   endedAt?: number;
+  stopReason?: string;
+  livenessState?: string;
+  yielded?: boolean;
+  timeoutPhase?: AgentRunTimeoutPhase;
+  providerStarted?: boolean;
 };
 
 export type AgentRunsDrainResult = {
@@ -34,18 +46,55 @@ type RawAgentWaitResponse = {
   error?: string;
   startedAt?: unknown;
   endedAt?: unknown;
+  stopReason?: unknown;
+  livenessState?: unknown;
+  yielded?: unknown;
+  timeoutPhase?: unknown;
+  providerStarted?: unknown;
 };
 
 function normalizeAgentWaitResult(
   status: AgentWaitResult["status"],
   wait?: RawAgentWaitResponse,
 ): AgentWaitResult {
-  return {
+  const normalized = normalizeBlockedLivenessWaitStatus({
     status,
-    error: typeof wait?.error === "string" ? wait.error : undefined,
+    livenessState: wait?.livenessState,
+    error: wait?.error,
+  });
+  return {
+    status: normalized.status,
+    error: normalized.error,
     startedAt: typeof wait?.startedAt === "number" ? wait.startedAt : undefined,
     endedAt: typeof wait?.endedAt === "number" ? wait.endedAt : undefined,
+    stopReason: typeof wait?.stopReason === "string" ? wait.stopReason : undefined,
+    livenessState: typeof wait?.livenessState === "string" ? wait.livenessState : undefined,
+    yielded: wait?.yielded === true ? true : undefined,
+    timeoutPhase: normalizeAgentRunTimeoutPhase(wait?.timeoutPhase),
+    providerStarted: normalizeProviderStarted(wait?.providerStarted),
   };
+}
+
+const RECOVERABLE_AGENT_WAIT_ERROR_PATTERNS: readonly RegExp[] = [
+  /gateway closed \(1006/i,
+  /transport close/i,
+  /connection loss/i,
+  /connection closed/i,
+  /gateway not connected/i,
+  /no active .* listener/i,
+  /socket hang up/i,
+  /\b(ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EHOSTUNREACH|ENETUNREACH)\b/i,
+];
+
+export function isRecoverableAgentWaitError(error: string | undefined): boolean {
+  const message = error?.trim();
+  if (!message) {
+    return false;
+  }
+  if (message.includes("gateway timeout")) {
+    return false;
+  }
+  return RECOVERABLE_AGENT_WAIT_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 function normalizePendingRunIds(runIds: Iterable<string>): string[] {
@@ -121,7 +170,7 @@ export async function waitForAgentRun(params: {
 }): Promise<AgentWaitResult> {
   const timeoutMs = Math.max(1, Math.floor(params.timeoutMs));
   try {
-    const wait = await (params.callGateway ?? runWaitDeps.callGateway)<RawAgentWaitResponse>({
+    const wait = await (params.callGateway ?? runWaitDeps.callGateway)({
       method: "agent.wait",
       params: {
         runId: params.runId,
@@ -132,12 +181,15 @@ export async function waitForAgentRun(params: {
     if (wait?.status === "timeout") {
       return normalizeAgentWaitResult("timeout", wait);
     }
+    if (wait?.status === "pending") {
+      return normalizeAgentWaitResult("pending", wait);
+    }
     if (wait?.status === "error") {
       return normalizeAgentWaitResult("error", wait);
     }
     return normalizeAgentWaitResult("ok", wait);
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
+    const error = formatErrorMessage(err);
     return {
       status: error.includes("gateway timeout") ? "timeout" : "error",
       error,
@@ -214,7 +266,7 @@ export async function waitForAgentRunsToDrain(params: {
   };
 }
 
-export const __testing = {
+export const testing = {
   setDepsForTest(overrides?: Partial<{ callGateway: GatewayCaller }>) {
     runWaitDeps = overrides
       ? {
@@ -224,3 +276,4 @@ export const __testing = {
       : defaultRunWaitDeps;
   },
 };
+export { testing as __testing };

@@ -8,16 +8,12 @@
  * Works on Windows 10+ without any extra dependencies.
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { jsonResult } from "../../../../src/agents/tools/common.js";
 import type { AnyAgentTool } from "../../../../src/agents/tools/common.js";
 import { psEscape, runPowerShell } from "../utils/powershell.js";
 
-function buildToastCommand(params: {
-  title: string;
-  message: string;
-  app_id?: string;
-}): string {
+function buildToastCommand(params: { title: string; message: string; app_id?: string }): string {
   const title = psEscape(params.title);
   const message = psEscape(params.message);
   const appId = psEscape(params.app_id ?? "OpenClaw · Lumina_PC");
@@ -65,13 +61,17 @@ export function createNotifyToastTool(): AnyAgentTool {
       }),
       app_id: Type.Optional(
         Type.String({
-          description: "App identifier shown in Windows notifications. Default: 'OpenClaw · Lumina_PC'.",
+          description:
+            "App identifier shown in Windows notifications. Default: 'OpenClaw · Lumina_PC'.",
         }),
       ),
     }),
     async execute(_toolCallId: string, params) {
       if (process.platform !== "win32") {
-        return jsonResult({ ok: false, error: "Toast notifications are only available on Windows." });
+        return jsonResult({
+          ok: false,
+          error: "Toast notifications are only available on Windows.",
+        });
       }
 
       const title = (params.title ?? "").trim().slice(0, 64) || "Lumina_PC";
@@ -84,7 +84,7 @@ export function createNotifyToastTool(): AnyAgentTool {
         ok: result.ok,
         title,
         message,
-        error: result.ok ? undefined : result.error ?? result.stderr,
+        error: result.ok ? undefined : (result.error ?? result.stderr),
       });
     },
   };

@@ -1,59 +1,62 @@
-import { getBundledChannelContractSurfaces } from "../channels/plugins/contract-surfaces.js";
+import { getBootstrapChannelPlugin } from "../channels/plugins/bootstrap-registry.js";
+import { normalizeLowercaseStringOrEmpty } from "../shared/string-coerce.js";
+import {
+  deriveSessionChatTypeFromKey,
+  type SessionKeyChatType,
+} from "./session-chat-type-shared.js";
 import { parseAgentSessionKey } from "./session-key-utils.js";
 
-export type SessionKeyChatType = "direct" | "group" | "channel" | "unknown";
+export {
+  deriveSessionChatTypeFromKey,
+  type SessionKeyChatType,
+} from "./session-chat-type-shared.js";
 
-type LegacySessionChatTypeSurface = {
-  deriveLegacySessionChatType?: (sessionKey: string) => "direct" | "group" | "channel" | undefined;
-};
+type LegacySessionChatTypeDeriver = NonNullable<
+  NonNullable<ReturnType<typeof getBootstrapChannelPlugin>>["messaging"]
+>["deriveLegacySessionChatType"];
 
-function listLegacySessionChatTypeSurfaces(): LegacySessionChatTypeSurface[] {
-  return getBundledChannelContractSurfaces() as LegacySessionChatTypeSurface[];
-}
-
-function deriveBuiltInLegacySessionChatType(
-  scopedSessionKey: string,
-): SessionKeyChatType | undefined {
-  if (/^group:[^:]+$/.test(scopedSessionKey)) {
-    return "group";
-  }
-  if (/^[0-9]+(?:-[0-9]+)*@g\.us$/.test(scopedSessionKey)) {
-    return "group";
-  }
-  if (/^whatsapp:(?!.*:group:).+@g\.us$/.test(scopedSessionKey)) {
-    return "group";
-  }
-  if (/^discord:(?:[^:]+:)?guild-[^:]+:channel-[^:]+$/.test(scopedSessionKey)) {
-    return "channel";
-  }
-  return undefined;
-}
-
-/**
- * Best-effort chat-type extraction from session keys across canonical and legacy formats.
- */
-export function deriveSessionChatType(sessionKey: string | undefined | null): SessionKeyChatType {
-  const raw = (sessionKey ?? "").trim().toLowerCase();
+function resolveScopedSessionKey(sessionKey: string | undefined | null): string {
+  const raw = normalizeLowercaseStringOrEmpty(sessionKey);
   if (!raw) {
-    return "unknown";
+    return "";
   }
-  const scoped = parseAgentSessionKey(raw)?.rest ?? raw;
-  const tokens = new Set(scoped.split(":").filter(Boolean));
-  if (tokens.has("group")) {
-    return "group";
+  return parseAgentSessionKey(raw)?.rest ?? raw;
+}
+
+function collectLegacyChatTypeCandidatePluginIds(scopedSessionKey: string): string[] {
+  const ids = new Set<string>();
+  const firstToken = scopedSessionKey.split(":").find(Boolean);
+  if (firstToken) {
+    ids.add(firstToken);
   }
-  if (tokens.has("channel")) {
-    return "channel";
+  if (scopedSessionKey.includes("@g.us")) {
+    ids.add("whatsapp");
   }
-  if (tokens.has("direct") || tokens.has("dm")) {
-    return "direct";
+  return Array.from(ids);
+}
+
+function derivePluginLegacySessionChatType(
+  scopedSessionKey: string,
+  deriveLegacySessionChatType: LegacySessionChatTypeDeriver,
+): SessionKeyChatType | undefined {
+  if (!deriveLegacySessionChatType) {
+    return undefined;
   }
-  const builtInLegacy = deriveBuiltInLegacySessionChatType(scoped);
-  if (builtInLegacy) {
-    return builtInLegacy;
+  return deriveLegacySessionChatType(scopedSessionKey);
+}
+
+export function deriveSessionChatType(sessionKey: string | undefined | null): SessionKeyChatType {
+  const builtInType = deriveSessionChatTypeFromKey(sessionKey);
+  if (builtInType !== "unknown") {
+    return builtInType;
   }
-  for (const surface of listLegacySessionChatTypeSurfaces()) {
-    const derived = surface.deriveLegacySessionChatType?.(scoped);
+
+  const scopedSessionKey = resolveScopedSessionKey(sessionKey);
+  for (const pluginId of collectLegacyChatTypeCandidatePluginIds(scopedSessionKey)) {
+    const derived = derivePluginLegacySessionChatType(
+      scopedSessionKey,
+      getBootstrapChannelPlugin(pluginId)?.messaging?.deriveLegacySessionChatType,
+    );
     if (derived) {
       return derived;
     }

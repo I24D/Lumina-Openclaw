@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ClientToolDefinition } from "../agents/command/shared-types.js";
 import type { ImageContent } from "../agents/command/types.js";
+import { isClientToolNameConflictError } from "../agents/pi-tool-definition-adapter.js";
+import { STREAM_ERROR_FALLBACK_TEXT } from "../agents/stream-message-shared.js";
+import {
+  hasNonzeroUsage,
+  normalizeUsage,
+  toOpenAiChatCompletionsUsage,
+  type NormalizedUsage,
+} from "../agents/usage.js";
 import { createDefaultDeps } from "../cli/deps.js";
 import { agentCommandFromIngress } from "../commands/agent.js";
 import { loadConfig } from "../config/config.js";
@@ -19,6 +28,10 @@ import {
   type InputImageSource,
 } from "../media/input-files.js";
 import { defaultRuntime } from "../runtime.js";
+import {
+  normalizeLowercaseStringOrEmpty,
+  normalizeOptionalString,
+} from "../shared/string-coerce.js";
 import { resolveAssistantStreamDeltaText } from "./agent-event-assistant-text.js";
 import {
   buildAgentMessageFromConversationEntries,
@@ -26,7 +39,7 @@ import {
 } from "./agent-prompt.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "./auth.js";
-import { sendJson, setSseHeaders, writeDone } from "./http-common.js";
+import { sendJson, setSseHeaders, watchClientDisconnect, writeDone } from "./http-common.js";
 import { handleGatewayPostJsonEndpoint } from "./http-endpoint-helpers.js";
 import {
   resolveGatewayRequestContext,
@@ -35,7 +48,12 @@ import {
   resolveOpenAiCompatibleHttpSenderIsOwner,
 } from "./http-utils.js";
 import { normalizeInputHostnameAllowlist } from "./input-allowlist.js";
-import { type RemoteBrainMessage, type RemoteBrainToolCall, runGatewayRemoteBrainLoop } from "./remote-brain.js";
+import { resolveOpenAiCompatError, validateOpenAiSamplingParams } from "./openai-compat-errors.js";
+import {
+  type RemoteBrainMessage,
+  type RemoteBrainToolCall,
+  runGatewayRemoteBrainLoop,
+} from "./remote-brain.js";
 
 type OpenAiHttpOptions = {
   auth: ResolvedGatewayAuth;
@@ -50,13 +68,25 @@ type OpenAiChatMessage = {
   role?: unknown;
   content?: unknown;
   name?: unknown;
+  tool_call_id?: unknown;
+  tool_calls?: unknown;
+  stopReason?: unknown;
 };
 
 type OpenAiChatCompletionRequest = {
   model?: unknown;
   stream?: unknown;
+  // Naming/style reference: src/agents/openai-transport-stream.ts:1262-1273
+  stream_options?: unknown;
+  tools?: unknown;
+  tool_choice?: unknown;
   messages?: unknown;
   user?: unknown;
+  max_tokens?: unknown;
+  max_completion_tokens?: unknown;
+  temperature?: unknown;
+  top_p?: unknown;
+  response_format?: unknown;
 };
 
 const DEFAULT_OPENAI_CHAT_COMPLETIONS_BODY_BYTES = 20 * 1024 * 1024;
@@ -109,25 +139,100 @@ function writeSse(res: ServerResponse, data: unknown) {
 
 function buildAgentCommandInput(params: {
   prompt: { message: string; extraSystemPrompt?: string; images?: ImageContent[] };
+  clientTools?: ClientToolDefinition[];
   modelOverride?: string;
   sessionKey: string;
   runId: string;
   messageChannel: string;
-  senderIsOwner: boolean;
+  abortSignal?: AbortSignal;
+  streamParams?: {
+    maxTokens?: number;
+    temperature?: number;
+    topP?: number;
+    responseFormat?: Record<string, unknown>;
+  };
 }) {
   return {
     message: params.prompt.message,
     extraSystemPrompt: params.prompt.extraSystemPrompt,
     images: params.prompt.images,
+    clientTools: params.clientTools,
     model: params.modelOverride,
     sessionKey: params.sessionKey,
     runId: params.runId,
     deliver: false as const,
     messageChannel: params.messageChannel,
     bestEffortDeliver: false as const,
-    senderIsOwner: params.senderIsOwner,
     allowModelOverride: true as const,
+    abortSignal: params.abortSignal,
+    streamParams: params.streamParams,
   };
+}
+
+function extractClientToolsFromChatRequest(tools: unknown): ClientToolDefinition[] {
+  if (tools == null) {
+    return [];
+  }
+  if (!Array.isArray(tools)) {
+    throw new Error("tools must be an array");
+  }
+  const clientTools: ClientToolDefinition[] = [];
+  for (const tool of tools) {
+    if (!tool || typeof tool !== "object" || Array.isArray(tool)) {
+      throw new Error("each tool must be an object");
+    }
+    if ((tool as { type?: unknown }).type !== "function") {
+      throw new Error("only function tools are supported");
+    }
+    const functionValue = (tool as { function?: unknown }).function;
+    if (!functionValue || typeof functionValue !== "object" || Array.isArray(functionValue)) {
+      throw new Error("tool.function is required");
+    }
+    const rawName = (functionValue as { name?: unknown }).name;
+    const name = typeof rawName === "string" ? rawName.trim() : "";
+    if (!name) {
+      throw new Error("tool.function.name is required");
+    }
+    const description = (functionValue as { description?: unknown }).description;
+    const parameters = (functionValue as { parameters?: unknown }).parameters;
+    const strict = (functionValue as { strict?: unknown }).strict;
+    clientTools.push({
+      type: "function",
+      function: {
+        name,
+        ...(typeof description === "string" ? { description } : {}),
+        ...(parameters && typeof parameters === "object" && !Array.isArray(parameters)
+          ? { parameters: parameters as Record<string, unknown> }
+          : {}),
+        ...(typeof strict === "boolean" ? { strict } : {}),
+      },
+    });
+  }
+  return clientTools;
+}
+
+function applyChatToolChoice(params: { tools: ClientToolDefinition[]; toolChoice: unknown }): {
+  tools: ClientToolDefinition[];
+  extraSystemPrompt?: string;
+} {
+  const { tools, toolChoice } = params;
+  if (toolChoice == null || toolChoice === "auto") {
+    return { tools };
+  }
+  if (toolChoice === "none") {
+    return { tools: [] };
+  }
+  if (toolChoice === "required") {
+    throw new Error("tool_choice=required is not supported");
+  }
+  if (typeof toolChoice !== "object" || Array.isArray(toolChoice)) {
+    throw new Error("tool_choice must be a string or object");
+  }
+  const choiceType = (toolChoice as { type?: unknown }).type;
+  if (typeof choiceType !== "string") {
+    throw new Error("unsupported tool_choice type");
+  }
+  throw new Error(`tool_choice ${choiceType} is not supported`);
 }
 
 function writeAssistantRoleChunk(res: ServerResponse, params: { runId: string; model: string }) {
@@ -136,7 +241,7 @@ function writeAssistantRoleChunk(res: ServerResponse, params: { runId: string; m
     object: "chat.completion.chunk",
     created: Math.floor(Date.now() / 1000),
     model: params.model,
-    choices: [{ index: 0, delta: { role: "assistant" } }],
+    choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
   });
 }
 
@@ -159,37 +264,6 @@ function writeAssistantContentChunk(
   });
 }
 
-function writeAssistantToolCallChunk(
-  res: ServerResponse,
-  params: { runId: string; model: string; toolCall: RemoteBrainToolCall; index: number },
-) {
-  writeSse(res, {
-    id: params.runId,
-    object: "chat.completion.chunk",
-    created: Math.floor(Date.now() / 1000),
-    model: params.model,
-    choices: [
-      {
-        index: 0,
-        delta: {
-          tool_calls: [
-            {
-              index: params.index,
-              id: params.toolCall.id,
-              type: "function",
-              function: {
-                name: params.toolCall.function.name,
-                arguments: params.toolCall.function.arguments,
-              },
-            },
-          ],
-        },
-        finish_reason: null,
-      },
-    ],
-  });
-}
-
 function writeAssistantFinishChunk(
   res: ServerResponse,
   params: { runId: string; model: string; finishReason: "stop" | "tool_calls" },
@@ -199,18 +273,114 @@ function writeAssistantFinishChunk(
     object: "chat.completion.chunk",
     created: Math.floor(Date.now() / 1000),
     model: params.model,
-    choices: [{ index: 0, delta: {}, finish_reason: params.finishReason }],
+    choices: [
+      {
+        index: 0,
+        delta: {},
+        finish_reason: params.finishReason,
+      },
+    ],
   });
 }
 
-function normalizeAssistantToolCall(message: Record<string, unknown>, index: number) {
+function splitArgumentsForStreaming(argumentsValue: string): string[] {
+  if (!argumentsValue) {
+    return [""];
+  }
+  const chunkSize = 256;
+  const chunks: string[] = [];
+  for (let i = 0; i < argumentsValue.length; i += chunkSize) {
+    chunks.push(argumentsValue.slice(i, i + chunkSize));
+  }
+  return chunks.length > 0 ? chunks : [""];
+}
+
+function writeAssistantToolCallsIncrementalChunks(
+  res: ServerResponse,
+  params: {
+    runId: string;
+    model: string;
+    toolCalls: Array<{ id: string; name: string; arguments: string }>;
+  },
+) {
+  for (const [index, call] of params.toolCalls.entries()) {
+    writeSse(res, {
+      id: params.runId,
+      object: "chat.completion.chunk",
+      created: Math.floor(Date.now() / 1000),
+      model: params.model,
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              {
+                index,
+                id: call.id,
+                type: "function",
+                function: { name: call.name, arguments: "" },
+              },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    });
+
+    for (const argsDelta of splitArgumentsForStreaming(call.arguments)) {
+      writeSse(res, {
+        id: params.runId,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model: params.model,
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index,
+                  function: { arguments: argsDelta },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      });
+    }
+  }
+}
+
+function writeUsageChunk(
+  res: ServerResponse,
+  params: {
+    runId: string;
+    model: string;
+    usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  },
+) {
+  writeSse(res, {
+    id: params.runId,
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model: params.model,
+    choices: [],
+    usage: params.usage,
+  });
+}
+
+function normalizeRemoteBrainToolCalls(
+  message: Record<string, unknown>,
+  index: number,
+): RemoteBrainToolCall[] {
   const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
   return toolCalls
     .map((toolCall) => {
       if (!toolCall || typeof toolCall !== "object") {
         return null;
       }
-      const functionShape =
+      const fn =
         "function" in toolCall && toolCall.function && typeof toolCall.function === "object"
           ? (toolCall.function as Record<string, unknown>)
           : {};
@@ -218,74 +388,57 @@ function normalizeAssistantToolCall(message: Record<string, unknown>, index: num
         typeof toolCall.id === "string" && toolCall.id.trim()
           ? toolCall.id.trim()
           : `call_${index + 1}`;
-      const name =
-        typeof functionShape.name === "string" && functionShape.name.trim()
-          ? functionShape.name.trim()
-          : undefined;
+      const name = typeof fn.name === "string" ? fn.name.trim() : "";
       if (!name) {
         return null;
       }
-      const rawArguments = functionShape.arguments;
       return {
         id,
         type: "function" as const,
         function: {
           name,
           arguments:
-            typeof rawArguments === "string"
-              ? rawArguments
-              : JSON.stringify(rawArguments ?? {}),
+            typeof fn.arguments === "string" ? fn.arguments : JSON.stringify(fn.arguments ?? {}),
         },
       };
     })
     .filter((value): value is RemoteBrainToolCall => value !== null);
 }
 
-function buildRemoteBrainMessagesFromOpenAiMessages(messagesUnknown: unknown): RemoteBrainMessage[] {
-  const messages = asMessages(messagesUnknown);
-  return messages
+function buildRemoteBrainMessagesFromOpenAiMessages(
+  messagesUnknown: unknown,
+): RemoteBrainMessage[] {
+  return asMessages(messagesUnknown)
     .map((message, index) => {
       if (!message || typeof message !== "object") {
         return null;
       }
-      const role = typeof message.role === "string" ? message.role.trim().toLowerCase() : "";
+      const record = message as Record<string, unknown>;
+      const role = typeof record.role === "string" ? record.role.trim().toLowerCase() : "";
       if (role === "system" || role === "user" || role === "assistant") {
         return {
           role,
-          content: extractTextContent(message.content),
+          content: extractTextContent(record.content),
           ...(role === "assistant"
-            ? { tool_calls: normalizeAssistantToolCall(message as Record<string, unknown>, index) }
+            ? { tool_calls: normalizeRemoteBrainToolCalls(record, index) }
             : {}),
         } satisfies RemoteBrainMessage;
       }
       if (role === "tool") {
         const toolCallId =
-          typeof (message as Record<string, unknown>).tool_call_id === "string"
-            ? ((message as Record<string, unknown>).tool_call_id as string).trim()
-            : undefined;
+          typeof record.tool_call_id === "string" ? record.tool_call_id.trim() : "";
         if (!toolCallId) {
           return null;
         }
         return {
           role: "tool",
           tool_call_id: toolCallId,
-          content: extractTextContent(message.content),
+          content: extractTextContent(record.content),
         } satisfies RemoteBrainMessage;
       }
       return null;
     })
     .filter((message): message is RemoteBrainMessage => message !== null);
-}
-
-function toOpenAiCompatToolCalls(toolCalls: RemoteBrainToolCall[]) {
-  return toolCalls.map((toolCall) => ({
-    id: toolCall.id,
-    type: "function" as const,
-    function: {
-      name: toolCall.function.name,
-      arguments: toolCall.function.arguments,
-    },
-  }));
 }
 
 function asMessages(val: unknown): OpenAiChatMessage[] {
@@ -320,6 +473,59 @@ function extractTextContent(content: unknown): string {
       .join("\n");
   }
   return "";
+}
+
+type AssistantToolCall = {
+  id: string;
+  name: string;
+  arguments: string;
+};
+
+function stringifyToolCallArguments(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value == null) {
+    return "";
+  }
+  try {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === "string" ? serialized : "";
+  } catch {
+    return "";
+  }
+}
+
+function extractAssistantToolCalls(value: unknown): AssistantToolCall[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const calls: AssistantToolCall[] = [];
+  for (const rawCall of value) {
+    if (!rawCall || typeof rawCall !== "object" || Array.isArray(rawCall)) {
+      continue;
+    }
+    const id = normalizeOptionalString((rawCall as { id?: unknown }).id) ?? "";
+    const functionValue = (rawCall as { function?: unknown }).function;
+    if (!functionValue || typeof functionValue !== "object" || Array.isArray(functionValue)) {
+      continue;
+    }
+    const name = normalizeOptionalString((functionValue as { name?: unknown }).name) ?? "";
+    if (!id || !name) {
+      continue;
+    }
+    const argumentsValue = stringifyToolCallArguments(
+      (functionValue as { arguments?: unknown }).arguments,
+    );
+    calls.push({ id, name, arguments: argumentsValue });
+  }
+  return calls;
+}
+
+function renderAssistantToolCalls(calls: AssistantToolCall[]): string {
+  return calls
+    .map((call) => `tool_call id=${call.id} name=${call.name} arguments=${call.arguments}`)
+    .join("\n");
 }
 
 function resolveImageUrlPart(part: unknown): string | undefined {
@@ -371,17 +577,19 @@ type ActiveTurnContext = {
 function parseImageUrlToSource(url: string): InputImageSource {
   const dataUriMatch = /^data:([^,]*?),(.*)$/is.exec(url);
   if (dataUriMatch) {
-    const metadata = dataUriMatch[1]?.trim() ?? "";
+    const metadata = normalizeOptionalString(dataUriMatch[1]) ?? "";
     const data = dataUriMatch[2] ?? "";
     const metadataParts = metadata
       .split(";")
-      .map((part) => part.trim())
+      .map((part) => normalizeOptionalString(part) ?? "")
       .filter(Boolean);
-    const isBase64 = metadataParts.some((part) => part.toLowerCase() === "base64");
+    const isBase64 = metadataParts.some(
+      (part) => normalizeLowercaseStringOrEmpty(part) === "base64",
+    );
     if (!isBase64) {
       throw new Error("image_url data URI must be base64 encoded");
     }
-    if (!data.trim()) {
+    if (!(normalizeOptionalString(data) ?? "")) {
       throw new Error("image_url data URI is missing payload data");
     }
     const mediaTypeRaw = metadataParts.find((part) => part.includes("/"));
@@ -401,7 +609,7 @@ function resolveActiveTurnContext(messagesUnknown: unknown): ActiveTurnContext {
     if (!msg || typeof msg !== "object") {
       continue;
     }
-    const role = typeof msg.role === "string" ? msg.role.trim() : "";
+    const role = normalizeOptionalString(msg.role) ?? "";
     const normalizedRole = role === "function" ? "tool" : role;
     if (normalizedRole !== "user" && normalizedRole !== "tool") {
       continue;
@@ -452,10 +660,12 @@ async function resolveImagesForRequest(
   return images;
 }
 
-export const __testOnlyOpenAiHttp = {
+export const testOnlyOpenAiHttp = {
   resolveImagesForRequest,
   resolveOpenAiChatCompletionsLimits,
+  resolveChatCompletionUsage,
 };
+export { testOnlyOpenAiHttp as __testOnlyOpenAiHttp };
 
 function buildAgentPrompt(
   messagesUnknown: unknown,
@@ -473,7 +683,7 @@ function buildAgentPrompt(
     if (!msg || typeof msg !== "object") {
       continue;
     }
-    const role = typeof msg.role === "string" ? msg.role.trim() : "";
+    const role = normalizeOptionalString(msg.role) ?? "";
     const content = extractTextContent(msg.content).trim();
     const hasImage = extractImageUrls(msg.content).length > 0;
     if (!role) {
@@ -490,30 +700,44 @@ function buildAgentPrompt(
     if (normalizedRole !== "user" && normalizedRole !== "assistant" && normalizedRole !== "tool") {
       continue;
     }
+    const assistantToolCalls =
+      normalizedRole === "assistant" ? extractAssistantToolCalls(msg.tool_calls) : [];
+    const assistantToolCallsSummary =
+      assistantToolCalls.length > 0 ? renderAssistantToolCalls(assistantToolCalls) : "";
 
     // Keep the image-only placeholder scoped to the active user turn so we don't
     // mention historical image-only turns whose bytes are intentionally not replayed.
-    const messageContent =
+    const baseMessageContent =
       normalizedRole === "user" && !content && hasImage && i === activeUserMessageIndex
         ? IMAGE_ONLY_USER_MESSAGE
         : content;
+    const messageContent = [baseMessageContent, assistantToolCallsSummary]
+      .filter((part): part is string => Boolean(part))
+      .join("\n");
     if (!messageContent) {
       continue;
     }
 
-    const name = typeof msg.name === "string" ? msg.name.trim() : "";
+    const name = normalizeOptionalString(msg.name) ?? "";
+    const toolCallId = normalizeOptionalString(msg.tool_call_id) ?? "";
     const sender =
       normalizedRole === "assistant"
         ? "Assistant"
         : normalizedRole === "user"
           ? "User"
-          : name
-            ? `Tool:${name}`
-            : "Tool";
+          : toolCallId
+            ? `Tool:${toolCallId}`
+            : name
+              ? `Tool:${name}`
+              : "Tool";
 
     conversationEntries.push({
       role: normalizedRole,
       entry: { sender, body: messageContent },
+      internalStreamError:
+        normalizedRole === "assistant" &&
+        normalizeOptionalString(msg.stopReason) === "error" &&
+        messageContent.trim() === STREAM_ERROR_FALLBACK_TEXT,
     });
   }
 
@@ -544,6 +768,128 @@ function resolveAgentResponseText(result: unknown): string {
   return content || "No response from OpenClaw.";
 }
 
+function resolveAgentResponseCommentary(result: unknown): string {
+  const payloads = (result as { payloads?: Array<{ text?: string }> } | null)?.payloads;
+  if (!Array.isArray(payloads) || payloads.length === 0) {
+    return "";
+  }
+  return payloads
+    .map((p) => (typeof p.text === "string" ? p.text : ""))
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+type AgentUsageMeta = {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  total?: number;
+};
+
+type PendingToolCall = {
+  id?: unknown;
+  name?: unknown;
+  arguments?: unknown;
+};
+
+function resolveAgentRunUsage(result: unknown): NormalizedUsage | undefined {
+  const agentMeta = (
+    result as {
+      meta?: {
+        agentMeta?: {
+          usage?: AgentUsageMeta;
+          lastCallUsage?: AgentUsageMeta;
+        };
+      };
+    } | null
+  )?.meta?.agentMeta;
+  const primary = normalizeUsage(agentMeta?.usage);
+  if (hasNonzeroUsage(primary)) {
+    return primary;
+  }
+  const fallback = normalizeUsage(agentMeta?.lastCallUsage);
+  if (hasNonzeroUsage(fallback)) {
+    return fallback;
+  }
+  return primary ?? fallback;
+}
+
+function resolveStopReasonAndPendingToolCalls(meta: unknown): {
+  stopReason: string | undefined;
+  pendingToolCalls: Array<{ id: string; name: string; arguments: string }> | undefined;
+} {
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
+    return { stopReason: undefined, pendingToolCalls: undefined };
+  }
+  const stopReasonRaw = (meta as { stopReason?: unknown }).stopReason;
+  const stopReason = typeof stopReasonRaw === "string" ? stopReasonRaw : undefined;
+  const pendingRaw = (meta as { pendingToolCalls?: unknown }).pendingToolCalls;
+  if (!Array.isArray(pendingRaw)) {
+    return { stopReason, pendingToolCalls: undefined };
+  }
+  const pendingToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
+  for (const call of pendingRaw as PendingToolCall[]) {
+    const id = typeof call?.id === "string" ? call.id.trim() : "";
+    const name = typeof call?.name === "string" ? call.name.trim() : "";
+    const argsValue = call?.arguments;
+    const argumentsValue =
+      typeof argsValue === "string"
+        ? argsValue
+        : argsValue == null
+          ? ""
+          : JSON.stringify(argsValue);
+    if (!id || !name) {
+      continue;
+    }
+    pendingToolCalls.push({ id, name, arguments: argumentsValue });
+  }
+  return { stopReason, pendingToolCalls };
+}
+
+function resolveChatCompletionUsage(result: unknown): {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+} {
+  return toOpenAiChatCompletionsUsage(resolveAgentRunUsage(result));
+}
+
+function resolveIncludeUsageForStreaming(payload: OpenAiChatCompletionRequest): boolean {
+  // Keep parsing aligned with OpenAI wire-format field names.
+  // Flow reference: src/agents/openai-transport-stream.ts:1262-1273
+  const streamOptions = payload.stream_options;
+  if (!streamOptions || typeof streamOptions !== "object" || Array.isArray(streamOptions)) {
+    return false;
+  }
+  return (streamOptions as { include_usage?: unknown }).include_usage === true;
+}
+
+function resolveResponseFormat(value: unknown): Record<string, unknown> | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("response_format must be an object");
+  }
+  const obj = value as Record<string, unknown>;
+  const type = obj.type;
+  if (type !== "text" && type !== "json_object" && type !== "json_schema") {
+    throw new Error("response_format.type must be text, json_object, or json_schema");
+  }
+  return obj;
+}
+
+function resolveErrorMessage(err: unknown): string {
+  if (err instanceof Error) {
+    const message = err.message.trim();
+    if (message) {
+      return message;
+    }
+  }
+  return String(err);
+}
+
 export async function handleOpenAiHttpRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -568,14 +914,54 @@ export async function handleOpenAiHttpRequest(
   if (!handled) {
     return true;
   }
-  // On the compat surface, shared-secret bearer auth is also treated as an
-  // owner sender so owner-only tool policy matches the documented contract.
   const senderIsOwner = resolveOpenAiCompatibleHttpSenderIsOwner(req, handled.requestAuth);
-
   const payload = coerceRequest(handled.body);
   const stream = Boolean(payload.stream);
+  const streamIncludeUsage = stream && resolveIncludeUsageForStreaming(payload);
   const model = typeof payload.model === "string" ? payload.model : "openclaw";
   const user = typeof payload.user === "string" ? payload.user : undefined;
+  const maxTokens =
+    typeof payload.max_completion_tokens === "number"
+      ? payload.max_completion_tokens
+      : typeof payload.max_tokens === "number"
+        ? payload.max_tokens
+        : undefined;
+  const temperature = typeof payload.temperature === "number" ? payload.temperature : undefined;
+  const topP = typeof payload.top_p === "number" ? payload.top_p : undefined;
+  let responseFormat: Record<string, unknown> | undefined;
+  try {
+    responseFormat = resolveResponseFormat(payload.response_format);
+  } catch (err) {
+    sendJson(res, 400, {
+      error: {
+        message: `Invalid response_format: ${resolveErrorMessage(err)}`,
+        type: "invalid_request_error",
+      },
+    });
+    return true;
+  }
+  const samplingError = validateOpenAiSamplingParams({
+    temperature: payload.temperature,
+    topP: payload.top_p,
+  });
+  if (samplingError) {
+    sendJson(res, 400, {
+      error: { message: samplingError, type: "invalid_request_error" },
+    });
+    return true;
+  }
+  const streamParams =
+    maxTokens !== undefined ||
+    temperature !== undefined ||
+    topP !== undefined ||
+    responseFormat !== undefined
+      ? {
+          ...(maxTokens !== undefined ? { maxTokens } : {}),
+          ...(temperature !== undefined ? { temperature } : {}),
+          ...(topP !== undefined ? { topP } : {}),
+          ...(responseFormat !== undefined ? { responseFormat } : {}),
+        }
+      : undefined;
 
   const { agentId, sessionKey, messageChannel } = resolveGatewayRequestContext({
     req,
@@ -598,6 +984,25 @@ export async function handleOpenAiHttpRequest(
   }
   const activeTurnContext = resolveActiveTurnContext(payload.messages);
   const prompt = buildAgentPrompt(payload.messages, activeTurnContext.activeUserMessageIndex);
+  let resolvedClientTools: ClientToolDefinition[] = [];
+  let toolChoicePrompt: string | undefined;
+  try {
+    const parsedClientTools = extractClientToolsFromChatRequest(payload.tools);
+    const toolChoiceResult = applyChatToolChoice({
+      tools: parsedClientTools,
+      toolChoice: payload.tool_choice,
+    });
+    resolvedClientTools = toolChoiceResult.tools;
+    toolChoicePrompt = toolChoiceResult.extraSystemPrompt;
+  } catch (err) {
+    sendJson(res, 400, {
+      error: {
+        message: `Invalid tools/tool_choice: ${resolveErrorMessage(err)}`,
+        type: "invalid_request_error",
+      },
+    });
+    return true;
+  }
   let images: ImageContent[] = [];
   try {
     images = await resolveImagesForRequest(activeTurnContext, limits);
@@ -624,19 +1029,25 @@ export async function handleOpenAiHttpRequest(
 
   const runId = `chatcmpl_${randomUUID()}`;
   const deps = createDefaultDeps();
+  const abortController = new AbortController();
+  const mergedExtraSystemPrompt = [prompt.extraSystemPrompt, toolChoicePrompt]
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n");
   const commandInput = buildAgentCommandInput({
     prompt: {
       message: prompt.message,
-      extraSystemPrompt: prompt.extraSystemPrompt,
+      extraSystemPrompt: mergedExtraSystemPrompt || undefined,
       images: images.length > 0 ? images : undefined,
     },
+    clientTools: resolvedClientTools.length > 0 ? resolvedClientTools : undefined,
     modelOverride,
     sessionKey,
     runId,
     messageChannel,
-    senderIsOwner,
+    abortSignal: abortController.signal,
+    streamParams,
   });
-  const remoteBrainMessages = buildRemoteBrainMessagesFromOpenAiMessages(payload.messages);
+
   if (images.length === 0) {
     const remoteBrain = await runGatewayRemoteBrainLoop({
       cfg: loadConfig(),
@@ -646,10 +1057,10 @@ export async function handleOpenAiHttpRequest(
       messageProvider: messageChannel,
       senderIsOwner,
       userId: user,
-      messages: remoteBrainMessages,
-      runtimeContext: {
-        surface: "openai_chat_completions",
-      },
+      messages: buildRemoteBrainMessagesFromOpenAiMessages(payload.messages),
+      clientTools: resolvedClientTools,
+      runtimeContext: { surface: "openai_chat_completions" },
+      signal: abortController.signal,
     });
     if (remoteBrain.enabled) {
       if (!remoteBrain.ok) {
@@ -659,10 +1070,12 @@ export async function handleOpenAiHttpRequest(
         });
         return true;
       }
-
-      const finishReason =
-        remoteBrain.finishReason === "tool_calls" ? "tool_calls" : "stop";
-      const compatToolCalls = toOpenAiCompatToolCalls(remoteBrain.toolCalls);
+      const finishReason = remoteBrain.finishReason === "tool_calls" ? "tool_calls" : "stop";
+      const toolCalls = remoteBrain.toolCalls.map((call) => ({
+        id: call.id,
+        name: call.function.name,
+        arguments: call.function.arguments,
+      }));
       if (!stream) {
         sendJson(res, 200, {
           id: runId,
@@ -675,7 +1088,15 @@ export async function handleOpenAiHttpRequest(
               message: {
                 role: "assistant",
                 content: remoteBrain.reply,
-                ...(compatToolCalls.length > 0 ? { tool_calls: compatToolCalls } : {}),
+                ...(toolCalls.length > 0
+                  ? {
+                      tool_calls: toolCalls.map((call) => ({
+                        id: call.id,
+                        type: "function",
+                        function: { name: call.name, arguments: call.arguments },
+                      })),
+                    }
+                  : {}),
               },
               finish_reason: finishReason,
             },
@@ -684,7 +1105,6 @@ export async function handleOpenAiHttpRequest(
         });
         return true;
       }
-
       setSseHeaders(res);
       writeAssistantRoleChunk(res, { runId, model });
       if (remoteBrain.reply) {
@@ -695,14 +1115,7 @@ export async function handleOpenAiHttpRequest(
           finishReason: null,
         });
       }
-      compatToolCalls.forEach((toolCall, index) => {
-        writeAssistantToolCallChunk(res, {
-          runId,
-          model,
-          toolCall,
-          index,
-        });
-      });
+      writeAssistantToolCallsIncrementalChunks(res, { runId, model, toolCalls });
       writeAssistantFinishChunk(res, { runId, model, finishReason });
       writeDone(res);
       res.end();
@@ -711,9 +1124,44 @@ export async function handleOpenAiHttpRequest(
   }
 
   if (!stream) {
+    const stopWatchingDisconnect = watchClientDisconnect(req, res, abortController);
     try {
       const result = await agentCommandFromIngress(commandInput, defaultRuntime, deps);
 
+      if (abortController.signal.aborted) {
+        return true;
+      }
+
+      const usage = resolveChatCompletionUsage(result);
+      const meta = (result as { meta?: unknown } | null)?.meta;
+      const { stopReason, pendingToolCalls } = resolveStopReasonAndPendingToolCalls(meta);
+
+      if (stopReason === "tool_calls" && pendingToolCalls && pendingToolCalls.length > 0) {
+        const commentary = resolveAgentResponseCommentary(result);
+        sendJson(res, 200, {
+          id: runId,
+          object: "chat.completion",
+          created: Math.floor(Date.now() / 1000),
+          model,
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: "assistant",
+                content: commentary,
+                tool_calls: pendingToolCalls.map((call) => ({
+                  id: call.id,
+                  type: "function",
+                  function: { name: call.name, arguments: call.arguments },
+                })),
+              },
+              finish_reason: "tool_calls",
+            },
+          ],
+          usage,
+        });
+        return true;
+      }
       const content = resolveAgentResponseText(result);
 
       sendJson(res, 200, {
@@ -728,13 +1176,29 @@ export async function handleOpenAiHttpRequest(
             finish_reason: "stop",
           },
         ],
-        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        usage,
       });
     } catch (err) {
+      if (abortController.signal.aborted) {
+        return true;
+      }
       logWarn(`openai-compat: chat completion failed: ${String(err)}`);
+      if (isClientToolNameConflictError(err)) {
+        sendJson(res, 400, {
+          error: { message: "invalid tool configuration", type: "invalid_request_error" },
+        });
+        return true;
+      }
+      const mapped = resolveOpenAiCompatError(err);
+      if (mapped) {
+        sendJson(res, mapped.status, { error: mapped.error });
+        return true;
+      }
       sendJson(res, 500, {
         error: { message: "internal error", type: "api_error" },
       });
+    } finally {
+      stopWatchingDisconnect();
     }
     return true;
   }
@@ -742,8 +1206,50 @@ export async function handleOpenAiHttpRequest(
   setSseHeaders(res);
 
   let wroteRole = false;
+  let wroteStopChunk = false;
   let sawAssistantDelta = false;
+  let finalUsage:
+    | {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+      }
+    | undefined;
+  let finalizeRequested = false;
+  let finalizeFinishReason: "stop" | "tool_calls" = "stop";
+  let resultResolved = false;
   let closed = false;
+  let stopWatchingDisconnect = () => {};
+
+  const maybeFinalize = () => {
+    if (closed || !finalizeRequested) {
+      return;
+    }
+    if (!resultResolved) {
+      return;
+    }
+    if (streamIncludeUsage && !finalUsage) {
+      return;
+    }
+    closed = true;
+    stopWatchingDisconnect();
+    unsubscribe();
+    if (!wroteStopChunk) {
+      writeAssistantFinishChunk(res, { runId, model, finishReason: finalizeFinishReason });
+      wroteStopChunk = true;
+    }
+    if (streamIncludeUsage && finalUsage) {
+      writeUsageChunk(res, { runId, model, usage: finalUsage });
+    }
+    writeDone(res);
+    res.end();
+  };
+
+  const requestFinalize = (finishReason: "stop" | "tool_calls" = "stop") => {
+    finalizeFinishReason = finishReason;
+    finalizeRequested = true;
+    maybeFinalize();
+  };
 
   const unsubscribe = onAgentEvent((evt) => {
     if (evt.runId !== runId) {
@@ -777,24 +1283,55 @@ export async function handleOpenAiHttpRequest(
     if (evt.stream === "lifecycle") {
       const phase = evt.data?.phase;
       if (phase === "end" || phase === "error") {
-        closed = true;
-        unsubscribe();
-        writeDone(res);
-        res.end();
+        requestFinalize();
       }
     }
   });
 
-  req.on("close", () => {
+  stopWatchingDisconnect = watchClientDisconnect(req, res, abortController, () => {
     closed = true;
     unsubscribe();
   });
 
+  wroteRole = true;
+  writeAssistantRoleChunk(res, { runId, model });
+
   void (async () => {
     try {
       const result = await agentCommandFromIngress(commandInput, defaultRuntime, deps);
+      resultResolved = true;
 
       if (closed) {
+        return;
+      }
+
+      finalUsage = resolveChatCompletionUsage(result);
+      const meta = (result as { meta?: unknown } | null)?.meta;
+      const { stopReason, pendingToolCalls } = resolveStopReasonAndPendingToolCalls(meta);
+
+      if (stopReason === "tool_calls" && pendingToolCalls && pendingToolCalls.length > 0) {
+        if (!wroteRole) {
+          wroteRole = true;
+          writeAssistantRoleChunk(res, { runId, model });
+        }
+        if (!sawAssistantDelta) {
+          const commentary = resolveAgentResponseCommentary(result);
+          if (commentary) {
+            sawAssistantDelta = true;
+            writeAssistantContentChunk(res, {
+              runId,
+              model,
+              content: commentary,
+              finishReason: null,
+            });
+          }
+        }
+        writeAssistantToolCallsIncrementalChunks(res, {
+          runId,
+          model,
+          toolCalls: pendingToolCalls,
+        });
+        requestFinalize("tool_calls");
         return;
       }
 
@@ -814,28 +1351,60 @@ export async function handleOpenAiHttpRequest(
           finishReason: null,
         });
       }
+      requestFinalize();
     } catch (err) {
-      logWarn(`openai-compat: streaming chat completion failed: ${String(err)}`);
-      if (closed) {
+      resultResolved = true;
+      if (closed || abortController.signal.aborted) {
         return;
       }
+      logWarn(`openai-compat: streaming chat completion failed: ${String(err)}`);
+      if (isClientToolNameConflictError(err)) {
+        closed = true;
+        stopWatchingDisconnect();
+        unsubscribe();
+        writeSse(res, {
+          error: { message: "invalid tool configuration", type: "invalid_request_error" },
+        });
+        writeDone(res);
+        res.end();
+        return;
+      }
+      const mapped = resolveOpenAiCompatError(err);
+      if (mapped) {
+        closed = true;
+        stopWatchingDisconnect();
+        unsubscribe();
+        writeSse(res, { error: mapped.error });
+        writeDone(res);
+        res.end();
+        return;
+      }
+      const content = "Error: internal error";
       writeAssistantContentChunk(res, {
         runId,
         model,
-        content: "Error: internal error",
+        content,
         finishReason: "stop",
       });
+      wroteStopChunk = true;
+      finalUsage = {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+      };
       emitAgentEvent({
         runId,
         stream: "lifecycle",
         data: { phase: "error" },
       });
+      requestFinalize();
     } finally {
       if (!closed) {
-        closed = true;
-        unsubscribe();
-        writeDone(res);
-        res.end();
+        emitAgentEvent({
+          runId,
+          stream: "lifecycle",
+          data: { phase: "end" },
+        });
       }
     }
   })();

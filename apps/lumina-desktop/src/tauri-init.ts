@@ -24,6 +24,11 @@ type LuminaDesktopUpdateStatus = {
   message: string | null;
 };
 
+type LuminaCodeBridgeResponse = {
+  status: number;
+  body: unknown;
+};
+
 type TauriCoreApi = {
   invoke?: <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 };
@@ -271,6 +276,20 @@ function installExternalNavigationBridge(
     getVersion,
     savePreferredModel: (modelRef: string): Promise<void> =>
       invoke ? invoke<void>("save_preferred_model", { modelRef }) : Promise.resolve(),
+    luminaCodeRequest: (
+      method: string,
+      path: string,
+      body = "",
+    ): Promise<LuminaCodeBridgeResponse> =>
+      invoke
+        ? invoke<LuminaCodeBridgeResponse>("lumina_code_request", { method, path, body })
+        : Promise.resolve({
+            status: 503,
+            body: {
+              ok: false,
+              message: "Lumina desktop bridge is not available.",
+            },
+          }),
     quit: (): void => {
       if (invoke && capabilities.quit) {
         void invoke("quit_app");

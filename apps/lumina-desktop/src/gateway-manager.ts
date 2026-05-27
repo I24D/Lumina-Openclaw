@@ -8,11 +8,16 @@ import { resolveRuntimePaths, type RuntimePaths } from "./runtime-paths.js";
 
 const POLL_INTERVAL_MS = 500;
 const READY_TIMEOUT_MS = 600_000;
+const HEALTH_INTERVAL_MS = 2_500;
+const HEALTH_FAILURES_BEFORE_RESTART = 4;
 
 let runtimeManagerProcess: ChildProcess | null = null;
 let runtimeManagerOutput = "";
 let intentionalStop = false;
 let lastConfig: LuminaConfig | null = null;
+let healthTimer: NodeJS.Timeout | null = null;
+let healthFailureCount = 0;
+let restartScheduled = false;
 
 function appendRuntimeManagerOutput(chunk: string): void {
   runtimeManagerOutput = `${runtimeManagerOutput}${chunk}`.slice(-12_000);
@@ -123,6 +128,92 @@ function logChildOutput(child: ChildProcess, prefix: string): void {
   });
 }
 
+function stopHealthMonitor(): void {
+  if (healthTimer !== null) {
+    clearInterval(healthTimer);
+    healthTimer = null;
+  }
+  healthFailureCount = 0;
+}
+
+function scheduleGatewayRestart(config: LuminaConfig, reason: string, delayMs: number): void {
+  if (intentionalStop || restartScheduled) {
+    return;
+  }
+  restartScheduled = true;
+  stopHealthMonitor();
+  const activeManagerProcess = runtimeManagerProcess;
+  runtimeManagerProcess = null;
+
+  console.warn(`[runtime-manager] ${reason}. Restarting in ${Math.round(delayMs / 1000)}s...`);
+  if (activeManagerProcess && activeManagerProcess.exitCode === null && !activeManagerProcess.killed) {
+    activeManagerProcess.kill("SIGKILL");
+  }
+
+  setTimeout(() => {
+    if (intentionalStop) {
+      restartScheduled = false;
+      return;
+    }
+    let retryQueued = false;
+    startGateway(config)
+      .catch((err: unknown) => {
+        console.error(
+          "[runtime-manager] Auto-restart failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+        if (!intentionalStop) {
+          retryQueued = true;
+          restartScheduled = false;
+          scheduleGatewayRestart(config, "Retrying after failed auto-restart", 5_000);
+        }
+      })
+      .finally(() => {
+        if (!retryQueued) {
+          restartScheduled = false;
+        }
+      });
+  }, delayMs);
+}
+
+function startHealthMonitor(config: LuminaConfig): void {
+  stopHealthMonitor();
+  healthTimer = setInterval(() => {
+    if (intentionalStop) {
+      stopHealthMonitor();
+      return;
+    }
+    const activeProcess = runtimeManagerProcess;
+    if (!activeProcess || activeProcess.exitCode !== null) {
+      return;
+    }
+    void Promise.all([isPortReady(config.proxyPort), isPortReady(config.gatewayPort)])
+      .then(([proxyReady, gatewayReady]) => {
+        if (intentionalStop) {
+          return;
+        }
+        if (proxyReady && gatewayReady) {
+          healthFailureCount = 0;
+          return;
+        }
+        healthFailureCount += 1;
+        console.warn(
+          `[runtime-manager] Health check failed ${healthFailureCount}/${HEALTH_FAILURES_BEFORE_RESTART}: proxy=${proxyReady ? "ok" : "down"} gateway=${gatewayReady ? "ok" : "down"}`,
+        );
+        if (healthFailureCount >= HEALTH_FAILURES_BEFORE_RESTART) {
+          scheduleGatewayRestart(config, "Runtime ports stopped responding", 1_000);
+        }
+      })
+      .catch((err: unknown) => {
+        console.warn(
+          "[runtime-manager] Health check error:",
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+  }, HEALTH_INTERVAL_MS);
+  healthTimer.unref?.();
+}
+
 function ensureRuntimeManagerBinary(runtimePaths: RuntimePaths): string {
   const binaryPath = runtimePaths.runtimeManagerBinaryPath;
   if (binaryPath && fs.existsSync(binaryPath)) {
@@ -231,6 +322,10 @@ export async function startGateway(config: LuminaConfig): Promise<void> {
   runtimeManagerProcess.on("exit", (code: number | null, signal: string | null) => {
     console.log(`[runtime-manager] Exited - code=${code ?? "?"} signal=${signal ?? "none"}`);
     runtimeManagerProcess = null;
+    stopHealthMonitor();
+    if (restartScheduled) {
+      return;
+    }
     if (!intentionalStop && lastConfig !== null) {
       const configSnapshot = lastConfig;
       console.log("[runtime-manager] Unexpected exit — restarting in 3s...");
@@ -241,6 +336,9 @@ export async function startGateway(config: LuminaConfig): Promise<void> {
               "[runtime-manager] Auto-restart failed:",
               err instanceof Error ? err.message : String(err),
             );
+            if (!intentionalStop) {
+              scheduleGatewayRestart(configSnapshot, "Retrying after failed auto-restart", 5_000);
+            }
           });
         }
       }, 3_000);
@@ -255,10 +353,12 @@ export async function startGateway(config: LuminaConfig): Promise<void> {
   }
 
   console.log(`[runtime-manager] Ready on gateway port ${config.gatewayPort}`);
+  startHealthMonitor(config);
 }
 
 export function stopGateway(): void {
   intentionalStop = true;
+  stopHealthMonitor();
   const runtimePaths = resolveRuntimePaths();
   const managerBinaryPath = runtimePaths.runtimeManagerBinaryPath;
   const activeManagerProcess = runtimeManagerProcess;

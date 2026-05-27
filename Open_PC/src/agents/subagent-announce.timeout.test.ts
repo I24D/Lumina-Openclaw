@@ -16,7 +16,7 @@ let callGatewayImpl: (request: GatewayCall) => Promise<unknown> = async (request
   return {};
 };
 let sessionStore: Record<string, Record<string, unknown>> = {};
-let configOverride: ReturnType<(typeof import("../config/config.js"))["loadConfig"]> = {
+let configOverride: ReturnType<(typeof import("../config/config.js"))["getRuntimeConfig"]> = {
   session: {
     mainKey: "main",
     scope: "per-sender",
@@ -82,13 +82,18 @@ vi.mock("./subagent-announce-delivery.runtime.js", () =>
       }
       return await callGatewayImpl(typed);
     },
-    loadConfig: () => configOverride,
+    getRuntimeConfig: () => configOverride,
     loadSessionStore: () => sessionStore,
     resolveAgentIdFromSessionKey: () => "main",
     resolveMainSessionKey: () => "agent:main:main",
     resolveStorePath: () => "/tmp/sessions-main.json",
     isEmbeddedPiRunActive: (sessionId: string) => isEmbeddedPiRunActiveMock(sessionId),
-    queueEmbeddedPiMessage: () => false,
+    queueEmbeddedPiMessageWithOutcome: (sessionId: string) => ({
+      queued: false,
+      sessionId,
+      reason: "not_streaming",
+      gatewayHealth: "live",
+    }),
   }),
 );
 vi.mock("./subagent-announce-delivery.js", () => ({
@@ -129,7 +134,7 @@ vi.mock("./subagent-announce-delivery.js", () => ({
             Math.max(1, Math.floor(configOverride.agents.defaults.subagents.announceTimeoutMs)),
             2_147_000_000,
           )
-        : 90_000;
+        : 120_000;
     const retryDelaysMs =
       process.env.OPENCLAW_TEST_FAST === "1" ? [8, 16, 32] : [5_000, 10_000, 20_000];
     let retryIndex = 0;
@@ -162,7 +167,7 @@ vi.mock("./subagent-announce-delivery.js", () => ({
   resolveSubagentAnnounceTimeoutMs: (cfg: typeof configOverride) => {
     const configured = cfg.agents?.defaults?.subagents?.announceTimeoutMs;
     if (typeof configured !== "number" || !Number.isFinite(configured)) {
-      return 90_000;
+      return 120_000;
     }
     return Math.min(Math.max(1, Math.floor(configured)), 2_147_000_000);
   },
@@ -170,13 +175,27 @@ vi.mock("./subagent-announce-delivery.js", () => ({
 }));
 vi.mock("./subagent-announce.runtime.js", () => ({
   callGateway: createGatewayCallModuleMock().callGateway,
-  loadConfig: () => configOverride,
+  dispatchGatewayMethodInProcess: async (
+    method: string,
+    params: Record<string, unknown>,
+    options?: { expectFinal?: boolean; timeoutMs?: number },
+  ) => {
+    const request = {
+      method,
+      params,
+      expectFinal: options?.expectFinal,
+      timeoutMs: options?.timeoutMs,
+    };
+    gatewayCalls.push(request);
+    return await callGatewayImpl(request);
+  },
+  getRuntimeConfig: () => configOverride,
   loadSessionStore: vi.fn(() => sessionStore),
+  readSessionEntry: (_storePath: string, sessionKey: string) => sessionStore[sessionKey],
   resolveAgentIdFromSessionKey: () => "main",
   resolveStorePath: () => "/tmp/sessions-main.json",
   resolveMainSessionKey: () => "agent:main:main",
   isEmbeddedPiRunActive: (sessionId: string) => isEmbeddedPiRunActiveMock(sessionId),
-  queueEmbeddedPiMessage: (_sessionId: string, _text: string) => false,
   waitForEmbeddedPiRunEnd: (sessionId: string, timeoutMs?: number) =>
     waitForEmbeddedPiRunEndMock(sessionId, timeoutMs),
 }));
@@ -278,27 +297,27 @@ describe("subagent announce timeout config", () => {
     fallbackRequesterResolution = null;
   });
 
-  it("uses 90s timeout by default for direct announce agent call", async () => {
+  it("uses 120s timeout by default for direct announce agent call", async () => {
     await runAnnounceFlowForTest("run-default-timeout");
 
     const directAgentCall = findGatewayCall(
       (call) => call.method === "agent" && call.expectFinal === true,
     );
-    expect(directAgentCall?.timeoutMs).toBe(90_000);
+    expect(directAgentCall?.timeoutMs).toBe(120_000);
   });
 
   it("honors configured announce timeout for direct announce agent call", async () => {
-    setConfiguredAnnounceTimeout(90_000);
+    setConfiguredAnnounceTimeout(120_000);
     await runAnnounceFlowForTest("run-config-timeout-agent");
 
     const directAgentCall = findGatewayCall(
       (call) => call.method === "agent" && call.expectFinal === true,
     );
-    expect(directAgentCall?.timeoutMs).toBe(90_000);
+    expect(directAgentCall?.timeoutMs).toBe(120_000);
   });
 
   it("honors configured announce timeout for completion direct agent call", async () => {
-    setConfiguredAnnounceTimeout(90_000);
+    setConfiguredAnnounceTimeout(120_000);
     await runAnnounceFlowForTest("run-config-timeout-send", {
       requesterOrigin: {
         channel: "discord",
@@ -310,7 +329,7 @@ describe("subagent announce timeout config", () => {
     const completionDirectAgentCall = findGatewayCall(
       (call) => call.method === "agent" && call.expectFinal === true,
     );
-    expect(completionDirectAgentCall?.timeoutMs).toBe(90_000);
+    expect(completionDirectAgentCall?.timeoutMs).toBe(120_000);
   });
 
   it("retries gateway timeout for externally delivered completion announces before giving up", async () => {
@@ -320,7 +339,7 @@ describe("subagent announce timeout config", () => {
         if (request.method === "chat.history") {
           return { messages: [] };
         }
-        throw new Error("gateway timeout after 90000ms");
+        throw new Error("gateway timeout after 120000ms");
       };
 
       const announcePromise = runAnnounceFlowForTest("run-completion-timeout-retry", {
@@ -451,6 +470,32 @@ describe("subagent announce timeout config", () => {
       (directAgentCall?.params?.internalEvents as Array<{ result?: string }>) ?? [];
     expect(internalEvents[0]?.result).toContain("3 tool call(s)");
     expect(internalEvents[0]?.result).not.toContain("data");
+  });
+
+  it("does not announce cached reply text when the child run terminally failed", async () => {
+    chatHistoryMessages = [
+      { role: "assistant", content: [{ type: "text", text: "stale history output" }] },
+      { role: "toolResult", content: [{ type: "text", text: "stale tool output" }] },
+    ];
+
+    await runAnnounceFlowForTest("run-terminal-error-no-stale-output", {
+      outcome: { status: "error", error: "All models failed (2): timeout" },
+      roundOneReply: "stale frozen output",
+      fallbackReply: "older fallback output",
+    });
+
+    const directAgentCall = findFinalDirectAgentCall();
+    const internalEvents =
+      (directAgentCall?.params?.internalEvents as Array<{
+        result?: string;
+        status?: string;
+        statusLabel?: string;
+      }>) ?? [];
+    expect(internalEvents[0]?.status).toBe("error");
+    expect(internalEvents[0]?.statusLabel).toContain("All models failed");
+    expect(internalEvents[0]?.result).toBe("(no output)");
+    expect(directAgentCall?.params?.message).not.toContain("stale");
+    expect(directAgentCall?.params?.message).not.toContain("older fallback");
   });
 
   it("preserves NO_REPLY when timeout history ends with silence after earlier progress", async () => {

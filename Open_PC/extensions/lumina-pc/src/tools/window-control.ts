@@ -6,7 +6,7 @@
  * I24D uses this to understand what the user has open and to switch focus.
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { ToolInputError, jsonResult } from "../../../../src/agents/tools/common.js";
 import type { AnyAgentTool } from "../../../../src/agents/tools/common.js";
 import { psEscape, runPowerShell } from "../utils/powershell.js";
@@ -54,7 +54,8 @@ $result = $wins | ForEach-Object {
 $result | ConvertTo-Json -Compress
 `.trim();
 
-const FOCUS_WINDOW_PS = (title: string) => `
+const FOCUS_WINDOW_PS = (title: string) =>
+  `
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -105,7 +106,10 @@ export function createWindowControlTool(): AnyAgentTool {
     }),
     async execute(_toolCallId: string, params) {
       if (process.platform !== "win32") {
-        return jsonResult({ ok: false, error: "lumina_window_control is only available on Windows." });
+        return jsonResult({
+          ok: false,
+          error: "lumina_window_control is only available on Windows.",
+        });
       }
 
       if (params.action === "list") {
@@ -132,7 +136,11 @@ export function createWindowControlTool(): AnyAgentTool {
           ok: result.ok && focused,
           focused,
           title,
-          error: result.ok ? (focused ? undefined : `No window matching "${title}" found.`) : result.error,
+          error: result.ok
+            ? focused
+              ? undefined
+              : `No window matching "${title}" found.`
+            : result.error,
         });
       }
 

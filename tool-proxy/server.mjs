@@ -157,6 +157,10 @@ const CACHE_TTL = {
   lumina_clipboard:        5_000,   //  5 s — clipboard changes fast
   lumina_screen_capture:       0,   //  never cache screenshots
   lumina_file_ops:        30_000,   // 30 s for listings/reads
+  lumina_code_write_file:      0,   //  never cache file writes
+  lumina_code_run_command:     0,   //  never cache command runs
+  lumina_code_open_path:       0,   //  never cache VS Code opens
+  lumina_code_create_project:  0,   //  never cache project creation
 };
 
 // cache key → { result, expiresAt }
@@ -299,7 +303,7 @@ const DESKTOP_DEVICE_HASH = crypto
   .createHash("sha256")
   .update([os.hostname(), os.userInfo().username, os.platform(), os.arch()].join("|"))
   .digest("hex");
-const DESKTOP_APP_VERSION = String(luminaCfg.version ?? proxyCfg.version ?? "1.0.8");
+const DESKTOP_APP_VERSION = String(luminaCfg.version ?? proxyCfg.version ?? "1.0.9");
 const SESSION_REFRESH_SKEW_MS = 90_000;
 let desktopSession = {
   token: "",
@@ -393,9 +397,126 @@ async function getI24DAuthorizationHeaders() {
   return authHeaders(token);
 }
 
+// ── Local code-development tools (executed in proxy, no OpenClaw call) ──
+
+function invokeLocalCodeTool(toolName, args) {
+  switch (toolName) {
+    case "lumina_code_write_file": {
+      const { path: filePath, content = "", openInVscode = true } = args;
+      if (!filePath) return { ok: false, error: "path is required" };
+      try {
+        const dir = join(filePath, "..");
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(filePath, content, "utf8");
+        if (openInVscode) {
+          const vscodePath = resolveVsCodeExecutable();
+          if (vscodePath) spawnVsCodeGuiDetached(vscodePath, ["--reuse-window", filePath]);
+        }
+        return { ok: true, path: filePath, size: Buffer.byteLength(content), message: `Archivo guardado: ${filePath}` };
+      } catch (err) {
+        return { ok: false, error: err.message, path: filePath };
+      }
+    }
+
+    case "lumina_code_run_command": {
+      const { command, cwd, timeout = 30_000 } = args;
+      if (!command) return { ok: false, error: "command is required" };
+      try {
+        const shell = process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "sh";
+        const shellFlag = process.platform === "win32" ? "/c" : "-c";
+        const result = spawnSync(shell, [shellFlag, command], {
+          encoding: "utf8",
+          timeout,
+          cwd: cwd || os.homedir(),
+          windowsHide: true,
+        });
+        return {
+          ok: (result.status ?? 1) === 0,
+          exitCode: result.status ?? 1,
+          stdout: String(result.stdout ?? "").trim().slice(0, 4000),
+          stderr: String(result.stderr ?? "").trim().slice(0, 1000),
+          command,
+          timedOut: result.signal === "SIGTERM",
+        };
+      } catch (err) {
+        return { ok: false, error: err.message, command };
+      }
+    }
+
+    case "lumina_code_open_path": {
+      const { path: targetPath } = args;
+      if (!targetPath) return { ok: false, error: "path is required" };
+      try {
+        const vscodePath = resolveVsCodeExecutable();
+        if (!vscodePath) return { ok: false, error: "VS Code no encontrado. Instala VS Code 1.85 o superior." };
+        spawnVsCodeGuiDetached(vscodePath, ["--reuse-window", targetPath]);
+        return { ok: true, path: targetPath, message: `Abriendo en VS Code: ${targetPath}` };
+      } catch (err) {
+        return { ok: false, error: err.message };
+      }
+    }
+
+    case "lumina_code_create_project": {
+      const { path: projectPath, type = "generic", name = "mi-proyecto" } = args;
+      const basePath = projectPath || join(os.homedir(), ".lumina", "workspace", name);
+      try {
+        fs.mkdirSync(basePath, { recursive: true });
+        const files = buildProjectScaffold(type, name, basePath);
+        for (const [filePath, content] of Object.entries(files)) {
+          const dir = join(filePath, "..");
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(filePath, content, "utf8");
+        }
+        const vscodePath = resolveVsCodeExecutable();
+        if (vscodePath) {
+          installLuminaCodeExtension(vscodePath, resolveLuminaCodeVsixPath() ?? "");
+          spawnVsCodeGuiDetached(vscodePath, ["--reuse-window", basePath]);
+        }
+        return { ok: true, path: basePath, type, files: Object.keys(files), message: `Proyecto "${name}" creado en ${basePath}` };
+      } catch (err) {
+        return { ok: false, error: err.message, path: basePath };
+      }
+    }
+
+    default:
+      return null; // not a local tool — fall through to OpenClaw
+  }
+}
+
+function buildProjectScaffold(type, name, basePath) {
+  const files = {};
+  switch (type) {
+    case "python":
+      files[join(basePath, "main.py")] = `# ${name}\n\ndef main():\n    print("Hola desde ${name}")\n\nif __name__ == "__main__":\n    main()\n`;
+      files[join(basePath, "requirements.txt")] = "";
+      files[join(basePath, "README.md")] = `# ${name}\n\nProyecto Python creado con Lumina.\n`;
+      break;
+    case "node":
+      files[join(basePath, "index.js")] = `// ${name}\n\nconsole.log("Hola desde ${name}");\n`;
+      files[join(basePath, "package.json")] = JSON.stringify({ name, version: "1.0.0", main: "index.js", scripts: { start: "node index.js" } }, null, 2) + "\n";
+      files[join(basePath, "README.md")] = `# ${name}\n\nProyecto Node.js creado con Lumina.\n`;
+      break;
+    case "web":
+      files[join(basePath, "index.html")] = `<!DOCTYPE html>\n<html lang="es">\n<head><meta charset="UTF-8"><title>${name}</title><link rel="stylesheet" href="style.css"></head>\n<body>\n  <h1>${name}</h1>\n  <script src="app.js"></script>\n</body>\n</html>\n`;
+      files[join(basePath, "style.css")] = `body { font-family: sans-serif; margin: 2rem; }\n`;
+      files[join(basePath, "app.js")] = `// ${name}\nconsole.log("${name} cargado");\n`;
+      break;
+    default:
+      files[join(basePath, "README.md")] = `# ${name}\n\nProyecto creado con Lumina OpenClaw.\n`;
+  }
+  return files;
+}
+
 // ── Invoke a lumina tool via OpenClaw /tools/invoke ───────────────────
 
 async function invokeTool(toolName, args) {
+  // Local code-dev tools — executed directly without calling OpenClaw
+  const localResult = invokeLocalCodeTool(toolName, args);
+  if (localResult !== null) {
+    console.log(`[proxy] local tool: ${toolName}`);
+    return localResult;
+  }
+
   // Return cached result if fresh
   const cached = getCached(toolName, args);
   if (cached) {
@@ -783,11 +904,78 @@ function resolveVsCodeExecutable() {
 }
 
 function resolveLuminaCodeVsixPath() {
-  return existingPath([
-    process.env.LUMINA_CODE_VSIX_PATH,
+  const explicitPath = existingPath([process.env.LUMINA_CODE_VSIX_PATH]);
+  if (explicitPath) {
+    return explicitPath;
+  }
+  const latestCandidate = [
+    join(__dir, "..", "lumina-code"),
+    join(__dir, "..", "..", "src", "lumina-code", "official", "extensions", "vscode", "build"),
+    join(os.homedir(), ".lumina"),
+  ]
+    .map(findLatestLuminaCodeVsix)
+    .filter(Boolean)
+    .sort((left, right) =>
+      compareLuminaCodeVersions(inferLuminaCodeVersion(right), inferLuminaCodeVersion(left)),
+    )[0];
+  return latestCandidate ?? existingPath([
     join(__dir, "..", "lumina-code", "lumina-code-0.1.0.vsix"),
     join(__dir, "..", "..", "src", "lumina-code", "extension", "lumina-code-0.1.0.vsix"),
+    join(__dir, "..", "..", "src", "lumina-code", "official", "lumina-code-0.1.0.vsix"),
+    join(__dir, "..", "..", "src", "lumina-code", "lumina-code-0.1.0.vsix"),
+    join(os.homedir(), ".lumina", "lumina-code-0.1.0.vsix"),
   ]);
+}
+
+function compareLuminaCodeVersions(left, right) {
+  return String(left ?? "").localeCompare(String(right ?? ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function findLatestLuminaCodeVsix(directoryPath) {
+  try {
+    const candidates = fs
+      .readdirSync(directoryPath, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /^lumina-code-.+\.vsix$/i.test(entry.name))
+      .map((entry) => join(directoryPath, entry.name))
+      .sort((left, right) =>
+        compareLuminaCodeVersions(inferLuminaCodeVersion(right), inferLuminaCodeVersion(left)),
+      );
+    return candidates[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveInstalledLuminaCodeExtension() {
+  const candidates = [];
+  for (const extensionsDir of [
+    join(os.homedir(), ".vscode", "extensions"),
+    join(os.homedir(), ".vscode-insiders", "extensions"),
+  ]) {
+    try {
+      for (const entry of fs.readdirSync(extensionsDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const match = entry.name.match(/^i24d\.lumina-code-(.+)$/i);
+        if (!match) continue;
+        const extensionPath = join(extensionsDir, entry.name);
+        const manifest = loadJson(join(extensionPath, "package.json"));
+        const version =
+          typeof manifest?.version === "string" && manifest.version.trim()
+            ? manifest.version.trim()
+            : match[1];
+        candidates.push({ path: extensionPath, version });
+      }
+    } catch {
+      // This VS Code channel has no installed extensions yet.
+    }
+  }
+  return (
+    candidates.sort((left, right) => compareLuminaCodeVersions(right.version, left.version))[0] ??
+    null
+  );
 }
 
 function resolveVsCodeRoot(vscodePath) {
@@ -830,7 +1018,7 @@ function resolveVsCodeCliPath(vscodePath) {
 function inferLuminaCodeVersion(vsixPath) {
   const fileName = vsixPath ? vsixPath.split(/[\\/]/).pop() ?? "" : "";
   const match = fileName.match(/^lumina-code-(.+)\.vsix$/i);
-  return match?.[1] ?? "0.1.0";
+  return match?.[1] ?? null;
 }
 
 function resolveLuminaCodeWorkspace(body) {
@@ -842,15 +1030,23 @@ function resolveLuminaCodeWorkspace(body) {
 function luminaCodeStatus(body = null) {
   const vscodePath = resolveVsCodeExecutable();
   const vsixPath = resolveLuminaCodeVsixPath();
+  const installedExtension = resolveInstalledLuminaCodeExtension();
+  const availableVersion = inferLuminaCodeVersion(vsixPath);
+  const updateAvailable =
+    Boolean(installedExtension && availableVersion) &&
+    compareLuminaCodeVersions(availableVersion, installedExtension.version) > 0;
   const workspacePath = resolveLuminaCodeWorkspace(body);
+  const ready = Boolean(vscodePath) && (Boolean(installedExtension) || Boolean(vsixPath));
   let message = "Lumina Code esta listo para abrirse en VS Code.";
   if (!vscodePath) {
     message = "No encontre VS Code. Instala VS Code 1.85 o superior y vuelve a intentar.";
-  } else if (!vsixPath) {
+  } else if (!installedExtension && !vsixPath) {
     message = "No encontre el paquete VSIX de Lumina Code dentro del runtime.";
+  } else if (updateAvailable) {
+    message = `Lumina Code ${availableVersion} se actualizara automaticamente al abrirse.`;
   }
   return {
-    ok: Boolean(vscodePath && vsixPath),
+    ok: ready,
     platform: process.platform,
     vscode: {
       available: Boolean(vscodePath),
@@ -859,9 +1055,14 @@ function luminaCodeStatus(body = null) {
     },
     extension: {
       id: LUMINA_CODE_EXTENSION_ID,
-      version: inferLuminaCodeVersion(vsixPath),
+      version: installedExtension?.version ?? availableVersion ?? "unknown",
+      installedVersion: installedExtension?.version ?? null,
+      installedPath: installedExtension?.path ?? null,
+      availableVersion,
       vsixAvailable: Boolean(vsixPath),
       vsixPath,
+      installed: Boolean(installedExtension),
+      updateAvailable,
     },
     workspace: {
       path: workspacePath,
@@ -907,6 +1108,53 @@ function spawnCommandDetached(command, args) {
   child.unref();
 }
 
+function spawnVsCodeGuiDetached(vscodePath, args) {
+  const executablePath = resolveVsCodeGuiExecutable(vscodePath) ?? vscodePath;
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const child = spawn(executablePath, args, {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+    env,
+  });
+  child.unref();
+}
+
+function delegateToLuminaCodeWindow(
+  vscodePath,
+  workspacePath,
+  delegationUri,
+  installedExtensionPath,
+) {
+  const userDataDir = join(luminaHomeDir, "vscode-profile");
+  const extensionsDir = installedExtensionPath
+    ? dirname(installedExtensionPath)
+    : join(os.homedir(), ".vscode", "extensions");
+  fs.mkdirSync(userDataDir, { recursive: true });
+  const profileArgs = [
+    "--user-data-dir",
+    userDataDir,
+    "--extensions-dir",
+    extensionsDir,
+  ];
+
+  spawnVsCodeGuiDetached(vscodePath, [
+    ...profileArgs,
+    "--new-window",
+    workspacePath,
+  ]);
+
+  const deliveryTimer = setTimeout(() => {
+    spawnVsCodeGuiDetached(vscodePath, [
+      ...profileArgs,
+      "--open-url",
+      delegationUri,
+    ]);
+  }, 1200);
+  deliveryTimer.unref();
+}
+
 function runVsCodeCli(vscodePath, args, options = {}) {
   const guiExecutable = resolveVsCodeGuiExecutable(vscodePath);
   const cliPath = resolveVsCodeCliPath(vscodePath);
@@ -948,18 +1196,116 @@ function openLuminaCode(body = null) {
   if (!status.vscode.available || !status.vscode.executablePath) {
     return { statusCode: 404, body: status };
   }
-  if (!status.extension.vsixAvailable || !status.extension.vsixPath) {
+  if (!status.ok) {
+    // Extension not installed and no VSIX to install from
     return { statusCode: 404, body: status };
   }
   fs.mkdirSync(status.workspace.path, { recursive: true });
-  installLuminaCodeExtension(status.vscode.executablePath, status.extension.vsixPath);
-  spawnCommandDetached(status.vscode.executablePath, ["--reuse-window", status.workspace.path]);
+  if (
+    (!status.extension.installed || status.extension.updateAvailable) &&
+    status.extension.vsixAvailable &&
+    status.extension.vsixPath
+  ) {
+    installLuminaCodeExtension(status.vscode.executablePath, status.extension.vsixPath);
+  }
+  spawnVsCodeGuiDetached(status.vscode.executablePath, ["--reuse-window", status.workspace.path]);
+  const refreshedStatus = luminaCodeStatus(body);
   return {
     statusCode: 200,
     body: {
       ok: true,
-      status: luminaCodeStatus(body),
+      status: refreshedStatus,
       message: `${LUMINA_CODE_EXTENSION_NAME} fue instalado/verificado y VS Code se esta abriendo.`,
+    },
+  };
+}
+
+function delegateToLuminaCode(body = null) {
+  const instruction =
+    body && typeof body.instruction === "string" ? body.instruction.trim() : "";
+  if (!instruction) {
+    return {
+      statusCode: 400,
+      body: {
+        ok: false,
+        error: "instruction_required",
+        message: "La instruccion de desarrollo para Lumina Code es obligatoria.",
+      },
+    };
+  }
+  if (instruction.length > 100_000) {
+    return {
+      statusCode: 413,
+      body: {
+        ok: false,
+        error: "instruction_too_long",
+        message: "La instruccion de desarrollo supera el limite permitido.",
+      },
+    };
+  }
+
+  const status = luminaCodeStatus(body);
+  if (!status.vscode.available || !status.vscode.executablePath || !status.ok) {
+    return { statusCode: 404, body: status };
+  }
+
+  fs.mkdirSync(status.workspace.path, { recursive: true });
+  const opensAfterExtensionUpdate =
+    (!status.extension.installed || status.extension.updateAvailable) &&
+    status.extension.vsixAvailable &&
+    status.extension.vsixPath;
+  if (
+    opensAfterExtensionUpdate
+  ) {
+    installLuminaCodeExtension(status.vscode.executablePath, status.extension.vsixPath);
+  }
+  const refreshedStatus = luminaCodeStatus(body);
+
+  const delegationId = crypto.randomUUID();
+  const delegationDir = join(luminaHomeDir, "delegations");
+  const handoffPath = join(delegationDir, `${delegationId}.json`);
+  fs.mkdirSync(delegationDir, { recursive: true });
+  fs.writeFileSync(
+    handoffPath,
+    JSON.stringify(
+      {
+        id: delegationId,
+        source: "Lumina OpenClaw",
+        instruction,
+        workspacePath: status.workspace.path,
+        createdAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ) + "\n",
+    "utf8",
+  );
+
+  const delegationUri =
+    `vscode://${LUMINA_CODE_EXTENSION_ID}/lumina-delegate?handoff=` +
+    encodeURIComponent(handoffPath);
+  // Keep delegated work in Lumina's VS Code profile so a previously open
+  // extension host cannot keep an older integration loaded.
+  delegateToLuminaCodeWindow(
+    status.vscode.executablePath,
+    status.workspace.path,
+    delegationUri,
+    refreshedStatus.extension.installedPath,
+  );
+
+  return {
+    statusCode: 200,
+    body: {
+      ok: true,
+      delegated: true,
+      delegationId,
+      workspace: status.workspace,
+      extension: {
+        id: refreshedStatus.extension.id,
+        installedVersion:
+          refreshedStatus.extension.installedVersion ?? refreshedStatus.extension.availableVersion,
+      },
+      message: "La tarea fue enviada a Lumina Code en VS Code.",
     },
   };
 }
@@ -1098,6 +1444,17 @@ const INTENTS = [
     tools: (path) => [{ name: "lumina_file_ops", args: { action: "list", path } }],
     label: "dir list",
   },
+
+  // ── Open VS Code — extract path from message ──────────────────────
+  {
+    re: /\b(abr[ei]r?\s+(en\s+)?vscode|open\s+(in\s+)?vscode|abre\s+(en\s+)?vs\s*code|open\s+(in\s+)?vs\s*code)\b.*?([a-zA-Z]:\\[\w\\ .\-]*|\/[\w\/ .\-]+)/i,
+    extractPath: (msg) => {
+      const m = msg.match(/([a-zA-Z]:\\[\w\\ .\-]*|\/[\w\/ .\-]+)/);
+      return m ? m[1] : null;
+    },
+    tools: (path) => [{ name: "lumina_code_open_path", args: { path } }],
+    label: "open vscode",
+  },
 ];
 
 /**
@@ -1124,6 +1481,79 @@ function detectIntents(message) {
     }
   }
   return matched;
+}
+
+const AUTO_DELEGATION_DEDUPE_MS = 15_000;
+const recentAutoDelegations = new Map();
+
+function requestsLuminaCodeDevelopment(message) {
+  const text = String(message ?? "").trim();
+  if (!text || text.startsWith("/")) {
+    return false;
+  }
+  if (
+    /\b(?:no\s+uses?|sin\s+usar|do\s+not\s+use|don['']t\s+use)\s+(?:a\s+)?lumina\s*code\b/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  if (
+    /^(?:c[o\u00f3]mo|como|how\s+(?:do|can|would)|explica(?:me)?|explain|qu[e\u00e9]\s+es|what\s+is)\b/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+
+  const developmentAction =
+    /\b(?:desarroll\w*|implement\w*|program\w*|codific\w*|refactor\w*|depur\w*|debug\w*|corrig\w*|fix(?:es|ed|ing)?|crea\w*|create\w*|edit\w*|modific\w*|actualiz\w*|update\w*|ejecut\w*|run|build|compil\w*|test\w*)\b/i;
+  const codeSubject =
+    /\b(?:c[o\u00f3]digo|code|script|app|aplicaci[o\u00f3]n|proyecto|project|repo(?:sitory)?|archivo|file|funci[o\u00f3]n|function|componente|component|extensi[o\u00f3]n|extension|bug|error|test(?:s)?|build|openclaw|lumina\s*code)\b/i;
+  const explicitDelegation =
+    /\b(?:usa|utiliza|env[i\u00ed]a|delega|manda|use|send|delegate)\w*\b[\s\S]*\blumina\s*code\b/i;
+
+  return explicitDelegation || (developmentAction.test(text) && codeSubject.test(text));
+}
+
+function autoDelegateDevelopmentRequest(instruction) {
+  const now = Date.now();
+  const key = crypto.createHash("sha256").update(instruction).digest("hex");
+  for (const [existingKey, entry] of recentAutoDelegations) {
+    if (now - entry.createdAt > AUTO_DELEGATION_DEDUPE_MS) {
+      recentAutoDelegations.delete(existingKey);
+    }
+  }
+  const existing = recentAutoDelegations.get(key);
+  if (existing) {
+    return existing.result;
+  }
+
+  const result = delegateToLuminaCode({ instruction });
+  if (result.statusCode === 200) {
+    recentAutoDelegations.set(key, { createdAt: now, result });
+  }
+  return result;
+}
+
+function respondWithAutomaticLuminaCodeDelegation(res, body) {
+  const instruction = lastUserMessage(body.messages ?? []);
+  if (!requestsLuminaCodeDevelopment(instruction)) {
+    return false;
+  }
+
+  console.log("[proxy] routing development request to Lumina Code");
+  const delegation = autoDelegateDevelopmentRequest(instruction);
+  const message =
+    delegation.statusCode === 200
+      ? `He enviado tu solicitud a Lumina Code en VS Code. Ya esta trabajando en ${
+          delegation.body?.workspace?.path ?? "el workspace configurado"
+        }.`
+      : delegation.body?.message ??
+        "No pude abrir Lumina Code para ejecutar esta solicitud de desarrollo.";
+
+  sendResponse(res, makeResponse(message, body), body.stream === true);
+  return true;
 }
 
 // ── Format tool results as readable context ───────────────────────────
@@ -1222,6 +1652,33 @@ function formatResult(toolName, result) {
       return `[Toast notification sent: "${result.message ?? result.title ?? ""}"]`;
     }
 
+    case "lumina_code_write_file": {
+      const path = result.path ?? "?";
+      const opened = result.openedInVscode ? " — opened in VS Code" : "";
+      return `[File written: ${path}${opened}]`;
+    }
+
+    case "lumina_code_run_command": {
+      const exitCode = result.exit_code ?? result.exitCode ?? "?";
+      const parts = [`[Command — exit ${exitCode}]`];
+      if (result.stdout) parts.push(`STDOUT:\n${String(result.stdout).slice(0, 2000)}`);
+      if (result.stderr) parts.push(`STDERR:\n${String(result.stderr).slice(0, 1000)}`);
+      return parts.join("\n");
+    }
+
+    case "lumina_code_open_path": {
+      const path = result.path ?? "?";
+      return `[VS Code opened: ${path}]`;
+    }
+
+    case "lumina_code_create_project": {
+      const name = result.name ?? "?";
+      const dir  = result.dir  ?? "?";
+      const files = Array.isArray(result.files) ? result.files : [];
+      const fileList = files.length > 0 ? `\n  ${files.join("\n  ")}` : "";
+      return `[Project created: ${name} → ${dir}${fileList}]`;
+    }
+
     default:
       return `[${toolName}]\n${JSON.stringify(result, null, 2)}`;
   }
@@ -1287,6 +1744,31 @@ function parseSlashCommand(message) {
   if (notifyCmd)
     return { type: "auto", tool: "lumina_notify_toast",
              args: { title: "Lumina", message: notifyCmd[1].trim() } };
+
+  // ── Lumina Code dev tools ──────────────────────────────────────────────
+  const codeWrite = m.match(/^\/(?:code\s+write|write|guardar)\s+(\S+)\s+([\s\S]+)/i);
+  if (codeWrite)
+    return { type: "auto", tool: "lumina_code_write_file",
+             args: { path: codeWrite[1].trim(), content: codeWrite[2], openInVscode: true } };
+
+  const codeOpen = m.match(/^\/(?:open|abrir|vscode)\s+(.+)/i);
+  if (codeOpen)
+    return { type: "auto", tool: "lumina_code_open_path",
+             args: { path: codeOpen[1].trim() } };
+
+  const codeRun = m.match(/^\/(?:code\s+run|run|ejecutar)\s+([\s\S]+)/i);
+  if (codeRun)
+    return { type: "approval", tool: "lumina_code_run_command",
+             args: { command: codeRun[1].trim() },
+             description: `Ejecutar: ${codeRun[1].trim()}` };
+
+  const projectCreate = m.match(/^\/project\s+(?:create|crear|new|nuevo)\s*(?:(python|node|web)\s*)?(.+)?/i);
+  if (projectCreate) {
+    const type = (projectCreate[1] ?? "generic").toLowerCase();
+    const name = (projectCreate[2] ?? "mi-proyecto").trim().replace(/\s+/g, "-");
+    return { type: "auto", tool: "lumina_code_create_project",
+             args: { type, name } };
+  }
 
   return null;
 }
@@ -1598,6 +2080,10 @@ async function handleChatCompletion(req, res, body) {
   }
 
   // ── 3. Intent detection — fetch tools in parallel ───────────────────
+  if (respondWithAutomaticLuminaCodeDelegation(res, body)) {
+    return;
+  }
+
   const intents = detectIntents(userText);
   if (intents.length > 0) {
     console.log(`[proxy] intents: ${intents.map((i) => i.label).join(", ")}`);
@@ -1734,6 +2220,23 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (url.pathname === "/__lumina/code/delegate" && req.method === "POST") {
+    if (rejectUntrustedLuminaOrigin(req, res)) {
+      return;
+    }
+    try {
+      const result = delegateToLuminaCode(body);
+      return sendLuminaJson(req, res, result.statusCode, result.body);
+    } catch (err) {
+      return sendLuminaJson(req, res, 502, {
+        ok: false,
+        error: "lumina_code_delegate_failed",
+        message: err instanceof Error ? err.message : String(err),
+        status: luminaCodeStatus(body),
+      });
+    }
+  }
+
   // ── I24D (primary) ───────────────────────────────────────────────────
   if (url.pathname === "/__lumina/tools/invoke" && req.method === "POST" && body) {
     const tool = String(body.tool ?? "").trim();
@@ -1763,6 +2266,12 @@ const server = http.createServer(async (req, res) => {
 
   // ── OpenAI pass-through + learning intercept ──────────────────────
   } else if (url.pathname.startsWith("/openai/v1/") && req.method === "POST" && body) {
+    if (
+      url.pathname.endsWith("/chat/completions") &&
+      respondWithAutomaticLuminaCodeDelegation(res, body)
+    ) {
+      return;
+    }
     const upstreamPath = url.pathname.replace("/openai/v1/", "/v1/");
     const inboundKey = extractBearer(req.headers);
     const apiKey = PROVIDER_KEYS.openai || (isPlaceholderProviderKey(inboundKey) ? "" : inboundKey);
@@ -1850,6 +2359,12 @@ const server = http.createServer(async (req, res) => {
 
   // ── Fallback: pass through to I24D ────────────────────────────────
   } else if (url.pathname.startsWith("/deepseek/v1/") && req.method === "POST" && body) {
+    if (
+      url.pathname.endsWith("/chat/completions") &&
+      respondWithAutomaticLuminaCodeDelegation(res, body)
+    ) {
+      return;
+    }
     const upstreamPath = url.pathname.replace("/deepseek/v1/", "/v1/");
     const inboundKey = extractBearer(req.headers);
     const apiKey = PROVIDER_KEYS.deepseek || (isPlaceholderProviderKey(inboundKey) ? "" : inboundKey);
@@ -1931,6 +2446,22 @@ server.listen(PROXY_PORT, "127.0.0.1", () => {
 });
 
 server.on("error", (err) => {
-  console.error("[proxy] fatal:", err.message);
+  if (err.code === "EADDRINUSE") {
+    console.error(`[proxy] Port ${PROXY_PORT} already in use — another proxy may be running.`);
+  } else {
+    console.error("[proxy] Server error:", err.message);
+  }
   process.exit(1);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[proxy] Uncaught exception:", err?.message ?? err);
+  console.error(err?.stack ?? "");
+  // Keep running — most uncaught errors are per-request, not fatal
+});
+
+process.on("unhandledRejection", (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  console.error("[proxy] Unhandled rejection:", msg);
+  // Keep running
 });

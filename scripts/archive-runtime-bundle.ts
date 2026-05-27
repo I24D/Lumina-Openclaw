@@ -28,9 +28,30 @@ const packagedOpenClawDir = path.join(desktopRoot, "build", "openclaw-package");
 const toolProxyRoot = path.join(repoRoot, "tool-proxy");
 const proxyEntryPath = path.join(toolProxyRoot, "server.mjs");
 const proxyConfigPath = path.join(toolProxyRoot, "proxy-config.json");
-const luminaCodeVsixPath =
-  process.env.LUMINA_CODE_VSIX_PATH ??
-  path.join(workspaceRoot, "src", "lumina-code", "official", "extensions", "vscode", "build", "lumina-code-0.1.0.vsix");
+const luminaCodeVsixPath = resolveLatestLuminaCodeVsixPath();
+const luminaCodeVsixFileName = path.basename(luminaCodeVsixPath);
+
+function resolveLatestLuminaCodeVsixPath() {
+  if (process.env.LUMINA_CODE_VSIX_PATH) {
+    return process.env.LUMINA_CODE_VSIX_PATH;
+  }
+  const buildDir = path.join(
+    workspaceRoot,
+    "src",
+    "lumina-code",
+    "official",
+    "extensions",
+    "vscode",
+    "build",
+  );
+  const latestFileName = fs.existsSync(buildDir)
+    ? fs
+        .readdirSync(buildDir)
+        .filter((fileName) => /^lumina-code-.+\.vsix$/i.test(fileName))
+        .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))[0]
+    : undefined;
+  return path.join(buildDir, latestFileName ?? "lumina-code-0.1.0.vsix");
+}
 
 function log(message) {
   process.stdout.write(`[lumina-release] ${message}\n`);
@@ -216,7 +237,7 @@ function assembleCanonicalRuntimeBundle(
   );
   copyFileToStage(
     luminaCodeVsixPath,
-    path.join(canonicalPayloadRoot, "lumina-code", "lumina-code-0.1.0.vsix"),
+    path.join(canonicalPayloadRoot, "lumina-code", luminaCodeVsixFileName),
   );
   fs.writeFileSync(canonicalBundleManifestPath, manifestJson, "utf8");
   log(`Prepared canonical runtime bundle payload: ${canonicalBundleRoot}`);

@@ -24,12 +24,22 @@ interface LuminaDesktopUpdateStatus {
   message: string | null;
 }
 
+interface LuminaCodeBridgeResponse {
+  status: number;
+  body: unknown;
+}
+
 interface LuminaDesktopBridge {
   shell: "tauri";
   config: LuminaDesktopRendererConfig;
   capabilities: LuminaDesktopCapabilities;
   getVersion: () => Promise<string>;
   savePreferredModel: (modelRef: string) => Promise<void>;
+  luminaCodeRequest: (
+    method: string,
+    path: string,
+    body?: string,
+  ) => Promise<LuminaCodeBridgeResponse>;
   quit: () => void;
   restart: () => void;
   checkForUpdates: () => Promise<LuminaDesktopUpdateStatus>;

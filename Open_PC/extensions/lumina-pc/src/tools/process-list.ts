@@ -6,7 +6,7 @@
  * Allows I24D to observe what the user has open and detect anomalies.
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { jsonResult } from "../../../../src/agents/tools/common.js";
 import type { AnyAgentTool } from "../../../../src/agents/tools/common.js";
 import { psEscape, runPowerShell } from "../utils/powershell.js";
@@ -20,7 +20,8 @@ export function createProcessListTool(): AnyAgentTool {
     parameters: Type.Object({
       filter: Type.Optional(
         Type.String({
-          description: "Filter processes by name (partial match, case-insensitive). Leave empty for all.",
+          description:
+            "Filter processes by name (partial match, case-insensitive). Leave empty for all.",
         }),
       ),
       top: Type.Optional(
@@ -38,12 +39,16 @@ export function createProcessListTool(): AnyAgentTool {
     }),
     async execute(_toolCallId: string, params) {
       if (process.platform !== "win32") {
-        return jsonResult({ ok: false, error: "lumina_process_list is only available on Windows." });
+        return jsonResult({
+          ok: false,
+          error: "lumina_process_list is only available on Windows.",
+        });
       }
 
       const top = Math.min(params.top ?? 50, 500);
       const sortBy = params.sort_by ?? "cpu";
-      const sortProp = sortBy === "memory" ? "WorkingSet64" : sortBy === "name" ? "ProcessName" : "CPU";
+      const sortProp =
+        sortBy === "memory" ? "WorkingSet64" : sortBy === "name" ? "ProcessName" : "CPU";
       const sortDir = sortBy === "name" ? "-Ascending" : "-Descending";
 
       const filterClause = params.filter?.trim()

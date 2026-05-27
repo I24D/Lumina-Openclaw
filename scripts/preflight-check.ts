@@ -29,9 +29,29 @@ const openClawRoot = path.join(repoRoot, "Open_PC");
 const desktopRoot = path.join(repoRoot, "apps", "lumina-desktop");
 const toolProxyRoot = path.join(repoRoot, "tool-proxy");
 const workspaceRoot = path.resolve(repoRoot, "..");
-const luminaCodeVsixPath =
-  process.env.LUMINA_CODE_VSIX_PATH ??
-  path.join(workspaceRoot, "src", "lumina-code", "official", "extensions", "vscode", "build", "lumina-code-0.1.0.vsix");
+const luminaCodeVsixPath = resolveLatestLuminaCodeVsixPath();
+
+function resolveLatestLuminaCodeVsixPath() {
+  if (process.env.LUMINA_CODE_VSIX_PATH) {
+    return process.env.LUMINA_CODE_VSIX_PATH;
+  }
+  const buildDir = path.join(
+    workspaceRoot,
+    "src",
+    "lumina-code",
+    "official",
+    "extensions",
+    "vscode",
+    "build",
+  );
+  const latestFileName = fs.existsSync(buildDir)
+    ? fs
+        .readdirSync(buildDir)
+        .filter((fileName) => /^lumina-code-.+\.vsix$/i.test(fileName))
+        .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))[0]
+    : undefined;
+  return path.join(buildDir, latestFileName ?? "lumina-code-0.1.0.vsix");
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

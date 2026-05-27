@@ -7,7 +7,7 @@
  */
 
 import os from "node:os";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { jsonResult } from "../../../../src/agents/tools/common.js";
 import type { AnyAgentTool } from "../../../../src/agents/tools/common.js";
 
@@ -24,8 +24,7 @@ function cpuUsagePercent(): Promise<number> {
         if (!s || !e) continue;
         const idleDiff = e.idle - s.idle;
         const totalDiff =
-          e.user + e.nice + e.sys + e.idle + e.irq -
-          (s.user + s.nice + s.sys + s.idle + s.irq);
+          e.user + e.nice + e.sys + e.idle + e.irq - (s.user + s.nice + s.sys + s.idle + s.irq);
         totalIdle += idleDiff;
         totalTick += totalDiff;
       }
@@ -57,8 +56,8 @@ export function createSystemMetricsTool(): AnyAgentTool {
     async execute(_toolCallId: string, params) {
       const includeNetwork = params.include_network === true;
 
-      const [cpuPct, totalMem, freeMem, uptime, platform, hostname, arch, cpus] =
-        await Promise.all([
+      const [cpuPct, totalMem, freeMem, uptime, platform, hostname, arch, cpus] = await Promise.all(
+        [
           cpuUsagePercent(),
           Promise.resolve(os.totalmem()),
           Promise.resolve(os.freemem()),
@@ -67,7 +66,8 @@ export function createSystemMetricsTool(): AnyAgentTool {
           Promise.resolve(os.hostname()),
           Promise.resolve(os.arch()),
           Promise.resolve(os.cpus()),
-        ]);
+        ],
+      );
 
       const usedMem = totalMem - freeMem;
       const memPct = Math.round((usedMem / totalMem) * 1000) / 10;

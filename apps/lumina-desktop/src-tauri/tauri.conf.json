@@ -1,6 +1,6 @@
 {
   "productName": "Lumina OpenClaw",
-  "version": "1.0.8",
+  "version": "1.0.10",
   "identifier": "ai.lumina.desktop",
   "build": {
     "frontendDist": "lumina://localhost"
@@ -21,7 +21,7 @@
       "../build/lumina-defaults.json": "config/lumina-defaults.json",
       "../build/runtime-node/": "node",
       "../build/runtime-tools/": "runtime-tools",
-      "../build/runtime-bundle/payload/lumina-code/lumina-code-0.1.0.vsix": "lumina-code/lumina-code-0.1.0.vsix",
+      "../build/runtime-bundle/payload/lumina-code/": "lumina-code",
       "../build/runtime-bundle/payload/ui/": "ui",
       "../build/openclaw-package/": "openclaw",
       "../../../tool-proxy/server.mjs": "proxy/server.mjs",

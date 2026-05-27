@@ -155,6 +155,8 @@ impl RuntimeManager {
                 ("OPENCLAW_GATEWAY_PORT", spec.gateway_port.to_string()),
                 ("OPENCLAW_PORT", spec.gateway_port.to_string()),
                 ("OPENCLAW_TOKEN", spec.gateway_token.clone()),
+                ("OPENCLAW_SKIP_PLUGIN_AUTO_ENABLE", "1".to_string()),
+                ("OPENCLAW_DESKTOP_FAST_START", "1".to_string()),
                 (
                     "OPENCLAW_SKIP_CHANNELS",
                     if spec.skip_openclaw_channels {

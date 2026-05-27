@@ -34,22 +34,32 @@ describe("voice-call config compatibility", () => {
       },
     });
 
-    expect(normalized).toMatchObject({
-      streaming: {
-        enabled: true,
-        provider: "openai",
-        providers: {
-          openai: {
-            apiKey: "sk-test",
-            model: "gpt-4o-transcribe",
-            silenceDurationMs: 700,
-            vadThreshold: 0.4,
-          },
-        },
-      },
+    const streaming = normalized.streaming as
+      | {
+          enabled?: boolean;
+          provider?: string;
+          providers?: {
+            openai?: {
+              apiKey?: string;
+              model?: string;
+              silenceDurationMs?: number;
+              vadThreshold?: number;
+            };
+          };
+          openaiApiKey?: unknown;
+          sttModel?: unknown;
+        }
+      | undefined;
+    expect(streaming?.enabled).toBe(true);
+    expect(streaming?.provider).toBe("openai");
+    expect(streaming?.providers?.openai).toEqual({
+      apiKey: "sk-test",
+      model: "gpt-4o-transcribe",
+      silenceDurationMs: 700,
+      vadThreshold: 0.4,
     });
-    expect((normalized.streaming as Record<string, unknown>).openaiApiKey).toBeUndefined();
-    expect((normalized.streaming as Record<string, unknown>).sttModel).toBeUndefined();
+    expect(streaming?.openaiApiKey).toBeUndefined();
+    expect(streaming?.sttModel).toBeUndefined();
   });
 
   it("reports doctor-oriented legacy issues and warnings", () => {
@@ -93,7 +103,7 @@ describe("voice-call config compatibility", () => {
         doctorFixCommand: "openclaw doctor --fix",
       }),
     ).toEqual([
-      `[voice-call] legacy config keys detected under plugins.entries.voice-call.config; runtime fallback remains for now but will be removed in ${VOICE_CALL_LEGACY_CONFIG_REMOVAL_VERSION}. Run "openclaw doctor --fix".`,
+      `[voice-call] legacy config keys detected under plugins.entries.voice-call.config; runtime loading will not rewrite them, and support for the legacy shape will be removed in ${VOICE_CALL_LEGACY_CONFIG_REMOVAL_VERSION}. Run "openclaw doctor --fix".`,
       '[voice-call] plugins.entries.voice-call.config.provider: Replace provider "log" with "mock".',
       "[voice-call] plugins.entries.voice-call.config.twilio.from: Move twilio.from to fromNumber.",
       "[voice-call] plugins.entries.voice-call.config.streaming.sttProvider: Move streaming.sttProvider to streaming.provider.",

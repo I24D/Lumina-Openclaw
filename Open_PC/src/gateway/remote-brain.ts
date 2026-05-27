@@ -1,11 +1,11 @@
-import type { OpenClawConfig } from "../config/config.js";
 import type { ClientToolDefinition } from "../agents/pi-embedded-runner/run/params.js";
+import { runBeforeToolCallHook } from "../agents/pi-tools.before-tool-call.js";
 import { resolveToolLoopDetectionConfig } from "../agents/pi-tools.js";
-import { applyOwnerOnlyToolPolicy } from "../agents/tool-policy.js";
 import type { AnyAgentTool } from "../agents/tools/common.js";
 import { stringifyToolPayload } from "../agents/tools/common.js";
+import type { OpenClawConfig } from "../config/config.js";
+import { emitAgentEvent } from "../infra/agent-events.js";
 import { resolveRuntimeServiceVersion } from "../version.js";
-import { runBeforeToolCallHook } from "../agents/pi-tools.before-tool-call.js";
 import { resolveGatewayScopedTools } from "./tool-resolution.js";
 
 const DEFAULT_REMOTE_BRAIN_TIMEOUT_MS = 45_000;
@@ -238,8 +238,14 @@ function resolveRemoteBrainConfig(env: NodeJS.ProcessEnv): RemoteBrainConfig {
     enabled,
     url: normalizeNonEmptyString(env.OPENCLAW_REMOTE_BRAIN_URL),
     secret: normalizeNonEmptyString(env.OPENCLAW_REMOTE_BRAIN_SECRET),
-    timeoutMs: normalizePositiveInt(env.OPENCLAW_REMOTE_BRAIN_TIMEOUT_MS, DEFAULT_REMOTE_BRAIN_TIMEOUT_MS),
-    maxTurns: normalizePositiveInt(env.OPENCLAW_REMOTE_BRAIN_MAX_TURNS, DEFAULT_REMOTE_BRAIN_MAX_TURNS),
+    timeoutMs: normalizePositiveInt(
+      env.OPENCLAW_REMOTE_BRAIN_TIMEOUT_MS,
+      DEFAULT_REMOTE_BRAIN_TIMEOUT_MS,
+    ),
+    maxTurns: normalizePositiveInt(
+      env.OPENCLAW_REMOTE_BRAIN_MAX_TURNS,
+      DEFAULT_REMOTE_BRAIN_MAX_TURNS,
+    ),
   };
 }
 
@@ -278,7 +284,9 @@ function buildRuntimeContext(params: {
 }): Record<string, unknown> {
   return {
     openclawVersion: params.runtimeVersion ?? resolveRuntimeServiceVersion(),
-    nodeId: normalizeNonEmptyString(process.env.OPENCLAW_REMOTE_BRAIN_NODE_ID) ?? process.env.COMPUTERNAME,
+    nodeId:
+      normalizeNonEmptyString(process.env.OPENCLAW_REMOTE_BRAIN_NODE_ID) ??
+      process.env.COMPUTERNAME,
     sessionLabel: params.sessionKey,
     toolInventorySummary: params.declaredTools.map((tool) => tool.name).join(", "),
     channel: params.messageChannel,
@@ -286,7 +294,9 @@ function buildRuntimeContext(params: {
   };
 }
 
-function parseToolArguments(rawArguments: string): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
+function parseToolArguments(
+  rawArguments: string,
+): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
   try {
     const parsed = JSON.parse(rawArguments);
     if (!isRecord(parsed)) {
@@ -350,14 +360,14 @@ async function resolveLocalRuntimeTools(params: {
     accountId: params.accountId,
     agentTo: params.agentTo,
     agentThreadId: params.agentThreadId,
+    senderIsOwner: params.senderIsOwner,
     allowGatewaySubagentBinding: true,
     allowMediaInvokeCommands: true,
     excludeToolNames: params.excludeToolNames,
   });
-  const ownerScopedTools = applyOwnerOnlyToolPolicy(tools, params.senderIsOwner);
   const loopDetection = resolveToolLoopDetectionConfig({ cfg: params.cfg, agentId });
 
-  return ownerScopedTools
+  return tools
     .filter((tool): tool is AnyAgentTool & { execute: NonNullable<AnyAgentTool["execute"]> } => {
       return typeof tool.execute === "function" && !params.excludeToolNames.has(tool.name);
     })
@@ -412,8 +422,7 @@ async function callRemoteBrainTurn(params: {
   }
 
   const timeoutSignal = AbortSignal.timeout(params.config.timeoutMs);
-  const signal =
-    params.signal ? AbortSignal.any([params.signal, timeoutSignal]) : timeoutSignal;
+  const signal = params.signal ? AbortSignal.any([params.signal, timeoutSignal]) : timeoutSignal;
   const fetchImpl = params.fetchImpl ?? globalThis.fetch;
 
   let response: Response;
@@ -491,9 +500,7 @@ async function callRemoteBrainTurn(params: {
         function: {
           name,
           arguments:
-            typeof rawArguments === "string"
-              ? rawArguments
-              : JSON.stringify(rawArguments ?? {}),
+            typeof rawArguments === "string" ? rawArguments : JSON.stringify(rawArguments ?? {}),
         },
       };
     })
@@ -615,7 +622,19 @@ export async function runGatewayRemoteBrainLoop(
     for (const toolCall of response.toolCalls) {
       const localTool = localToolMap.get(toolCall.function.name);
       let toolMessageContent: string;
+      let toolFailed = false;
+      emitAgentEvent({
+        runId: params.requestId,
+        sessionKey: params.sessionKey,
+        stream: "tool",
+        data: {
+          phase: "start",
+          name: toolCall.function.name,
+          toolCallId: toolCall.id,
+        },
+      });
       if (!localTool) {
+        toolFailed = true;
         toolMessageContent = JSON.stringify(
           {
             ok: false,
@@ -630,6 +649,7 @@ export async function runGatewayRemoteBrainLoop(
       } else {
         const parsedArgs = parseToolArguments(toolCall.function.arguments);
         if (!parsedArgs.ok) {
+          toolFailed = true;
           toolMessageContent = JSON.stringify(
             {
               ok: false,
@@ -646,6 +666,7 @@ export async function runGatewayRemoteBrainLoop(
             const result = await localTool.execute(toolCall.id, parsedArgs.value);
             toolMessageContent = serializeToolResult(result);
           } catch (error) {
+            toolFailed = true;
             toolMessageContent = JSON.stringify(
               {
                 ok: false,
@@ -660,6 +681,20 @@ export async function runGatewayRemoteBrainLoop(
           }
         }
       }
+      emitAgentEvent({
+        runId: params.requestId,
+        sessionKey: params.sessionKey,
+        stream: "tool",
+        data: {
+          phase: "result",
+          name: toolCall.function.name,
+          toolCallId: toolCall.id,
+          isError: toolFailed,
+          result: {
+            content: [{ type: "text", text: toolFailed ? "Failed." : "Completed." }],
+          },
+        },
+      });
 
       messages.push({
         role: "tool",

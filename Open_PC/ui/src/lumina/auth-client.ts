@@ -1,7 +1,7 @@
 const AUTH_URL_KEY = "__LUMINA_AUTH_URL__";
-const ACCESS_TOKEN_KEY  = "lumina.auth.access_token";
+const ACCESS_TOKEN_KEY = "lumina.auth.access_token";
 const REFRESH_TOKEN_KEY = "lumina.auth.refresh_token";
-const USER_KEY          = "lumina.auth.user";
+const USER_KEY = "lumina.auth.user";
 
 function getAuthBaseUrl(): string {
   if (typeof window !== "undefined" && (window as Record<string, unknown>)[AUTH_URL_KEY]) {
@@ -11,14 +11,14 @@ function getAuthBaseUrl(): string {
 }
 
 export interface LuminaUser {
-  id:         string;
-  email:      string;
+  id: string;
+  email: string;
   created_at: string;
 }
 
 export interface LuminaAuthResult {
-  user:          LuminaUser;
-  access_token:  string;
+  user: LuminaUser;
+  access_token: string;
   refresh_token: string;
 }
 
@@ -33,12 +33,12 @@ export class LuminaAuthError extends Error {
 
 async function authFetch(path: string, body: Record<string, string>): Promise<LuminaAuthResult> {
   const res = await fetch(`${getAuthBaseUrl()}${path}`, {
-    method:  "POST",
+    method: "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify(body),
+    body: JSON.stringify(body),
   });
 
-  const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
 
   if (!res.ok) {
     throw new LuminaAuthError(
@@ -66,9 +66,9 @@ export function luminaLogout(): void {
   const token = getRefreshToken();
   if (token) {
     fetch(`${getAuthBaseUrl()}/auth/logout`, {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ refresh_token: token }),
+      body: JSON.stringify({ refresh_token: token }),
     }).catch(() => {});
   }
   clearAuth();
@@ -76,9 +76,9 @@ export function luminaLogout(): void {
 
 function persistAuth(result: LuminaAuthResult): void {
   try {
-    localStorage.setItem(ACCESS_TOKEN_KEY,  result.access_token);
+    localStorage.setItem(ACCESS_TOKEN_KEY, result.access_token);
     localStorage.setItem(REFRESH_TOKEN_KEY, result.refresh_token);
-    localStorage.setItem(USER_KEY,          JSON.stringify(result.user));
+    localStorage.setItem(USER_KEY, JSON.stringify(result.user));
   } catch {
     // best-effort
   }
@@ -143,9 +143,9 @@ export async function refreshLuminaToken(): Promise<boolean> {
 
   try {
     const res = await fetch(`${getAuthBaseUrl()}/auth/refresh`, {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ refresh_token: refreshToken }),
+      body: JSON.stringify({ refresh_token: refreshToken }),
     });
 
     if (!res.ok) {
@@ -153,8 +153,8 @@ export async function refreshLuminaToken(): Promise<boolean> {
       return false;
     }
 
-    const data = await res.json() as { access_token: string; refresh_token: string };
-    localStorage.setItem(ACCESS_TOKEN_KEY,  data.access_token);
+    const data = (await res.json()) as { access_token: string; refresh_token: string };
+    localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
     localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
     return true;
   } catch {

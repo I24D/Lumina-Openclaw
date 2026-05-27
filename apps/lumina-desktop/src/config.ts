@@ -43,6 +43,7 @@ interface GeneratedDefaults {
 }
 
 interface StoredLuminaConfig {
+  activationDefaultsVersion?: number;
   gatewayToken?: string;
   gatewayPort?: number;
   proxyPort?: number;
@@ -72,6 +73,7 @@ interface StoredLuminaConfig {
 }
 
 export interface LuminaConfig {
+  activationDefaultsVersion: number;
   configDir: string;
   openclawConfigPath: string;
   openclawStateDir: string;
@@ -105,6 +107,7 @@ export interface LuminaConfig {
 }
 
 const DEFAULTS: Omit<LuminaConfig, "gatewayToken" | "i24dToken" | "remoteBrainSecret"> = {
+  activationDefaultsVersion: 0,
   configDir: CONFIG_DIR,
   openclawConfigPath: OPENCLAW_CONFIG_FILE,
   openclawStateDir: OPENCLAW_STATE_DIR,
@@ -124,7 +127,8 @@ const DEFAULTS: Omit<LuminaConfig, "gatewayToken" | "i24dToken" | "remoteBrainSe
   skipOpenClawChannels: renderPreset.skipOpenClawChannels,
   providerId: CANONICAL_LUMINA_PROVIDER_ID,
   modelId: renderPreset.modelId,
-  preferredModelRef: `${CANONICAL_LUMINA_PROVIDER_ID}/${renderPreset.modelId}`,
+  preferredModelRef:
+    renderPreset.preferredModelRef ?? `${CANONICAL_LUMINA_PROVIDER_ID}/${renderPreset.modelId}`,
   modelName: renderPreset.modelName,
   modelContextWindow: renderPreset.modelContextWindow,
   modelMaxTokens: renderPreset.modelMaxTokens,
@@ -182,10 +186,7 @@ export function loadConfig(): LuminaConfig {
     generatedDefaults.i24dChatUrl ??
     joinUrlPath(i24dModelsBaseUrl, "/v1/chat/completions");
 
-  const i24dToken =
-    readString(process.env.LUMINA_I24D_TOKEN) ??
-    generatedDefaults.i24dToken ??
-    "";
+  const i24dToken = readString(process.env.LUMINA_I24D_TOKEN) ?? generatedDefaults.i24dToken ?? "";
 
   const remoteBrainUrl =
     readString(process.env.LUMINA_REMOTE_BRAIN_URL) ??
@@ -194,9 +195,7 @@ export function loadConfig(): LuminaConfig {
     joinUrlPath(i24dModelsBaseUrl, "/api/openclaw/brain/turn");
 
   const remoteBrainSecret =
-    readString(process.env.LUMINA_REMOTE_BRAIN_SECRET) ??
-    generatedDefaults.remoteBrainSecret ??
-    "";
+    readString(process.env.LUMINA_REMOTE_BRAIN_SECRET) ?? generatedDefaults.remoteBrainSecret ?? "";
 
   const configuredRemoteBrainEnabled =
     readBool(process.env.LUMINA_REMOTE_BRAIN_ENABLED) ??
@@ -204,7 +203,9 @@ export function loadConfig(): LuminaConfig {
     generatedDefaults.remoteBrainEnabled;
   const inferredRemoteBrainEnabled = Boolean(remoteBrainUrl && remoteBrainSecret);
   const remoteBrainEnabled = Boolean(
-    (configuredRemoteBrainEnabled ?? inferredRemoteBrainEnabled) && remoteBrainUrl && remoteBrainSecret,
+    (configuredRemoteBrainEnabled ?? inferredRemoteBrainEnabled) &&
+    remoteBrainUrl &&
+    remoteBrainSecret,
   );
   const currentPreferredModelRef = readOpenClawPreferredModelRef(currentOpenClawConfig);
   const persistedPreferredModelRef =
@@ -225,6 +226,10 @@ export function loadConfig(): LuminaConfig {
 
   const config: LuminaConfig = {
     ...DEFAULTS,
+    activationDefaultsVersion:
+      readInt(process.env.LUMINA_ACTIVATION_DEFAULTS_VERSION) ??
+      storedConfig.activationDefaultsVersion ??
+      DEFAULTS.activationDefaultsVersion,
     gatewayToken:
       readString(process.env.LUMINA_GATEWAY_TOKEN) ??
       storedConfig.gatewayToken ??
@@ -333,6 +338,7 @@ export function saveConfig(config: LuminaConfig): void {
       CONFIG_FILE,
       `${JSON.stringify(
         {
+          activationDefaultsVersion: config.activationDefaultsVersion,
           gatewayToken: config.gatewayToken,
           gatewayPort: config.gatewayPort,
           proxyPort: config.proxyPort,
@@ -488,7 +494,10 @@ function hasConfiguredModelRef(
   const models = Array.isArray(provider?.models) ? provider.models : [];
   return models.some((entry) => {
     const object = asObject(entry);
-    return typeof object?.id === "string" && object.id.trim().toLowerCase() === parsed.modelId.toLowerCase();
+    return (
+      typeof object?.id === "string" &&
+      object.id.trim().toLowerCase() === parsed.modelId.toLowerCase()
+    );
   });
 }
 

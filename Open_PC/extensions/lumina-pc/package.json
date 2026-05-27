@@ -1,9 +1,12 @@
 {
   "name": "@openclaw/lumina-pc",
-  "version": "2026.4.4",
+  "version": "2026.5.22",
   "private": true,
   "description": "Lumina_PC — execution layer for I24D. Gives I24D arms, hands, eyes and reflexes on the local Windows PC.",
   "type": "module",
+  "dependencies": {
+    "typebox": "1.1.38"
+  },
   "openclaw": {
     "extensions": [
       "./index.ts"
@@ -12,7 +15,7 @@
       "pluginApi": ">=2026.4.4"
     },
     "build": {
-      "openclawVersion": "2026.4.4"
+      "openclawVersion": "2026.5.22"
     }
   }
 }

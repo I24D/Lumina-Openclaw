@@ -1,5 +1,22 @@
 {
   "id": "lumina-pc",
+  "activation": {
+    "onStartup": true
+  },
+  "enabledByDefault": true,
+  "contracts": {
+    "tools": [
+      "lumina_screen_capture",
+      "lumina_clipboard",
+      "lumina_window_control",
+      "lumina_process_list",
+      "lumina_system_metrics",
+      "lumina_shell_run",
+      "lumina_file_ops",
+      "lumina_code",
+      "lumina_notify_toast"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

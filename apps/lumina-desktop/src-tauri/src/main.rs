@@ -7,7 +7,8 @@ use mime_guess::MimeGuess;
 use percent_encoding::percent_decode_str;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -26,6 +27,7 @@ use url::Url;
 
 const READY_TIMEOUT_MS: u64 = 600_000;
 const POLL_INTERVAL_MS: u64 = 500;
+const LUMINA_CODE_PROXY_PORT: u16 = 4321;
 const UI_SCHEME: &str = "lumina";
 const UI_HOST: &str = "localhost";
 const UI_WINDOWS_HOST: &str = "lumina.localhost";
@@ -152,6 +154,13 @@ struct DesktopUpdateStatus {
     message: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LuminaCodeBridgeResult {
+    status: u16,
+    body: serde_json::Value,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeBundleManifest {
@@ -204,6 +213,55 @@ fn save_preferred_model(model_ref: String, state: State<AppState>) -> std::resul
 #[tauri::command(rename_all = "camelCase")]
 fn open_external(url: String) -> std::result::Result<(), String> {
     open::that_detached(url).map_err(|error| error.to_string())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn lumina_code_request(method: String, path: String, body: String) -> LuminaCodeBridgeResult {
+    let normalized_method = method.trim().to_ascii_uppercase();
+    if normalized_method != "GET" && normalized_method != "POST" {
+        return LuminaCodeBridgeResult {
+            status: StatusCode::METHOD_NOT_ALLOWED.as_u16(),
+            body: serde_json::json!({
+                "ok": false,
+                "error": "method_not_allowed",
+                "message": "Lumina Code bridge only supports GET and POST."
+            }),
+        };
+    }
+
+    let normalized_path = path.trim();
+    if !normalized_path.starts_with("/__lumina/code/") {
+        return LuminaCodeBridgeResult {
+            status: StatusCode::BAD_REQUEST.as_u16(),
+            body: serde_json::json!({
+                "ok": false,
+                "error": "invalid_path",
+                "message": "Lumina Code bridge can only call /__lumina/code endpoints."
+            }),
+        };
+    }
+
+    match proxy_lumina_code_request(&normalized_method, normalized_path, body.as_bytes()) {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            let body = serde_json::from_slice::<serde_json::Value>(response.body()).unwrap_or_else(|_| {
+                serde_json::json!({
+                    "ok": false,
+                    "error": "invalid_bridge_response",
+                    "message": "Lumina Code returned a non-JSON response."
+                })
+            });
+            LuminaCodeBridgeResult { status, body }
+        }
+        Err(err) => LuminaCodeBridgeResult {
+            status: StatusCode::BAD_GATEWAY.as_u16(),
+            body: serde_json::json!({
+                "ok": false,
+                "error": "lumina_code_bridge_failed",
+                "message": format!("El proxy local de Lumina Code no esta listo: {err}. Lumina va a reintentar automaticamente.")
+            }),
+        },
+    }
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -510,6 +568,7 @@ fn main() {
             get_version,
             save_preferred_model,
             open_external,
+            lumina_code_request,
             quit_app,
             restart_app,
             check_for_updates,
@@ -945,6 +1004,10 @@ fn lumina_protocol_plugin<R: Runtime>() -> TauriPlugin<R> {
 }
 
 fn serve_ui_request(request: http::Request<Vec<u8>>) -> Response<Vec<u8>> {
+    if request.uri().path().starts_with("/__lumina/code/") {
+        return serve_lumina_code_bridge(request);
+    }
+
     if request.method() != Method::GET && request.method() != Method::HEAD {
         return text_response(StatusCode::METHOD_NOT_ALLOWED, "Only GET and HEAD are supported.");
     }
@@ -1056,6 +1119,166 @@ fn text_response(status: StatusCode, body: &str) -> Response<Vec<u8>> {
         .header(CONTENT_TYPE, "text/plain; charset=utf-8")
         .body(body.as_bytes().to_vec())
         .unwrap_or_else(|_| Response::new(Vec::new()))
+}
+
+fn json_response(status: StatusCode, body: &str) -> Response<Vec<u8>> {
+    Response::builder()
+        .status(status)
+        .header(CONTENT_TYPE, "application/json; charset=utf-8")
+        .header(CACHE_CONTROL, "no-store")
+        .body(body.as_bytes().to_vec())
+        .unwrap_or_else(|_| Response::new(Vec::new()))
+}
+
+fn serve_lumina_code_bridge(request: http::Request<Vec<u8>>) -> Response<Vec<u8>> {
+    let method = request.method().clone();
+    if method == Method::OPTIONS {
+        return Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .header(CACHE_CONTROL, "no-store")
+            .body(Vec::new())
+            .unwrap_or_else(|_| Response::new(Vec::new()));
+    }
+
+    if method != Method::GET && method != Method::POST {
+        return json_response(
+            StatusCode::METHOD_NOT_ALLOWED,
+            r#"{"ok":false,"error":"method_not_allowed","message":"Lumina Code bridge only supports GET and POST."}"#,
+        );
+    }
+
+    let path = request
+        .uri()
+        .path_and_query()
+        .map(|value| value.as_str())
+        .unwrap_or("/__lumina/code/status");
+    match proxy_lumina_code_request(method.as_str(), path, request.body()) {
+        Ok(response) => response,
+        Err(err) => json_response(
+            StatusCode::BAD_GATEWAY,
+            &serde_json::json!({
+                "ok": false,
+                "error": "lumina_code_bridge_failed",
+                "message": format!("No pude conectar con el proxy local de Lumina Code: {err}")
+            })
+            .to_string(),
+        ),
+    }
+}
+
+fn proxy_lumina_code_request(method: &str, path: &str, body: &[u8]) -> Result<Response<Vec<u8>>> {
+    let mut stream = TcpStream::connect(("127.0.0.1", LUMINA_CODE_PROXY_PORT))
+        .context("proxy local 127.0.0.1:4321 no disponible")?;
+    let timeout = Some(Duration::from_secs(180));
+    stream.set_read_timeout(timeout).ok();
+    stream.set_write_timeout(timeout).ok();
+
+    let request_head = format!(
+        "{method} {path} HTTP/1.1\r\n\
+         Host: 127.0.0.1:{LUMINA_CODE_PROXY_PORT}\r\n\
+         Accept: application/json\r\n\
+         Content-Type: application/json\r\n\
+         Origin: lumina://localhost\r\n\
+         Connection: close\r\n\
+         Content-Length: {}\r\n\r\n",
+        body.len()
+    );
+    stream
+        .write_all(request_head.as_bytes())
+        .context("no pude escribir al proxy local")?;
+    if !body.is_empty() {
+        stream.write_all(body).context("no pude enviar el body al proxy local")?;
+    }
+
+    let mut raw_response = Vec::new();
+    stream
+        .read_to_end(&mut raw_response)
+        .context("no pude leer respuesta del proxy local")?;
+    parse_local_http_response(&raw_response)
+}
+
+fn parse_local_http_response(raw_response: &[u8]) -> Result<Response<Vec<u8>>> {
+    let header_end = raw_response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or_else(|| anyhow!("respuesta HTTP local sin headers"))?;
+    let header_bytes = &raw_response[..header_end];
+    let body_bytes = &raw_response[header_end + 4..];
+    let header_text = String::from_utf8_lossy(header_bytes);
+    let mut lines = header_text.split("\r\n");
+    let status_line = lines.next().unwrap_or_default();
+    let status_code = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|value| value.parse::<u16>().ok())
+        .and_then(|value| StatusCode::from_u16(value).ok())
+        .unwrap_or(StatusCode::BAD_GATEWAY);
+
+    let mut content_type = "application/json; charset=utf-8".to_string();
+    let mut is_chunked = false;
+    for line in lines {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        let name = name.trim().to_ascii_lowercase();
+        let value = value.trim();
+        if name == "content-type" && !value.is_empty() {
+            content_type = value.to_string();
+        }
+        if name == "transfer-encoding" && value.to_ascii_lowercase().contains("chunked") {
+            is_chunked = true;
+        }
+    }
+
+    let body = if is_chunked {
+        decode_chunked_body(body_bytes).unwrap_or_else(|_| body_bytes.to_vec())
+    } else {
+        body_bytes.to_vec()
+    };
+
+    Ok(Response::builder()
+        .status(status_code)
+        .header(CONTENT_TYPE, content_type)
+        .header(CACHE_CONTROL, "no-store")
+        .body(body)
+        .unwrap_or_else(|_| Response::new(Vec::new())))
+}
+
+fn decode_chunked_body(body: &[u8]) -> Result<Vec<u8>> {
+    let mut cursor = 0usize;
+    let mut decoded = Vec::new();
+
+    loop {
+        let Some(line_end) = find_crlf(body, cursor) else {
+            return Err(anyhow!("chunk sin terminador"));
+        };
+        let size_line = String::from_utf8_lossy(&body[cursor..line_end]);
+        let size_text = size_line.split(';').next().unwrap_or("").trim();
+        let chunk_size = usize::from_str_radix(size_text, 16)
+            .with_context(|| format!("tamano de chunk invalido: {size_text}"))?;
+        cursor = line_end + 2;
+        if chunk_size == 0 {
+            break;
+        }
+        let chunk_end = cursor
+            .checked_add(chunk_size)
+            .ok_or_else(|| anyhow!("chunk demasiado grande"))?;
+        if chunk_end > body.len() {
+            return Err(anyhow!("chunk incompleto"));
+        }
+        decoded.extend_from_slice(&body[cursor..chunk_end]);
+        cursor = chunk_end + 2;
+    }
+
+    Ok(decoded)
+}
+
+fn find_crlf(bytes: &[u8], start: usize) -> Option<usize> {
+    bytes
+        .get(start..)?
+        .windows(2)
+        .position(|window| window == b"\r\n")
+        .map(|offset| start + offset)
 }
 
 fn mime_for_path(path: &Path) -> &'static str {
@@ -1737,7 +1960,9 @@ fn spawn_gateway_watchdog(app: AppHandle, helper_context: HelperContext, startup
                 break;
             }
 
-            if is_port_ready(startup.config.gateway_port) {
+            let proxy_ready = is_port_ready(startup.config.proxy_port);
+            let gateway_ready = is_port_ready(startup.config.gateway_port);
+            if proxy_ready && gateway_ready {
                 continue;
             }
 
@@ -1746,9 +1971,14 @@ fn spawn_gateway_watchdog(app: AppHandle, helper_context: HelperContext, startup
             }
 
             eprintln!(
-                "[watchdog] Gateway port {} is down, restarting runtime manager...",
-                startup.config.gateway_port
+                "[watchdog] Runtime ports are unhealthy, restarting runtime manager: proxy {}={}, gateway {}={}",
+                startup.config.proxy_port,
+                if proxy_ready { "ok" } else { "down" },
+                startup.config.gateway_port,
+                if gateway_ready { "ok" } else { "down" }
             );
+
+            let _ = stop_runtime_manager(&state);
 
             match start_runtime_manager(&helper_context, &startup, state) {
                 Ok(()) => {

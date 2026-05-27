@@ -1,9 +1,12 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { saveConfig, type LuminaConfig } from "./config.js";
 import type { RuntimePaths } from "./runtime-paths.js";
 
 type JsonObject = Record<string, unknown>;
+const ACTIVATION_DEFAULTS_VERSION = 3;
+const DEFAULT_LUMINA_CHAT_MODEL_ID = "gpt-5.5";
 const LEGACY_LUMINA_PROVIDER_IDS = ["custom-i24d-whatsapp-ai-onrender-com"] as const;
 const VALID_OPENCLAW_MODEL_APIS = new Set([
   "openai-completions",
@@ -16,9 +19,9 @@ const VALID_OPENCLAW_MODEL_APIS = new Set([
   "ollama",
   "azure-openai-responses",
 ]);
-const DEPRECATED_MODEL_API_RENAMES = new Map([
-  ["google-gemini", "google-generative-ai"],
-]);
+const DEPRECATED_MODEL_API_RENAMES = new Map([["google-gemini", "google-generative-ai"]]);
+// OpenClaw v2026.5.22 rejects "document" and legacy "pdf" model input declarations.
+const VALID_OPENCLAW_MODEL_INPUTS = new Set(["text", "image", "audio", "video"]);
 
 function asObject(value: unknown): JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -45,6 +48,54 @@ function ensureDir(dirPath: string): void {
 function writeJson(filePath: string, value: JsonObject): void {
   ensureDir(path.dirname(filePath));
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function generateRuntimeSecret(prefix: string): string {
+  return `${prefix}-${crypto.randomBytes(32).toString("base64url")}`;
+}
+
+function sanitizeHooksConfig(config: JsonObject, gatewayToken: string): void {
+  const hooks = asObject(config.hooks);
+  if (hooks.enabled !== true) {
+    return;
+  }
+  const hooksToken = typeof hooks.token === "string" ? hooks.token.trim() : "";
+  const normalizedGatewayToken = gatewayToken.trim();
+  if (!hooksToken || (normalizedGatewayToken && hooksToken === normalizedGatewayToken)) {
+    hooks.token = generateRuntimeSecret("lumina-hook");
+    config.hooks = hooks;
+  }
+}
+
+function normalizeModelInputs(value: unknown): string[] {
+  const result: string[] = [];
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const normalizedEntry = entry === "pdf" ? "document" : entry;
+      if (
+        typeof normalizedEntry === "string" &&
+        VALID_OPENCLAW_MODEL_INPUTS.has(normalizedEntry) &&
+        !result.includes(normalizedEntry)
+      ) {
+        result.push(normalizedEntry);
+      }
+    }
+  }
+  return result.length > 0 ? result : ["text"];
+}
+
+function sanitizeModelTemplate(model: JsonObject): JsonObject {
+  return {
+    ...model,
+    input: normalizeModelInputs(model.input),
+  };
+}
+
+function sanitizeModelTemplates(models: unknown): JsonObject[] {
+  if (!Array.isArray(models)) {
+    return [];
+  }
+  return models.map((entry) => sanitizeModelTemplate(asObject(entry)));
 }
 
 function resolveManagedProviderIds(providerId: string): string[] {
@@ -92,22 +143,79 @@ function normalizeModelValue(modelValue: unknown): string | null {
   return createModelRef(normalizedProviderId, parsed.modelId);
 }
 
+function mergeProviderTemplateModels(provider: JsonObject, template: JsonObject): JsonObject {
+  const existingModels = sanitizeModelTemplates(provider.models);
+  const templateModels = sanitizeModelTemplates(template.models);
+  const mergedModels: JsonObject[] = [...existingModels];
+  const indexById = new Map<string, number>();
+
+  for (const [index, entry] of mergedModels.entries()) {
+    const model = asObject(entry);
+    if (typeof model.id === "string" && model.id.trim()) {
+      indexById.set(model.id.trim().toLowerCase(), index);
+    }
+  }
+
+  for (const entry of templateModels) {
+    const templateModel = asObject(entry);
+    if (typeof templateModel.id !== "string" || !templateModel.id.trim()) {
+      continue;
+    }
+    const key = templateModel.id.trim().toLowerCase();
+    const existingIndex = indexById.get(key);
+    if (existingIndex === undefined) {
+      indexById.set(key, mergedModels.length);
+      mergedModels.push(templateModel);
+      continue;
+    }
+    mergedModels[existingIndex] = sanitizeModelTemplate({
+      ...templateModel,
+      ...asObject(mergedModels[existingIndex]),
+    });
+  }
+
+  return {
+    ...provider,
+    models: sanitizeModelTemplates(mergedModels),
+  };
+}
+
+function dedupeModelTemplates(models: JsonObject[]): JsonObject[] {
+  const seen = new Set<string>();
+  const result: JsonObject[] = [];
+  for (const model of models) {
+    const id = typeof model.id === "string" ? model.id.trim().toLowerCase() : "";
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    result.push(sanitizeModelTemplate(model));
+  }
+  return result;
+}
+
 function normalizeProviderTemplateApi(provider: JsonObject, template: JsonObject): JsonObject {
   const api = typeof provider.api === "string" ? provider.api.trim() : "";
   const renamedApi = DEPRECATED_MODEL_API_RENAMES.get(api);
+  let normalizedProvider = provider;
   if (renamedApi) {
-    return {
-      ...provider,
+    normalizedProvider = {
+      ...normalizedProvider,
       api: renamedApi,
     };
-  }
-  if (!VALID_OPENCLAW_MODEL_APIS.has(api)) {
-    return {
-      ...provider,
+  } else if (!VALID_OPENCLAW_MODEL_APIS.has(api)) {
+    normalizedProvider = {
+      ...normalizedProvider,
       api: template.api,
     };
   }
-  return provider;
+  if (typeof normalizedProvider.baseUrl !== "string" || !normalizedProvider.baseUrl.trim()) {
+    normalizedProvider = {
+      ...normalizedProvider,
+      baseUrl: template.baseUrl,
+    };
+  }
+  return mergeProviderTemplateModels(normalizedProvider, template);
 }
 
 function readModelPrimaryValue(value: unknown): string | null {
@@ -146,7 +254,10 @@ function hasConfiguredModelRef(
   const models = Array.isArray(provider.models) ? provider.models : [];
   return models.some((entry) => {
     const object = asObject(entry);
-    return typeof object.id === "string" && object.id.trim().toLowerCase() === parsed.modelId.toLowerCase();
+    return (
+      typeof object.id === "string" &&
+      object.id.trim().toLowerCase() === parsed.modelId.toLowerCase()
+    );
   });
 }
 
@@ -157,6 +268,9 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
 
   const existing = loadJson(config.openclawConfigPath);
   const next = { ...existing };
+  const shouldApplyActivationDefaults =
+    !Number.isFinite(config.activationDefaultsVersion) ||
+    config.activationDefaultsVersion < ACTIVATION_DEFAULTS_VERSION;
 
   const gateway = asObject(next.gateway);
   gateway.mode = "local";
@@ -169,14 +283,36 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
   };
   gateway.controlUi = {
     ...asObject(gateway.controlUi),
+    enabled: true,
     allowInsecureAuth: true,
   };
   next.gateway = gateway;
+  sanitizeHooksConfig(next, config.gatewayToken);
 
   const tools = asObject(next.tools);
-  if (typeof tools.profile !== "string" || !tools.profile.trim()) {
-    tools.profile = "coding";
+  if (shouldApplyActivationDefaults || typeof tools.profile !== "string" || !tools.profile.trim()) {
+    tools.profile = "full";
   }
+  const execTools = asObject(tools.exec);
+  if (shouldApplyActivationDefaults || typeof execTools.host !== "string" || !execTools.host.trim()) {
+    execTools.host = "gateway";
+  }
+  if (
+    shouldApplyActivationDefaults ||
+    typeof execTools.security !== "string" ||
+    !execTools.security.trim()
+  ) {
+    execTools.security = "full";
+  }
+  if (shouldApplyActivationDefaults || typeof execTools.ask !== "string" || !execTools.ask.trim()) {
+    execTools.ask = "off";
+  }
+  tools.exec = execTools;
+  const fsTools = asObject(tools.fs);
+  if (shouldApplyActivationDefaults || typeof fsTools.workspaceOnly !== "boolean") {
+    fsTools.workspaceOnly = false;
+  }
+  tools.fs = fsTools;
   next.tools = tools;
 
   const session = asObject(next.session);
@@ -186,7 +322,8 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
   next.session = session;
 
   const models = asObject(next.models);
-  models.mode = typeof models.mode === "string" ? models.mode : "merge";
+  // Lumina supplies the usable desktop catalog through its proxy.
+  models.mode = "replace";
   const providers = asObject(models.providers);
   const managedProviderIds = resolveManagedProviderIds(config.providerId);
   const [providerId, ...legacyProviderIds] = managedProviderIds;
@@ -197,7 +334,7 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
     baseUrl: `http://127.0.0.1:${config.proxyPort}/v1`,
     api: "openai-completions",
     apiKey: config.proxyApiKey,
-    models: [
+    models: dedupeModelTemplates([
       {
         id: config.modelId,
         name: config.modelName,
@@ -212,7 +349,364 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
         },
         reasoning: false,
       },
-    ],
+      {
+        id: DEFAULT_LUMINA_CHAT_MODEL_ID,
+        name: "OpenAI GPT-5.5 via Lumina",
+        contextWindow: 400000,
+        maxTokens: 128000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "gpt-5.4-pro",
+        name: "OpenAI GPT-5.4 Pro via Lumina",
+        contextWindow: 400000,
+        maxTokens: 128000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "gpt-5.4",
+        name: "OpenAI GPT-5.4 via Lumina",
+        contextWindow: 400000,
+        maxTokens: 128000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "gpt-5.4-mini",
+        name: "OpenAI GPT-5.4 Mini via Lumina",
+        contextWindow: 400000,
+        maxTokens: 128000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "gpt-5.2",
+        name: "OpenAI GPT-5.2 via Lumina",
+        contextWindow: 400000,
+        maxTokens: 128000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "gpt-5.2-pro",
+        name: "OpenAI GPT-5.2 Pro via Lumina",
+        contextWindow: 400000,
+        maxTokens: 128000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "gpt-5.2-codex",
+        name: "OpenAI GPT-5.2 Codex via Lumina",
+        contextWindow: 400000,
+        maxTokens: 128000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "gpt-5.1",
+        name: "OpenAI GPT-5.1 via Lumina",
+        contextWindow: 400000,
+        maxTokens: 128000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "gpt-5",
+        name: "OpenAI GPT-5 via Lumina",
+        contextWindow: 400000,
+        maxTokens: 128000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "gpt-5-mini",
+        name: "OpenAI GPT-5 Mini via Lumina",
+        contextWindow: 400000,
+        maxTokens: 128000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "gpt-5-nano",
+        name: "OpenAI GPT-5 Nano via Lumina",
+        contextWindow: 400000,
+        maxTokens: 128000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "gpt-4.1",
+        name: "OpenAI GPT-4.1 via Lumina",
+        contextWindow: 1047576,
+        maxTokens: 32768,
+        input: ["text", "image"],
+      },
+      {
+        id: "gpt-4.1-mini",
+        name: "OpenAI GPT-4.1 Mini via Lumina",
+        contextWindow: 1047576,
+        maxTokens: 32768,
+        input: ["text", "image"],
+      },
+      {
+        id: "gpt-4.1-nano",
+        name: "OpenAI GPT-4.1 Nano via Lumina",
+        contextWindow: 1047576,
+        maxTokens: 32768,
+        input: ["text", "image"],
+      },
+      {
+        id: "gpt-4o",
+        name: "OpenAI GPT-4o via Lumina",
+        contextWindow: 128000,
+        maxTokens: 16384,
+        input: ["text", "image"],
+      },
+      {
+        id: "gpt-4o-mini",
+        name: "OpenAI GPT-4o Mini via Lumina",
+        contextWindow: 128000,
+        maxTokens: 16384,
+        input: ["text", "image"],
+      },
+      {
+        id: "o3",
+        name: "OpenAI o3 via Lumina",
+        contextWindow: 200000,
+        maxTokens: 100000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "o4-mini",
+        name: "OpenAI o4 Mini via Lumina",
+        contextWindow: 200000,
+        maxTokens: 100000,
+        input: ["text"],
+        reasoning: true,
+      },
+      {
+        id: "claude-opus-4-7",
+        name: "Claude Opus 4.7 via Lumina",
+        contextWindow: 200000,
+        maxTokens: 32000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "claude-opus-4-6",
+        name: "Claude Opus 4.6 via Lumina",
+        contextWindow: 200000,
+        maxTokens: 32000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "claude-opus-4-5-20251101",
+        name: "Claude Opus 4.5 via Lumina",
+        contextWindow: 200000,
+        maxTokens: 32000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "claude-sonnet-4-5-20250929",
+        name: "Claude Sonnet 4.5 via Lumina",
+        contextWindow: 200000,
+        maxTokens: 64000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "claude-haiku-4-5-20251001",
+        name: "Claude Haiku 4.5 via Lumina",
+        contextWindow: 200000,
+        maxTokens: 8192,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "claude-opus-4-1-20250805",
+        name: "Claude Opus 4.1 via Lumina",
+        contextWindow: 200000,
+        maxTokens: 32000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "claude-opus-4-20250514",
+        name: "Claude Opus 4 via Lumina",
+        contextWindow: 200000,
+        maxTokens: 32000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "claude-sonnet-4-20250514",
+        name: "Claude Sonnet 4 via Lumina",
+        contextWindow: 200000,
+        maxTokens: 64000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "claude-3-7-sonnet-20250219",
+        name: "Claude Sonnet 3.7 via Lumina",
+        contextWindow: 200000,
+        maxTokens: 64000,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "claude-3-5-sonnet-20241022",
+        name: "Claude Sonnet 3.5 via Lumina",
+        contextWindow: 200000,
+        maxTokens: 8192,
+        input: ["text", "image"],
+      },
+      {
+        id: "claude-3-5-haiku-20241022",
+        name: "Claude Haiku 3.5 via Lumina",
+        contextWindow: 200000,
+        maxTokens: 8192,
+        input: ["text", "image"],
+      },
+      {
+        id: "gemini-2.5-pro-preview-06-05",
+        name: "Google Gemini 2.5 Pro Preview via Lumina",
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        input: ["text", "image", "audio", "video", "document"],
+        reasoning: true,
+      },
+      {
+        id: "gemini-3.1-pro-preview",
+        name: "Google Gemini 3.1 Pro Preview via Lumina",
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        input: ["text", "image", "audio", "video", "document"],
+        reasoning: true,
+      },
+      {
+        id: "gemini-3-flash-preview",
+        name: "Google Gemini 3 Flash Preview via Lumina",
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        input: ["text", "image", "audio", "video", "document"],
+        reasoning: true,
+      },
+      {
+        id: "gemini-3-pro-preview",
+        name: "Google Gemini 3 Pro Preview via Lumina",
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        input: ["text", "image", "audio", "video", "document"],
+        reasoning: true,
+      },
+      {
+        id: "gemini-2.5-pro",
+        name: "Google Gemini 2.5 Pro via Lumina",
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        input: ["text", "image", "audio", "video", "document"],
+        reasoning: true,
+      },
+      {
+        id: "gemini-2.5-flash",
+        name: "Google Gemini 2.5 Flash via Lumina",
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        input: ["text", "image", "audio", "video", "document"],
+        reasoning: true,
+      },
+      {
+        id: "gemini-2.5-flash-lite",
+        name: "Google Gemini 2.5 Flash-Lite via Lumina",
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        input: ["text", "image", "audio", "video", "document"],
+        reasoning: true,
+      },
+      {
+        id: "gemini-2.5-flash-image",
+        name: "Google Gemini 2.5 Flash Image via Lumina",
+        contextWindow: 1048576,
+        maxTokens: 32768,
+        input: ["text", "image"],
+        reasoning: true,
+      },
+      {
+        id: "gemini-2.0-flash",
+        name: "Google Gemini 2.0 Flash via Lumina",
+        contextWindow: 1048576,
+        maxTokens: 8192,
+        input: ["text", "image", "audio", "video"],
+      },
+      {
+        id: "gemini-2.0-flash-lite",
+        name: "Google Gemini 2.0 Flash-Lite via Lumina",
+        contextWindow: 1048576,
+        maxTokens: 8192,
+        input: ["text", "image", "audio", "video"],
+      },
+      {
+        id: "gemini-1.5-pro",
+        name: "Google Gemini 1.5 Pro via Lumina",
+        contextWindow: 1048576,
+        maxTokens: 8192,
+        input: ["text", "image", "audio", "video"],
+      },
+      {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro via Lumina",
+        contextWindow: 64000,
+        maxTokens: 8192,
+        input: ["text"],
+        reasoning: true,
+      },
+      {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash via Lumina",
+        contextWindow: 64000,
+        maxTokens: 8192,
+        input: ["text"],
+        reasoning: true,
+      },
+      {
+        id: "deepseek-v3.1",
+        name: "DeepSeek V3.1 via Lumina",
+        contextWindow: 64000,
+        maxTokens: 8192,
+        input: ["text"],
+        reasoning: true,
+      },
+      {
+        id: "deepseek-r1-0528",
+        name: "DeepSeek R1 via Lumina",
+        contextWindow: 64000,
+        maxTokens: 8192,
+        input: ["text"],
+        reasoning: true,
+      },
+      {
+        id: "deepseek-chat",
+        name: "DeepSeek Chat via Lumina",
+        contextWindow: 64000,
+        maxTokens: 8192,
+        input: ["text"],
+      },
+      {
+        id: "deepseek-reasoner",
+        name: "DeepSeek Reasoner via Lumina",
+        contextWindow: 64000,
+        maxTokens: 8192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]),
   };
   const providerTemplates: Array<[string, JsonObject]> = [
     [
@@ -225,9 +719,141 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
           {
             id: "gpt-5.5",
             name: "OpenAI GPT-5.5",
+            contextWindow: 400000,
+            maxTokens: 128000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "gpt-5.4-pro",
+            name: "OpenAI GPT-5.4 Pro",
+            contextWindow: 400000,
+            maxTokens: 128000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "gpt-5.4",
+            name: "OpenAI GPT-5.4",
+            contextWindow: 400000,
+            maxTokens: 128000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "gpt-5.4-mini",
+            name: "OpenAI GPT-5.4 Mini",
+            contextWindow: 400000,
+            maxTokens: 128000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "gpt-5.2",
+            name: "OpenAI GPT-5.2",
+            contextWindow: 400000,
+            maxTokens: 128000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "gpt-5.2-pro",
+            name: "OpenAI GPT-5.2 Pro",
+            contextWindow: 400000,
+            maxTokens: 128000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "gpt-5.2-codex",
+            name: "OpenAI GPT-5.2 Codex",
+            contextWindow: 400000,
+            maxTokens: 128000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "gpt-5.1",
+            name: "OpenAI GPT-5.1",
+            contextWindow: 400000,
+            maxTokens: 128000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "gpt-5",
+            name: "OpenAI GPT-5",
+            contextWindow: 400000,
+            maxTokens: 128000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "gpt-5-mini",
+            name: "OpenAI GPT-5 Mini",
+            contextWindow: 400000,
+            maxTokens: 128000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "gpt-5-nano",
+            name: "OpenAI GPT-5 Nano",
+            contextWindow: 400000,
+            maxTokens: 128000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "gpt-4.1",
+            name: "OpenAI GPT-4.1",
+            contextWindow: 1047576,
+            maxTokens: 32768,
+            input: ["text", "image"],
+          },
+          {
+            id: "gpt-4.1-mini",
+            name: "OpenAI GPT-4.1 Mini",
+            contextWindow: 1047576,
+            maxTokens: 32768,
+            input: ["text", "image"],
+          },
+          {
+            id: "gpt-4.1-nano",
+            name: "OpenAI GPT-4.1 Nano",
+            contextWindow: 1047576,
+            maxTokens: 32768,
+            input: ["text", "image"],
+          },
+          {
+            id: "gpt-4o",
+            name: "OpenAI GPT-4o",
             contextWindow: 128000,
-            maxTokens: 4096,
+            maxTokens: 16384,
+            input: ["text", "image"],
+          },
+          {
+            id: "gpt-4o-mini",
+            name: "OpenAI GPT-4o Mini",
+            contextWindow: 128000,
+            maxTokens: 16384,
+            input: ["text", "image"],
+          },
+          {
+            id: "o3",
+            name: "OpenAI o3",
+            contextWindow: 200000,
+            maxTokens: 100000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "o4-mini",
+            name: "OpenAI o4 Mini",
+            contextWindow: 200000,
+            maxTokens: 100000,
             input: ["text"],
+            reasoning: true,
           },
         ],
       },
@@ -240,11 +866,90 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
         apiKey: "",
         models: [
           {
-            id: "claude-haiku-4-5-20251001",
-            name: "Anthropic Claude Haiku",
+            id: "claude-opus-4-7",
+            name: "Anthropic Claude Opus 4.7",
             contextWindow: 200000,
-            maxTokens: 4096,
-            input: ["text"],
+            maxTokens: 32000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "claude-opus-4-6",
+            name: "Anthropic Claude Opus 4.6",
+            contextWindow: 200000,
+            maxTokens: 32000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "claude-opus-4-5-20251101",
+            name: "Anthropic Claude Opus 4.5",
+            contextWindow: 200000,
+            maxTokens: 32000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "claude-sonnet-4-5-20250929",
+            name: "Anthropic Claude Sonnet 4.5",
+            contextWindow: 200000,
+            maxTokens: 64000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "claude-haiku-4-5-20251001",
+            name: "Anthropic Claude Haiku 4.5",
+            contextWindow: 200000,
+            maxTokens: 8192,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "claude-opus-4-1-20250805",
+            name: "Anthropic Claude Opus 4.1",
+            contextWindow: 200000,
+            maxTokens: 32000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "claude-opus-4-20250514",
+            name: "Anthropic Claude Opus 4",
+            contextWindow: 200000,
+            maxTokens: 32000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "claude-sonnet-4-20250514",
+            name: "Anthropic Claude Sonnet 4",
+            contextWindow: 200000,
+            maxTokens: 64000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "claude-3-7-sonnet-20250219",
+            name: "Anthropic Claude Sonnet 3.7",
+            contextWindow: 200000,
+            maxTokens: 64000,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "claude-3-5-sonnet-20241022",
+            name: "Anthropic Claude Sonnet 3.5",
+            contextWindow: 200000,
+            maxTokens: 8192,
+            input: ["text", "image"],
+          },
+          {
+            id: "claude-3-5-haiku-20241022",
+            name: "Anthropic Claude Haiku 3.5",
+            contextWindow: 200000,
+            maxTokens: 8192,
+            input: ["text", "image"],
           },
         ],
       },
@@ -257,11 +962,89 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
         apiKey: "",
         models: [
           {
+            id: "gemini-2.5-pro-preview-06-05",
+            name: "Google Gemini 2.5 Pro Preview",
+            contextWindow: 1048576,
+            maxTokens: 65536,
+            input: ["text", "image", "audio", "video", "document"],
+            reasoning: true,
+          },
+          {
             id: "gemini-3.1-pro-preview",
             name: "Google Gemini 3.1 Pro Preview",
-            contextWindow: 1000000,
-            maxTokens: 4096,
-            input: ["text"],
+            contextWindow: 1048576,
+            maxTokens: 65536,
+            input: ["text", "image", "audio", "video", "document"],
+            reasoning: true,
+          },
+          {
+            id: "gemini-3-flash-preview",
+            name: "Google Gemini 3 Flash Preview",
+            contextWindow: 1048576,
+            maxTokens: 65536,
+            input: ["text", "image", "audio", "video", "document"],
+            reasoning: true,
+          },
+          {
+            id: "gemini-3-pro-preview",
+            name: "Google Gemini 3 Pro Preview",
+            contextWindow: 1048576,
+            maxTokens: 65536,
+            input: ["text", "image", "audio", "video", "document"],
+            reasoning: true,
+          },
+          {
+            id: "gemini-2.5-pro",
+            name: "Google Gemini 2.5 Pro",
+            contextWindow: 1048576,
+            maxTokens: 65536,
+            input: ["text", "image", "audio", "video", "document"],
+            reasoning: true,
+          },
+          {
+            id: "gemini-2.5-flash",
+            name: "Google Gemini 2.5 Flash",
+            contextWindow: 1048576,
+            maxTokens: 65536,
+            input: ["text", "image", "audio", "video", "document"],
+            reasoning: true,
+          },
+          {
+            id: "gemini-2.5-flash-lite",
+            name: "Google Gemini 2.5 Flash-Lite",
+            contextWindow: 1048576,
+            maxTokens: 65536,
+            input: ["text", "image", "audio", "video", "document"],
+            reasoning: true,
+          },
+          {
+            id: "gemini-2.5-flash-image",
+            name: "Google Gemini 2.5 Flash Image",
+            contextWindow: 1048576,
+            maxTokens: 32768,
+            input: ["text", "image"],
+            reasoning: true,
+          },
+          {
+            id: "gemini-2.0-flash",
+            name: "Google Gemini 2.0 Flash",
+            contextWindow: 1048576,
+            maxTokens: 8192,
+            input: ["text", "image", "audio", "video"],
+          },
+          {
+            id: "gemini-2.0-flash-lite",
+            name: "Google Gemini 2.0 Flash-Lite",
+            contextWindow: 1048576,
+            maxTokens: 8192,
+            input: ["text", "image", "audio", "video"],
+          },
+          {
+            id: "gemini-1.5-pro",
+            name: "Google Gemini 1.5 Pro",
+            contextWindow: 1048576,
+            maxTokens: 8192,
+            input: ["text", "image", "audio", "video"],
           },
         ],
       },
@@ -274,25 +1057,65 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
         apiKey: "",
         models: [
           {
+            id: "deepseek-v4-pro",
+            name: "DeepSeek V4 Pro",
+            contextWindow: 64000,
+            maxTokens: 8192,
+            input: ["text"],
+            reasoning: true,
+          },
+          {
             id: "deepseek-v4-flash",
             name: "DeepSeek V4 Flash",
             contextWindow: 64000,
-            maxTokens: 4096,
+            maxTokens: 8192,
             input: ["text"],
+            reasoning: true,
+          },
+          {
+            id: "deepseek-v3.1",
+            name: "DeepSeek V3.1",
+            contextWindow: 64000,
+            maxTokens: 8192,
+            input: ["text"],
+            reasoning: true,
+          },
+          {
+            id: "deepseek-r1-0528",
+            name: "DeepSeek R1",
+            contextWindow: 64000,
+            maxTokens: 8192,
+            input: ["text"],
+            reasoning: true,
+          },
+          {
+            id: "deepseek-chat",
+            name: "DeepSeek Chat",
+            contextWindow: 64000,
+            maxTokens: 8192,
+            input: ["text"],
+          },
+          {
+            id: "deepseek-reasoner",
+            name: "DeepSeek Reasoner",
+            contextWindow: 64000,
+            maxTokens: 8192,
+            input: ["text"],
+            reasoning: true,
           },
         ],
       },
     ],
   ];
   for (const [templateProviderId, template] of providerTemplates) {
-    if (providers[templateProviderId] === undefined) {
-      providers[templateProviderId] = template;
-    } else {
-      providers[templateProviderId] = normalizeProviderTemplateApi(
-        asObject(providers[templateProviderId]),
-        template,
-      );
+    const existingProvider = asObject(providers[templateProviderId]);
+    const apiKey =
+      typeof existingProvider.apiKey === "string" ? existingProvider.apiKey.trim() : "";
+    if (!apiKey) {
+      delete providers[templateProviderId];
+      continue;
     }
+    providers[templateProviderId] = normalizeProviderTemplateApi(existingProvider, template);
   }
   models.providers = providers;
   next.models = models;
@@ -305,23 +1128,25 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
   const modelDefaults = asObject(defaults.model);
   const modelRef = createModelRef(providerId, config.modelId);
   const modelAliases = asObject(defaults.models);
+  modelAliases[createModelRef(providerId, DEFAULT_LUMINA_CHAT_MODEL_ID)] ??= {};
   const managedModelRefs = new Set(
     managedProviderIds.map((managedProviderId) =>
       createModelRef(managedProviderId, config.modelId).toLowerCase(),
     ),
   );
-  const preferredModelRef = normalizeModelValue(config.preferredModelRef) ?? modelRef;
+  const preferredModelRef = shouldApplyActivationDefaults
+    ? createModelRef(providerId, DEFAULT_LUMINA_CHAT_MODEL_ID)
+    : (normalizeModelValue(config.preferredModelRef) ?? modelRef);
   const currentPrimaryModelConfigured = Boolean(
     currentPrimaryModelValue &&
-      !managedModelRefs.has(currentPrimaryModelValue.toLowerCase()) &&
-      hasConfiguredModelRef(providers, modelAliases, currentPrimaryModelValue),
+    !managedModelRefs.has(currentPrimaryModelValue.toLowerCase()) &&
+    hasConfiguredModelRef(providers, modelAliases, currentPrimaryModelValue),
   );
-  const resolvedPrimaryModelValue =
-    currentPrimaryModelConfigured
-      ? currentPrimaryModelValue
-      : hasConfiguredModelRef(providers, modelAliases, preferredModelRef)
-        ? preferredModelRef
-        : modelRef;
+  const resolvedPrimaryModelValue = currentPrimaryModelConfigured
+    ? currentPrimaryModelValue
+    : hasConfiguredModelRef(providers, modelAliases, preferredModelRef)
+      ? preferredModelRef
+      : modelRef;
   modelDefaults.primary = resolvedPrimaryModelValue;
   if (currentFallbacks.length > 0) {
     modelDefaults.fallbacks = currentFallbacks;
@@ -341,37 +1166,86 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
     alias: config.modelId,
   };
   defaults.models = modelAliases;
+  const sandbox = asObject(defaults.sandbox);
+  sandbox.mode = "off";
+  sandbox.sessionToolsVisibility ??= "all";
+  defaults.sandbox = sandbox;
   agents.defaults = defaults;
   next.agents = agents;
+
+  const cron = asObject(next.cron);
+  if (shouldApplyActivationDefaults || cron.enabled === undefined) {
+    cron.enabled = true;
+  }
+  next.cron = cron;
+
+  const canvasHost = asObject(next.canvasHost);
+  if (shouldApplyActivationDefaults || canvasHost.enabled === undefined) {
+    canvasHost.enabled = true;
+  }
+  next.canvasHost = canvasHost;
 
   const plugins = asObject(next.plugins);
   const entries = asObject(plugins.entries);
   const luminaEntry = asObject(entries["lumina-pc"]);
-  if (luminaEntry.enabled === undefined) {
+  if (shouldApplyActivationDefaults || luminaEntry.enabled === undefined) {
     luminaEntry.enabled = true;
   }
   const luminaPluginConfig = asObject(luminaEntry.config);
-  if (luminaPluginConfig.heartbeatEnabled === undefined) {
-    luminaPluginConfig.heartbeatEnabled = false;
+  if (shouldApplyActivationDefaults || luminaPluginConfig.enabled === undefined) {
+    luminaPluginConfig.enabled = true;
+  }
+  if (shouldApplyActivationDefaults || luminaPluginConfig.heartbeatEnabled === undefined) {
+    luminaPluginConfig.heartbeatEnabled = true;
+  }
+  if (
+    shouldApplyActivationDefaults ||
+    typeof luminaPluginConfig.heartbeatIntervalMs !== "number" ||
+    !Number.isFinite(luminaPluginConfig.heartbeatIntervalMs) ||
+    luminaPluginConfig.heartbeatIntervalMs <= 0
+  ) {
+    luminaPluginConfig.heartbeatIntervalMs = 30_000;
+  }
+  if (shouldApplyActivationDefaults || luminaPluginConfig.shellApprovalRequired === undefined) {
+    luminaPluginConfig.shellApprovalRequired = false;
   }
   luminaEntry.config = luminaPluginConfig;
   entries["lumina-pc"] = luminaEntry;
   const browserEntry = asObject(entries.browser);
-  if (browserEntry.enabled === undefined) {
+  if (shouldApplyActivationDefaults || browserEntry.enabled === undefined) {
     browserEntry.enabled = true;
   }
   entries.browser = browserEntry;
+  const memoryEntry = asObject(entries["memory-core"]);
+  if (shouldApplyActivationDefaults || memoryEntry.enabled === undefined) {
+    memoryEntry.enabled = true;
+  }
+  const memoryConfig = asObject(memoryEntry.config);
+  // OpenClaw v2026.5.22 handles dreaming internally and rejects this legacy config block.
+  delete memoryConfig.dreaming;
+  if (Object.keys(memoryConfig).length > 0) {
+    memoryEntry.config = memoryConfig;
+  } else {
+    delete memoryEntry.config;
+  }
+  entries["memory-core"] = memoryEntry;
   plugins.entries = entries;
 
   const load = asObject(plugins.load);
   const existingPaths = Array.isArray(load.paths)
     ? load.paths.filter((value): value is string => typeof value === "string")
     : [];
-  load.paths = [
-    ...existingPaths.filter((entry) => !entry.toLowerCase().includes("lumina-pc")),
-    paths.luminaPluginDir,
-  ];
-  plugins.load = load;
+  const luminaPluginDir = path.resolve(paths.luminaPluginDir).toLowerCase();
+  const retainedLoadPaths = existingPaths.filter((entry) => {
+    const normalized = path.resolve(entry).toLowerCase();
+    return !normalized.includes("lumina-pc") && normalized !== luminaPluginDir;
+  });
+  if (retainedLoadPaths.length > 0) {
+    load.paths = retainedLoadPaths;
+    plugins.load = load;
+  } else {
+    delete plugins.load;
+  }
   next.plugins = plugins;
 
   // Remove legacy key that violates openclaw's config schema.
@@ -384,6 +1258,11 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
   }
 
   writeJson(config.openclawConfigPath, next);
+  if (shouldApplyActivationDefaults) {
+    config.activationDefaultsVersion = ACTIVATION_DEFAULTS_VERSION;
+    config.preferredModelRef = resolvedPrimaryModelValue ?? modelRef;
+    saveConfig(config);
+  }
 }
 
 export function persistPreferredModelSelection(config: LuminaConfig, modelRef: string): void {

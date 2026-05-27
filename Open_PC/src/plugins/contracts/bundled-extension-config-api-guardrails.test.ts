@@ -33,11 +33,13 @@ const BUNDLED_EXTENSION_CONFIG_IMPORT_GUARDS = [
   },
   {
     path: "extensions/googlechat/src/config-schema.ts",
-    allowedSpecifier: "openclaw/plugin-sdk/googlechat",
+    allowedSpecifier: "../config-api.js",
   },
+  // Teams keeps a package-local config barrel so production code does not
+  // reach through a public plugin-sdk helper seam from inside the same extension.
   {
     path: "extensions/msteams/src/config-schema.ts",
-    allowedSpecifier: "openclaw/plugin-sdk/msteams",
+    allowedSpecifier: "../config-api.js",
   },
 ] as const;
 
