@@ -133,7 +133,7 @@ jobs:
         shell: pwsh
         working-directory: lumina-code-source/src/lumina-code/official/extensions/vscode
         run: |
-          npm ci
+          npm install --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run package
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
