@@ -127,14 +127,16 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: "22"
 
       - name: Build Lumina Code VSIX
         shell: pwsh
         working-directory: lumina-code-source/src/lumina-code/official/extensions/vscode
         run: |
           npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $vsix = Get-ChildItem -LiteralPath build -Filter 'lumina-code-*.vsix' | Sort-Object Name | Select-Object -Last 1
           if (-not $vsix) { throw 'Lumina Code VSIX was not generated.' }
           Copy-Item -LiteralPath $vsix.FullName -Destination (Join-Path $env:RUNNER_TEMP $vsix.Name) -Force
