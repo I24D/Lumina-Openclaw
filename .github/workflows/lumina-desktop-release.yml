@@ -108,44 +108,26 @@ jobs:
             Open_PC/pnpm-lock.yaml
           gh release upload "${{ github.ref_name }}" openclaw-build.tar.gz --clobber
 
-  build-lumina-code:
-    name: "1b/5 build-lumina-code"
+  fetch-lumina-code:
+    name: "1b/5 fetch-lumina-code"
     if: ${{ github.event.inputs.release_only != 'true' }}
-    runs-on: windows-latest
-    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - name: Checkout Lumina Code source
-        uses: actions/checkout@v4
-        with:
-          repository: I24D/Lumina-i24d-bot
-          token: ${{ secrets.I24D_GITHUB }}
-          path: lumina-code-source
-          sparse-checkout: |
-            src/lumina-code/official
-          sparse-checkout-cone-mode: true
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Build Lumina Code VSIX
-        shell: pwsh
-        working-directory: lumina-code-source/src/lumina-code/official/extensions/vscode
+      - name: Download official Lumina Code VSIX
+        env:
+          GH_TOKEN: ${{ secrets.I24D_GITHUB }}
         run: |
-          npm install --no-audit --no-fund
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run package
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $vsix = Get-ChildItem -LiteralPath build -Filter 'lumina-code-*.vsix' | Sort-Object Name | Select-Object -Last 1
-          if (-not $vsix) { throw 'Lumina Code VSIX was not generated.' }
-          Copy-Item -LiteralPath $vsix.FullName -Destination (Join-Path $env:RUNNER_TEMP $vsix.Name) -Force
+          mkdir -p lumina-code-vsix
+          gh release download --repo I24D/Lumina-i24d-bot --pattern "lumina-code-*.vsix" --dir lumina-code-vsix
+          test -n "$(find lumina-code-vsix -maxdepth 1 -name 'lumina-code-*.vsix' -print -quit)"
 
       - name: Upload Lumina Code VSIX artifact
         uses: actions/upload-artifact@v4
         with:
           name: lumina-code-vsix
-          path: ${{ runner.temp }}/lumina-code-*.vsix
+          path: lumina-code-vsix/lumina-code-*.vsix
           if-no-files-found: error
           retention-days: 1
 
@@ -153,7 +135,7 @@ jobs:
   build-windows:
     name: "2/5 build-windows"
     if: ${{ github.event.inputs.release_only != 'true' }}
-    needs: [build-openclaw, build-lumina-code]
+    needs: [build-openclaw, fetch-lumina-code]
     runs-on: windows-latest
     timeout-minutes: 90
 
