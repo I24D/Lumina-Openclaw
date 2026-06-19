@@ -125,4 +125,44 @@ describe("gateway chat.inject transcript writes", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("persists Lumina artifacts and spoken-response metadata", async () => {
+    const { dir, transcriptPath } = createTranscriptFixtureSync({
+      prefix: "openclaw-chat-inject-lumina-",
+      sessionId: "sess-lumina",
+    });
+
+    try {
+      const appended = await appendInjectedAssistantMessageToTranscript({
+        transcriptPath,
+        message: "Generated image ready.",
+        content: [
+          { type: "text", text: "Generated image ready." },
+          {
+            type: "image",
+            url: "https://example.com/generated.png",
+            alt: "Generated image",
+          },
+        ],
+        metadata: {
+          source: "lumina-remote-brain",
+          luminaSpeechText: "Listo, generé la imagen y la dejé en el chat.",
+          traceId: "trace-1",
+        },
+      });
+
+      expect(appended.ok).toBe(true);
+      const lines = readTranscriptLines(transcriptPath);
+      const last = JSON.parse(lines.at(-1) as string) as {
+        message?: { content?: unknown[]; __openclaw?: Record<string, unknown> };
+      };
+      expect(last.message?.content).toHaveLength(2);
+      expect(last.message?.__openclaw).toMatchObject({
+        source: "lumina-remote-brain",
+        traceId: "trace-1",
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

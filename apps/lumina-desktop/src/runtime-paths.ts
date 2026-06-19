@@ -63,12 +63,22 @@ function normalizeRuntimePaths(paths: RuntimePaths): RuntimePaths {
   };
 }
 
+function isPackagedResourceRoot(rootPath: string): boolean {
+  return (
+    fileExists(path.join(rootPath, "desktop-shell", "tauri-bridge.js")) &&
+    fileExists(path.join(rootPath, "openclaw", "openclaw.mjs"))
+  );
+}
+
 function resolveRepoRoot(): string {
+  const resourcesRoot = process.env.LUMINA_RESOURCE_ROOT?.trim() || process.resourcesPath || "";
+  if (resourcesRoot && isPackagedResourceRoot(resourcesRoot)) {
+    return normalizeRuntimePath(path.resolve(resourcesRoot));
+  }
   const explicitRepoRoot = process.env.LUMINA_REPO_ROOT?.trim();
   if (explicitRepoRoot && fileExists(explicitRepoRoot)) {
     return normalizeRuntimePath(path.resolve(explicitRepoRoot));
   }
-  const resourcesRoot = process.env.LUMINA_RESOURCE_ROOT?.trim() || process.resourcesPath || "";
   if (resourcesRoot && fileExists(resourcesRoot)) {
     return normalizeRuntimePath(path.resolve(resourcesRoot));
   }
@@ -78,9 +88,11 @@ function resolveRepoRoot(): string {
 function resolveRuntimeManagerBinaryPath(repoRoot: string, resourcesRoot: string): string {
   const explicitPath = process.env.LUMINA_RUNTIME_MANAGER_BINARY?.trim();
   const binaryName = process.platform === "win32" ? "lumina-bootstrapper.exe" : "lumina-bootstrapper";
+  const packagedPath = resourcesRoot ? path.join(resourcesRoot, "runtime-tools", binaryName) : "";
   const candidates = [
-    explicitPath ?? "",
-    resourcesRoot ? path.join(resourcesRoot, "runtime-tools", binaryName) : "",
+    ...(isPackagedResourceRoot(resourcesRoot)
+      ? [packagedPath, explicitPath ?? ""]
+      : [explicitPath ?? "", packagedPath]),
     path.resolve(moduleDir, "..", "build", "runtime-tools", binaryName),
     path.join(repoRoot, "rust", "lumina-bootstrapper", "target", "release", binaryName),
     path.join(repoRoot, "rust", "lumina-bootstrapper", "target", "debug", binaryName),

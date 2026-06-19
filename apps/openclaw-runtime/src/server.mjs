@@ -13,6 +13,7 @@ import os from "node:os";
 import {
   PROXY_PORT,
   MAX_TOOL_ITERATIONS,
+  TOOL_ITERATION_LIMIT_MESSAGE,
 } from "./config.mjs";
 import { sendTurn, submitToolResults } from "./brain-client.mjs";
 import { executeToolCalls } from "./tool-executor.mjs";
@@ -73,6 +74,7 @@ async function runTurn(sessionId, message, context) {
     },
   });
 
+  let exhaustedToolBudget = true;
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
     const turn = normalizeBrainTurn(response, resolvedSessionId);
     if (turn.type === "response") {
@@ -80,6 +82,7 @@ async function runTurn(sessionId, message, context) {
     }
 
     if (turn.type !== "tool_calls" || !turn.calls.length) {
+      exhaustedToolBudget = false;
       break;
     }
 
@@ -91,10 +94,17 @@ async function runTurn(sessionId, message, context) {
     response = await submitToolResults(turn.session_id, toolResults);
   }
 
-  const finalTurn = normalizeBrainTurn(response, resolvedSessionId);
+  if (!exhaustedToolBudget) {
+    const finalTurn = normalizeBrainTurn(response, resolvedSessionId);
+    return {
+      session_id: finalTurn.session_id,
+      reply: finalTurn.type === "response" ? finalTurn.content : "(no reply from brain)",
+    };
+  }
+
   return {
-    session_id: finalTurn.session_id,
-    reply: finalTurn.type === "response" ? finalTurn.content : "(no reply from brain)",
+    session_id: resolvedSessionId,
+    reply: TOOL_ITERATION_LIMIT_MESSAGE,
   };
 }
 

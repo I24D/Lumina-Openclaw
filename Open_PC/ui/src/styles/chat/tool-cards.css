@@ -932,3 +932,32 @@
     max-height: 200px;
   }
 }
+
+/* ── <lumina-tool-terminal> wrapper (xterm.js) ────────────────────────── */
+.chat-tool-card__block-content--terminal {
+  display: block;
+  margin: 0;
+  padding: 8px 8px 6px;
+  background: #0e1015;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.lumina-tool-terminal {
+  display: block;
+  width: 100%;
+  background: #0e1015;
+  border-radius: 4px;
+}
+.lumina-tool-terminal .xterm,
+.lumina-tool-terminal .xterm-viewport,
+.lumina-tool-terminal .xterm-screen {
+  background-color: #0e1015 !important;
+}
+.lumina-tool-terminal .xterm-viewport {
+  /* Permitir scroll dentro del terminal sin pelear con el scroll del chat */
+  overscroll-behavior: contain;
+}
+/* Fallback <pre> conserva su look anterior si xterm no inicializa */
+.lumina-tool-terminal__fallback {
+  margin: 0;
+}

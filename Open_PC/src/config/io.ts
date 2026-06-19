@@ -1650,6 +1650,7 @@ export function createConfigIO(
       const cfg = retainRuntimeOnlyShippedPluginInstallConfigRecords(
         materializeRuntimeConfig(validated.config, "load", {
           manifestRegistry: pluginMetadataSnapshot?.manifestRegistry,
+          skipProviderPolicy: overrides.pluginValidation === "skip",
         }),
         effectiveConfigRaw,
       );
@@ -1861,6 +1862,7 @@ export function createConfigIO(
         retainRuntimeOnlyShippedPluginInstallConfigRecords(
           materializeRuntimeConfig(validated.config, "snapshot", {
             manifestRegistry: pluginMetadataSnapshot?.manifestRegistry,
+            skipProviderPolicy: overrides.pluginValidation === "skip",
           }),
           effectiveConfigRaw,
         ),
@@ -1988,6 +1990,7 @@ export function createConfigIO(
     return finalizeLoadedRuntimeConfig(
       materializeRuntimeConfig(result.snapshot.sourceConfig, "load", {
         manifestRegistry: result.pluginMetadataSnapshot?.manifestRegistry,
+        skipProviderPolicy: overrides.pluginValidation === "skip",
       }),
     );
   }
@@ -2421,12 +2424,13 @@ export async function readConfigFileSnapshot(
   }).readConfigFileSnapshot();
 }
 
-export async function readConfigFileSnapshotWithPluginMetadata(options?: {
-  measure?: ConfigSnapshotReadMeasure;
-}): Promise<ReadConfigFileSnapshotWithPluginMetadataResult> {
-  return await createConfigIO(
-    options?.measure ? { measure: options.measure } : {},
-  ).readConfigFileSnapshotWithPluginMetadata();
+export async function readConfigFileSnapshotWithPluginMetadata(
+  options: Pick<ConfigSnapshotReadOptions, "measure" | "skipPluginValidation"> = {},
+): Promise<ReadConfigFileSnapshotWithPluginMetadataResult> {
+  return await createConfigIO({
+    ...(options.measure ? { measure: options.measure } : {}),
+    ...(options.skipPluginValidation ? { pluginValidation: "skip" } : {}),
+  }).readConfigFileSnapshotWithPluginMetadata();
 }
 
 export async function promoteConfigSnapshotToLastKnownGood(

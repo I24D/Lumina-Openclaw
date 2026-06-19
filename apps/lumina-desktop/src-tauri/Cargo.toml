@@ -1,6 +1,6 @@
 [package]
 name = "lumina-desktop-tauri"
-version = "1.0.10"
+version = "1.0.14"
 edition = "2021"
 publish = false
 

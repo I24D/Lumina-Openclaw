@@ -8,8 +8,14 @@
 
 import http from "node:http";
 import { OPENCLAW_PORT, OPENCLAW_TOKEN } from "./config.mjs";
+import {
+  compactContextItemsForStorage,
+  compactToolResultForModel,
+  TOOL_RESULT_STORAGE_CHAR_LIMIT,
+} from "./tool-output-budget.mjs";
 
 const TOOL_TIMEOUT_MS = 20_000;
+const TOOL_RESPONSE_CAPTURE_LIMIT = TOOL_RESULT_STORAGE_CHAR_LIMIT * 4;
 
 /**
  * Invoke a single tool on the OpenClaw gateway.
@@ -37,7 +43,15 @@ function invokeOnOpenClaw(toolName, args) {
       },
       (res) => {
         let data = "";
-        res.on("data", (c) => (data += c));
+        let capped = false;
+        res.on("data", (c) => {
+          if (capped) return;
+          data += c;
+          if (data.length > TOOL_RESPONSE_CAPTURE_LIMIT) {
+            capped = true;
+            data = data.slice(0, TOOL_RESPONSE_CAPTURE_LIMIT);
+          }
+        });
         res.on("end", () => {
           try {
             const body = JSON.parse(data);
@@ -57,7 +71,14 @@ function invokeOnOpenClaw(toolName, args) {
               resolve(body);
             }
           } catch {
-            resolve({ _raw: data.slice(0, 500) });
+            resolve({
+              ok: true,
+              _raw: data,
+              _truncated: capped,
+              notice: capped
+                ? `Tool response exceeded ${TOOL_RESPONSE_CAPTURE_LIMIT} chars before JSON parsing.`
+                : undefined,
+            });
           }
         });
       },
@@ -85,7 +106,9 @@ export async function executeToolCalls(calls) {
       const start = Date.now();
       try {
         console.log(`[executor] invoking ${call.tool_name} (id=${call.id})`);
-        const result = await invokeOnOpenClaw(call.tool_name, call.arguments);
+        const rawResult = await invokeOnOpenClaw(call.tool_name, call.arguments);
+        const storedResult = compactContextItemsForStorage(rawResult, { toolName: call.tool_name });
+        const result = compactToolResultForModel(storedResult, { toolName: call.tool_name });
         const duration_ms = Date.now() - start;
         console.log(`[executor] ${call.tool_name} → ok (${duration_ms}ms)`);
         return {

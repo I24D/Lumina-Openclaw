@@ -5,9 +5,325 @@ import { saveConfig, type LuminaConfig } from "./config.js";
 import type { RuntimePaths } from "./runtime-paths.js";
 
 type JsonObject = Record<string, unknown>;
-const ACTIVATION_DEFAULTS_VERSION = 3;
+const ACTIVATION_DEFAULTS_VERSION = 4;
 const DEFAULT_LUMINA_CHAT_MODEL_ID = "gpt-5.5";
 const LEGACY_LUMINA_PROVIDER_IDS = ["custom-i24d-whatsapp-ai-onrender-com"] as const;
+const OLLAMA_CLOUD_MODEL_TEMPLATES: JsonObject[] = [
+  {
+    id: "minimax-m3",
+    name: "MiniMax M3",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+    reasoning: true,
+  },
+  {
+    id: "minimax-m2.7",
+    name: "MiniMax M2.7",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "minimax-m2.5",
+    name: "MiniMax M2.5",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "minimax-m2.1",
+    name: "MiniMax M2.1",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+  },
+  {
+    id: "minimax-m2",
+    name: "MiniMax M2",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "nemotron-3-ultra",
+    name: "NVIDIA Nemotron 3 Ultra",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "nemotron-3-super",
+    name: "NVIDIA Nemotron 3 Super",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "nemotron-3-nano:30b",
+    name: "NVIDIA Nemotron 3 Nano 30B",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "gemma4:31b",
+    name: "Google Gemma 4 31B",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text", "image", "audio"],
+    reasoning: true,
+  },
+  {
+    id: "gemma3:27b",
+    name: "Google Gemma 3 27B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+  },
+  {
+    id: "gemma3:12b",
+    name: "Google Gemma 3 12B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+  },
+  {
+    id: "gemma3:4b",
+    name: "Google Gemma 3 4B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+  },
+  {
+    id: "qwen3.5:397b",
+    name: "Alibaba Qwen3.5 397B",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+    reasoning: true,
+  },
+  {
+    id: "qwen3-coder-next",
+    name: "Alibaba Qwen3 Coder Next",
+    contextWindow: 262144,
+    maxTokens: 32768,
+    input: ["text"],
+  },
+  {
+    id: "qwen3-coder:480b",
+    name: "Alibaba Qwen3 Coder 480B",
+    contextWindow: 262144,
+    maxTokens: 32768,
+    input: ["text"],
+  },
+  {
+    id: "qwen3-vl:235b-instruct",
+    name: "Alibaba Qwen3 VL 235B Instruct",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+    reasoning: true,
+  },
+  {
+    id: "qwen3-vl:235b",
+    name: "Alibaba Qwen3 VL 235B",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+    reasoning: true,
+  },
+  {
+    id: "qwen3-next:80b",
+    name: "Alibaba Qwen3 Next 80B",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "glm-5.1",
+    name: "Z.ai GLM 5.1",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "glm-5",
+    name: "Z.ai GLM 5",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "glm-4.7",
+    name: "Z.ai GLM 4.7",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "glm-4.6",
+    name: "Z.ai GLM 4.6",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "deepseek-v4-pro",
+    name: "DeepSeek V4 Pro",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "deepseek-v4-flash",
+    name: "DeepSeek V4 Flash",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "deepseek-v3.2",
+    name: "DeepSeek V3.2",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "deepseek-v3.1:671b",
+    name: "DeepSeek V3.1 671B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "kimi-k2.6",
+    name: "Moonshot Kimi K2.6",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+    reasoning: true,
+  },
+  {
+    id: "kimi-k2.5",
+    name: "Moonshot Kimi K2.5",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+    reasoning: true,
+  },
+  {
+    id: "kimi-k2-thinking",
+    name: "Moonshot Kimi K2 Thinking",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "kimi-k2:1t",
+    name: "Moonshot Kimi K2 1T",
+    contextWindow: 256000,
+    maxTokens: 32768,
+    input: ["text"],
+  },
+  {
+    id: "gpt-oss:120b",
+    name: "OpenAI GPT OSS 120B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "gpt-oss:20b",
+    name: "OpenAI GPT OSS 20B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "gemini-3-flash-preview",
+    name: "Google Gemini 3 Flash Preview",
+    contextWindow: 1048576,
+    maxTokens: 65536,
+    input: ["text", "image"],
+    reasoning: true,
+  },
+  {
+    id: "ministral-3:14b",
+    name: "Mistral Ministral 3 14B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+  },
+  {
+    id: "ministral-3:8b",
+    name: "Mistral Ministral 3 8B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+  },
+  {
+    id: "ministral-3:3b",
+    name: "Mistral Ministral 3 3B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+  },
+  {
+    id: "mistral-large-3:675b",
+    name: "Mistral Large 3 675B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+  },
+  {
+    id: "devstral-2:123b",
+    name: "Mistral Devstral 2 123B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text"],
+  },
+  {
+    id: "devstral-small-2:24b",
+    name: "Mistral Devstral Small 2 24B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text", "image"],
+  },
+  {
+    id: "cogito-2.1:671b",
+    name: "Essential Cogito 2.1 671B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text"],
+    reasoning: true,
+  },
+  {
+    id: "rnj-1:8b",
+    name: "Essential RNJ 1 8B",
+    contextWindow: 128000,
+    maxTokens: 32768,
+    input: ["text"],
+  },
+];
 const VALID_OPENCLAW_MODEL_APIS = new Set([
   "openai-completions",
   "openai-responses",
@@ -216,6 +532,18 @@ function normalizeProviderTemplateApi(provider: JsonObject, template: JsonObject
     };
   }
   return mergeProviderTemplateModels(normalizedProvider, template);
+}
+
+function normalizeManagedProxyProvider(provider: JsonObject, template: JsonObject): JsonObject {
+  return mergeProviderTemplateModels(
+    {
+      ...provider,
+      baseUrl: template.baseUrl,
+      api: template.api,
+      apiKey: template.apiKey,
+    },
+    template,
+  );
 }
 
 function readModelPrimaryValue(value: unknown): string | null {
@@ -706,15 +1034,16 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
         input: ["text"],
         reasoning: true,
       },
+      ...OLLAMA_CLOUD_MODEL_TEMPLATES,
     ]),
   };
   const providerTemplates: Array<[string, JsonObject]> = [
     [
       "openai",
       {
-        baseUrl: `http://127.0.0.1:${config.proxyPort}/openai/v1`,
+        baseUrl: `http://127.0.0.1:${config.proxyPort}/v1`,
         api: "openai-completions",
-        apiKey: "",
+        apiKey: config.proxyApiKey,
         models: [
           {
             id: "gpt-5.5",
@@ -861,9 +1190,9 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
     [
       "anthropic",
       {
-        baseUrl: `http://127.0.0.1:${config.proxyPort}/anthropic`,
-        api: "anthropic-messages",
-        apiKey: "",
+        baseUrl: `http://127.0.0.1:${config.proxyPort}/v1`,
+        api: "openai-completions",
+        apiKey: config.proxyApiKey,
         models: [
           {
             id: "claude-opus-4-7",
@@ -955,11 +1284,20 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
       },
     ],
     [
+      "ollama-cloud",
+      {
+        baseUrl: `http://127.0.0.1:${config.proxyPort}/v1`,
+        api: "openai-completions",
+        apiKey: config.proxyApiKey,
+        models: OLLAMA_CLOUD_MODEL_TEMPLATES,
+      },
+    ],
+    [
       "gemini",
       {
-        baseUrl: `http://127.0.0.1:${config.proxyPort}/gemini`,
-        api: "google-generative-ai",
-        apiKey: "",
+        baseUrl: `http://127.0.0.1:${config.proxyPort}/v1`,
+        api: "openai-completions",
+        apiKey: config.proxyApiKey,
         models: [
           {
             id: "gemini-2.5-pro-preview-06-05",
@@ -1052,9 +1390,9 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
     [
       "deepseek",
       {
-        baseUrl: `http://127.0.0.1:${config.proxyPort}/deepseek/v1`,
+        baseUrl: `http://127.0.0.1:${config.proxyPort}/v1`,
         api: "openai-completions",
-        apiKey: "",
+        apiKey: config.proxyApiKey,
         models: [
           {
             id: "deepseek-v4-pro",
@@ -1109,13 +1447,7 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
   ];
   for (const [templateProviderId, template] of providerTemplates) {
     const existingProvider = asObject(providers[templateProviderId]);
-    const apiKey =
-      typeof existingProvider.apiKey === "string" ? existingProvider.apiKey.trim() : "";
-    if (!apiKey) {
-      delete providers[templateProviderId];
-      continue;
-    }
-    providers[templateProviderId] = normalizeProviderTemplateApi(existingProvider, template);
+    providers[templateProviderId] = normalizeManagedProxyProvider(existingProvider, template);
   }
   models.providers = providers;
   next.models = models;
@@ -1211,6 +1543,51 @@ export function bootstrapLuminaRuntime(config: LuminaConfig, paths: RuntimePaths
   }
   luminaEntry.config = luminaPluginConfig;
   entries["lumina-pc"] = luminaEntry;
+  const luminaMemoryEntry = asObject(entries["lumina-memory"]);
+  if (shouldApplyActivationDefaults || luminaMemoryEntry.enabled === undefined) {
+    luminaMemoryEntry.enabled = true;
+  }
+  const luminaMemoryConfig = asObject(luminaMemoryEntry.config);
+  if (shouldApplyActivationDefaults || luminaMemoryConfig.enabled === undefined) {
+    luminaMemoryConfig.enabled = true;
+  }
+  luminaMemoryEntry.config = luminaMemoryConfig;
+  entries["lumina-memory"] = luminaMemoryEntry;
+
+  const luminaObservationEntry = asObject(entries["lumina-observation"]);
+  if (shouldApplyActivationDefaults || luminaObservationEntry.enabled === undefined) {
+    luminaObservationEntry.enabled = true;
+  }
+  const luminaObservationConfig = asObject(luminaObservationEntry.config);
+  if (shouldApplyActivationDefaults || luminaObservationConfig.enabled === undefined) {
+    luminaObservationConfig.enabled = true;
+  }
+  const luminaNarrationConfig = asObject(luminaObservationConfig.narration);
+  if (shouldApplyActivationDefaults || luminaNarrationConfig.enabled === undefined) {
+    luminaNarrationConfig.enabled = false;
+  }
+  luminaObservationConfig.narration = luminaNarrationConfig;
+  luminaObservationEntry.config = luminaObservationConfig;
+  entries["lumina-observation"] = luminaObservationEntry;
+
+  const luminaPresenceEntry = asObject(entries["lumina-presence"]);
+  if (shouldApplyActivationDefaults || luminaPresenceEntry.enabled === undefined) {
+    luminaPresenceEntry.enabled = true;
+  }
+  const luminaPresenceConfig = asObject(luminaPresenceEntry.config);
+  if (shouldApplyActivationDefaults || luminaPresenceConfig.enabled === undefined) {
+    luminaPresenceConfig.enabled = true;
+  }
+  const luminaInitiativeConfig = asObject(luminaPresenceConfig.initiative);
+  if (shouldApplyActivationDefaults || luminaInitiativeConfig.enabled === undefined) {
+    luminaInitiativeConfig.enabled = true;
+  }
+  if (shouldApplyActivationDefaults || luminaInitiativeConfig.defaultSessionKey === undefined) {
+    luminaInitiativeConfig.defaultSessionKey = "agent:main:main";
+  }
+  luminaPresenceConfig.initiative = luminaInitiativeConfig;
+  luminaPresenceEntry.config = luminaPresenceConfig;
+  entries["lumina-presence"] = luminaPresenceEntry;
   const browserEntry = asObject(entries.browser);
   if (shouldApplyActivationDefaults || browserEntry.enabled === undefined) {
     browserEntry.enabled = true;

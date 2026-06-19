@@ -18,6 +18,7 @@ import { createHeartbeatService } from "./src/services/heartbeat.js";
 import { createWatcherService } from "./src/services/watcher.js";
 import { createClipboardTool } from "./src/tools/clipboard.js";
 import { createFileOpsTool } from "./src/tools/file-ops.js";
+import { createInputControlTool } from "./src/tools/input-control.js";
 import { createLuminaCodeTool } from "./src/tools/lumina-code.js";
 import { createNotifyToastTool } from "./src/tools/notify-toast.js";
 import { createProcessListTool } from "./src/tools/process-list.js";
@@ -34,6 +35,9 @@ type LuminaConfig = {
   heartbeatIntervalMs?: number;
   screenshotDir?: string;
   watchedPaths?: string[];
+  inputControlEnabled?: boolean;
+  inputApprovalRequired?: boolean;
+  inputAllowedApps?: string[];
 };
 
 export default definePluginEntry({
@@ -46,7 +50,7 @@ export default definePluginEntry({
 
   register(api) {
     // Read plugin config (with safe defaults)
-    const raw = (api as unknown as { config?: LuminaConfig }).config ?? {};
+    const raw = (api.pluginConfig ?? {}) as LuminaConfig;
     const cfg: Required<LuminaConfig> = {
       enabled: raw.enabled ?? true,
       shellApprovalRequired: raw.shellApprovalRequired ?? true,
@@ -54,6 +58,9 @@ export default definePluginEntry({
       heartbeatIntervalMs: raw.heartbeatIntervalMs ?? 30_000,
       screenshotDir: raw.screenshotDir ?? "",
       watchedPaths: raw.watchedPaths ?? [],
+      inputControlEnabled: raw.inputControlEnabled ?? false,
+      inputApprovalRequired: raw.inputApprovalRequired ?? true,
+      inputAllowedApps: raw.inputAllowedApps ?? [],
     };
 
     if (!cfg.enabled) return;
@@ -87,6 +94,43 @@ export default definePluginEntry({
 
     // I24D voice: notify user via Windows Toast
     api.registerTool(createNotifyToastTool());
+
+    if (cfg.inputControlEnabled) {
+      api.registerTool(
+        createInputControlTool({
+          enabled: true,
+          allowedApps: cfg.inputAllowedApps,
+          onAudit: (event) =>
+            api.logger.info(`[lumina-pc] input control audit ${JSON.stringify(event)}`),
+        }),
+      );
+      api.registerToolMetadata({
+        toolName: "lumina_input_control",
+        displayName: "Lumina Input Control",
+        description: "Allowlisted mouse and keyboard control for the active Windows application.",
+        risk: "high",
+        tags: ["desktop", "input", "approval", "allowlist"],
+      });
+      if (cfg.inputApprovalRequired) {
+        api.registerTrustedToolPolicy({
+          id: "lumina-input-control-approval",
+          description: "Require explicit approval before mouse or keyboard input is sent.",
+          evaluate(event) {
+            if (event.toolName !== "lumina_input_control") return undefined;
+            const action =
+              typeof event.params.action === "string" ? event.params.action : "desktop input";
+            return {
+              requireApproval: {
+                title: "Allow Lumina to control input?",
+                description: `Lumina wants to perform ${action} in an allowlisted application.`,
+                severity: "warning",
+                allowedDecisions: ["allow-once", "deny"],
+              },
+            };
+          },
+        });
+      }
+    }
 
     // ── BACKGROUND SERVICES ───────────────────────────────────────
     // System heartbeat — reports health metrics periodically

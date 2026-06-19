@@ -27,6 +27,8 @@ const runtimeNodeDir = path.join(desktopRoot, "build", "runtime-node");
 const packagedOpenClawDir = path.join(desktopRoot, "build", "openclaw-package");
 const toolProxyRoot = path.join(repoRoot, "tool-proxy");
 const proxyEntryPath = path.join(toolProxyRoot, "server.mjs");
+const proxyRoutingPath = path.join(toolProxyRoot, "lumina-code-routing.mjs");
+const proxyCatalogPath = path.join(toolProxyRoot, "lumina-model-catalog.mjs");
 const proxyConfigPath = path.join(toolProxyRoot, "proxy-config.json");
 const luminaCodeVsixPath = resolveLatestLuminaCodeVsixPath();
 const luminaCodeVsixFileName = path.basename(luminaCodeVsixPath);
@@ -35,22 +37,23 @@ function resolveLatestLuminaCodeVsixPath() {
   if (process.env.LUMINA_CODE_VSIX_PATH) {
     return process.env.LUMINA_CODE_VSIX_PATH;
   }
-  const buildDir = path.join(
-    workspaceRoot,
-    "src",
-    "lumina-code",
-    "official",
-    "extensions",
-    "vscode",
-    "build",
-  );
-  const latestFileName = fs.existsSync(buildDir)
-    ? fs
-        .readdirSync(buildDir)
-        .filter((fileName) => /^lumina-code-.+\.vsix$/i.test(fileName))
-        .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))[0]
-    : undefined;
-  return path.join(buildDir, latestFileName ?? "lumina-code-0.1.0.vsix");
+  const buildDirs = [
+    path.join(workspaceRoot, "Lumina-Code", "official", "extensions", "vscode", "build"),
+    path.join(workspaceRoot, "src", "lumina-code", "official", "extensions", "vscode", "build"),
+  ];
+  for (const buildDir of buildDirs) {
+    if (!fs.existsSync(buildDir)) {
+      continue;
+    }
+    const latestFileName = fs
+      .readdirSync(buildDir)
+      .filter((fileName) => /^lumina-code-.+\.vsix$/i.test(fileName))
+      .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))[0];
+    if (latestFileName) {
+      return path.join(buildDir, latestFileName);
+    }
+  }
+  return path.join(buildDirs[0], "lumina-code-0.1.0.vsix");
 }
 
 function log(message) {
@@ -211,6 +214,8 @@ function assembleCanonicalRuntimeBundle(
   ensureExists(packagedOpenClawDir, "packaged OpenClaw runtime");
   ensureExists(path.join(packagedOpenClawDir, "dist", "control-ui", "index.html"), "OpenClaw UI");
   ensureExists(proxyEntryPath, "tool proxy entry");
+  ensureExists(proxyRoutingPath, "tool proxy routing policy");
+  ensureExists(proxyCatalogPath, "tool proxy model catalog");
   ensureExists(proxyConfigPath, "tool proxy config");
   ensureExists(luminaCodeVsixPath, "Lumina Code VSIX");
 
@@ -231,6 +236,14 @@ function assembleCanonicalRuntimeBundle(
     path.join(canonicalPayloadRoot, "ui"),
   );
   copyFileToStage(proxyEntryPath, path.join(canonicalPayloadRoot, "proxy", "server.mjs"));
+  copyFileToStage(
+    proxyRoutingPath,
+    path.join(canonicalPayloadRoot, "proxy", "lumina-code-routing.mjs"),
+  );
+  copyFileToStage(
+    proxyCatalogPath,
+    path.join(canonicalPayloadRoot, "proxy", "lumina-model-catalog.mjs"),
+  );
   copyFileToStage(
     proxyConfigPath,
     path.join(canonicalPayloadRoot, "proxy", "proxy-config.json"),

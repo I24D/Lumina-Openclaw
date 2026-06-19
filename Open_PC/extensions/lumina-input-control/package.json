@@ -1,0 +1,21 @@
+{
+  "name": "@openclaw/lumina-input-control",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lumina Input Control — mouse and keyboard automation with per-process allowlist. Phase 6. Free actions inside allowlisted apps (e.g. Code, browser, terminal); confirmation-required outside. Full audit log.",
+  "type": "module",
+  "dependencies": {
+    "typebox": "1.1.38"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.4.4"
+    },
+    "build": {
+      "openclawVersion": "2026.5.22"
+    }
+  }
+}

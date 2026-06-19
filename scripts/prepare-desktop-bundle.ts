@@ -29,28 +29,30 @@ function resolveLatestLuminaCodeVsixPath() {
   if (process.env.LUMINA_CODE_VSIX_PATH) {
     return process.env.LUMINA_CODE_VSIX_PATH;
   }
-  const buildDir = path.join(
-    workspaceRoot,
-    "src",
-    "lumina-code",
-    "official",
-    "extensions",
-    "vscode",
-    "build",
-  );
-  const latestFileName = fs.existsSync(buildDir)
-    ? fs
-        .readdirSync(buildDir)
-        .filter((fileName) => /^lumina-code-.+\.vsix$/i.test(fileName))
-        .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))[0]
-    : undefined;
-  return path.join(buildDir, latestFileName ?? "lumina-code-0.1.0.vsix");
+  const buildDirs = [
+    path.join(workspaceRoot, "Lumina-Code", "official", "extensions", "vscode", "build"),
+    path.join(workspaceRoot, "src", "lumina-code", "official", "extensions", "vscode", "build"),
+  ];
+  for (const buildDir of buildDirs) {
+    if (!fs.existsSync(buildDir)) {
+      continue;
+    }
+    const latestFileName = fs
+      .readdirSync(buildDir)
+      .filter((fileName) => /^lumina-code-.+\.vsix$/i.test(fileName))
+      .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))[0];
+    if (latestFileName) {
+      return path.join(buildDir, latestFileName);
+    }
+  }
+  return path.join(buildDirs[0], "lumina-code-0.1.0.vsix");
 }
 const bundleManifestPath = path.join(desktopRoot, "build", "openclaw-bundle.json");
 const canonicalBundleRoot = path.join(desktopRoot, "build", "runtime-bundle");
 const canonicalBundlePayloadRoot = path.join(canonicalBundleRoot, "payload");
 const canonicalBundleManifestPath = path.join(canonicalBundleRoot, "bundle.manifest.json");
 const runtimeNodeDir = path.join(desktopRoot, "build", "runtime-node");
+const runtimeToolsDir = path.join(desktopRoot, "build", "runtime-tools");
 const stagedOpenClawDir = path.join(desktopRoot, "build", "openclaw-deploy");
 const packagedOpenClawDir = path.join(desktopRoot, "build", "openclaw-package");
 const deployStampPath = path.join(desktopRoot, "build", "openclaw-deploy-stamp.json");
@@ -96,6 +98,9 @@ const NODE_MODULES_PRUNE_DIRECTORY_NAMES = new Set([
 ]);
 const BUNDLED_PLUGIN_RUNTIME_METADATA_PRUNE_DIRECTORIES = new Set(["node_modules"]);
 const EMBEDDED_ACPX_RUNTIME_DEPENDENCIES = [
+  "@agentclientprotocol/claude-agent-acp",
+  "@anthropic-ai/claude-agent-sdk",
+  `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`,
   "@zed-industries/codex-acp",
   `@zed-industries/codex-acp-${process.platform}-${process.arch}`,
 ];
@@ -135,7 +140,7 @@ function readPackageJson(targetPath) {
 }
 
 function readVsixPackageJson(targetPath, label) {
-  const attempts = [
+  const attempts: Array<[string, string[]]> = [
     ["tar", ["-xOf", targetPath, "extension/package.json"]],
     ["unzip", ["-p", targetPath, "extension/package.json"]],
   ];
@@ -490,6 +495,46 @@ function validatePackagedOpenClawRuntime() {
       kind: "file",
     },
     {
+      relativePath: "dist/extensions/lumina-memory",
+      label: "openclaw/dist/extensions/lumina-memory",
+      kind: "directory",
+    },
+    {
+      relativePath: "dist/extensions/lumina-memory/openclaw.plugin.json",
+      label: "openclaw/dist/extensions/lumina-memory/openclaw.plugin.json",
+      kind: "file",
+    },
+    {
+      relativePath: "dist/extensions/lumina-observation",
+      label: "openclaw/dist/extensions/lumina-observation",
+      kind: "directory",
+    },
+    {
+      relativePath: "dist/extensions/lumina-observation/openclaw.plugin.json",
+      label: "openclaw/dist/extensions/lumina-observation/openclaw.plugin.json",
+      kind: "file",
+    },
+    {
+      relativePath: "dist/extensions/lumina-presence",
+      label: "openclaw/dist/extensions/lumina-presence",
+      kind: "directory",
+    },
+    {
+      relativePath: "dist/extensions/lumina-presence/openclaw.plugin.json",
+      label: "openclaw/dist/extensions/lumina-presence/openclaw.plugin.json",
+      kind: "file",
+    },
+    {
+      relativePath: "dist/extensions/lumina-input-control",
+      label: "openclaw/dist/extensions/lumina-input-control",
+      kind: "directory",
+    },
+    {
+      relativePath: "dist/extensions/lumina-input-control/openclaw.plugin.json",
+      label: "openclaw/dist/extensions/lumina-input-control/openclaw.plugin.json",
+      kind: "file",
+    },
+    {
       relativePath: "dist/control-ui/index.html",
       label: "ui/index.html",
       kind: "file",
@@ -497,6 +542,28 @@ function validatePackagedOpenClawRuntime() {
     {
       relativePath: "node_modules/@zed-industries/codex-acp/bin/codex-acp.js",
       label: "openclaw/node_modules/@zed-industries/codex-acp/bin/codex-acp.js",
+      kind: "file",
+    },
+    {
+      relativePath: "node_modules/@agentclientprotocol/claude-agent-acp/dist/lib.js",
+      label: "openclaw/node_modules/@agentclientprotocol/claude-agent-acp/dist/lib.js",
+      kind: "file",
+    },
+    {
+      relativePath: "node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs",
+      label: "openclaw/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs",
+      kind: "file",
+    },
+    {
+      relativePath: path.join(
+        "node_modules",
+        "@anthropic-ai",
+        `claude-agent-sdk-${process.platform}-${process.arch}`,
+        process.platform === "win32" ? "claude.exe" : "claude",
+      ),
+      label: `openclaw/node_modules/@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/${
+        process.platform === "win32" ? "claude.exe" : "claude"
+      }`,
       kind: "file",
     },
     {
@@ -640,10 +707,25 @@ function runPackagedRuntimeImportSmokeTest(targetPath, label) {
 function validatePackagedRuntimeModuleImports() {
   const gatewayServerBundlePath = resolveGatewayServerBundlePath(packagedOpenClawDir);
   runPackagedRuntimeImportSmokeTest(gatewayServerBundlePath, "gateway server bundle");
+  runPackagedRuntimeImportSmokeTest(
+    path.join(
+      packagedOpenClawDir,
+      "node_modules",
+      "@agentclientprotocol",
+      "claude-agent-acp",
+      "dist",
+      "lib.js",
+    ),
+    "Claude ACP adapter",
+  );
 }
 
 function validateCanonicalRuntimeBundlePayload() {
   const bundledNodeRelativePath = process.platform === "win32" ? "node/node.exe" : "node/node";
+  const runtimeManagerRelativePath =
+    process.platform === "win32"
+      ? "runtime-tools/lumina-bootstrapper.exe"
+      : "runtime-tools/lumina-bootstrapper";
 
   validateRequiredPaths(canonicalBundlePayloadRoot, "canonical runtime bundle payload", [
     {
@@ -652,8 +734,32 @@ function validateCanonicalRuntimeBundlePayload() {
       kind: "file",
     },
     {
+      relativePath: runtimeManagerRelativePath,
+      label: runtimeManagerRelativePath,
+      kind: "file",
+    },
+    ...(process.platform === "win32"
+      ? [
+          {
+            relativePath: "runtime-tools/lumina-voice.exe",
+            label: "runtime-tools/lumina-voice.exe",
+            kind: "file" as const,
+          },
+        ]
+      : []),
+    {
       relativePath: "proxy/server.mjs",
       label: "proxy/server.mjs",
+      kind: "file",
+    },
+    {
+      relativePath: "proxy/lumina-code-routing.mjs",
+      label: "proxy/lumina-code-routing.mjs",
+      kind: "file",
+    },
+    {
+      relativePath: "proxy/lumina-model-catalog.mjs",
+      label: "proxy/lumina-model-catalog.mjs",
       kind: "file",
     },
     {
@@ -697,6 +803,26 @@ function validateCanonicalRuntimeBundlePayload() {
       kind: "file",
     },
     {
+      relativePath: "openclaw/dist/extensions/lumina-memory",
+      label: "openclaw/dist/extensions/lumina-memory",
+      kind: "directory",
+    },
+    {
+      relativePath: "openclaw/dist/extensions/lumina-observation",
+      label: "openclaw/dist/extensions/lumina-observation",
+      kind: "directory",
+    },
+    {
+      relativePath: "openclaw/dist/extensions/lumina-presence",
+      label: "openclaw/dist/extensions/lumina-presence",
+      kind: "directory",
+    },
+    {
+      relativePath: "openclaw/dist/extensions/lumina-input-control",
+      label: "openclaw/dist/extensions/lumina-input-control",
+      kind: "directory",
+    },
+    {
       relativePath: "ui/index.html",
       label: "ui/index.html",
       kind: "file",
@@ -712,6 +838,7 @@ function buildCanonicalRuntimeBundle() {
     path.join(canonicalBundlePayloadRoot, "config", "lumina-defaults.json"),
   );
   syncDirToStage(runtimeNodeDir, path.join(canonicalBundlePayloadRoot, "node"));
+  syncDirToStage(runtimeToolsDir, path.join(canonicalBundlePayloadRoot, "runtime-tools"));
   const canonicalOpenClawDir = path.join(canonicalBundlePayloadRoot, "openclaw");
   syncDirToStage(packagedOpenClawDir, canonicalOpenClawDir);
   fs.rmSync(path.join(canonicalOpenClawDir, "dist", "control-ui"), {
@@ -723,6 +850,14 @@ function buildCanonicalRuntimeBundle() {
     path.join(canonicalBundlePayloadRoot, "ui"),
   );
   copyFileToStage(proxyEntryPath, path.join(canonicalBundlePayloadRoot, "proxy", "server.mjs"));
+  copyFileToStage(
+    proxyRoutingPath,
+    path.join(canonicalBundlePayloadRoot, "proxy", "lumina-code-routing.mjs"),
+  );
+  copyFileToStage(
+    proxyCatalogPath,
+    path.join(canonicalBundlePayloadRoot, "proxy", "lumina-model-catalog.mjs"),
+  );
   copyFileToStage(
     proxyConfigPath,
     path.join(canonicalBundlePayloadRoot, "proxy", "proxy-config.json"),
@@ -800,6 +935,14 @@ function writeCanonicalBundleManifest() {
         executable: true,
       }),
       createBundleEntry({
+        id: "runtime-tools",
+        kind: "runtime",
+        bundleRelativePath: "payload/runtime-tools",
+        installRelativePath: "runtime-tools",
+        sourcePath: runtimeToolsDir,
+        executable: true,
+      }),
+      createBundleEntry({
         id: "openclaw-runtime",
         kind: "content",
         bundleRelativePath: "payload/openclaw",
@@ -819,6 +962,20 @@ function writeCanonicalBundleManifest() {
         bundleRelativePath: "payload/proxy/server.mjs",
         installRelativePath: "proxy/server.mjs",
         sourcePath: proxyEntryPath,
+      }),
+      createBundleEntry({
+        id: "proxy-routing",
+        kind: "service",
+        bundleRelativePath: "payload/proxy/lumina-code-routing.mjs",
+        installRelativePath: "proxy/lumina-code-routing.mjs",
+        sourcePath: proxyRoutingPath,
+      }),
+      createBundleEntry({
+        id: "proxy-catalog",
+        kind: "service",
+        bundleRelativePath: "payload/proxy/lumina-model-catalog.mjs",
+        installRelativePath: "proxy/lumina-model-catalog.mjs",
+        sourcePath: proxyCatalogPath,
       }),
       createBundleEntry({
         id: "proxy-config",
@@ -1378,7 +1535,7 @@ function stageEmbeddedAcpxRuntimeDependencies() {
     return;
   }
 
-  log("Staging embedded acpx Codex runtime dependencies.");
+  log("Staging embedded acpx runtime dependencies.");
   const rootNodeModulesDir = path.join(stagedOpenClawDir, "node_modules");
   for (const dependencyName of EMBEDDED_ACPX_RUNTIME_DEPENDENCIES) {
     const dependencyPathParts = dependencyName.split("/");
@@ -1462,6 +1619,8 @@ const uiIndexPath = path.join(openClawRoot, "dist", "control-ui", "index.html");
 const runtimeDistPath = path.join(openClawRoot, "dist");
 const runtimeEntryPath = path.join(openClawRoot, "openclaw.mjs");
 const proxyEntryPath = path.join(toolProxyRoot, "server.mjs");
+const proxyRoutingPath = path.join(toolProxyRoot, "lumina-code-routing.mjs");
+const proxyCatalogPath = path.join(toolProxyRoot, "lumina-model-catalog.mjs");
 const proxyConfigPath = path.join(toolProxyRoot, "proxy-config.json");
 const macIconPath = path.join(desktopRoot, "assets", "icon.icns");
 const defaultsFilePath = path.join(desktopRoot, "build", "lumina-defaults.json");
@@ -1490,9 +1649,12 @@ ensureExists(openClawPackageJsonPath, "OpenClaw package.json");
 ensureExists(desktopPackageJsonPath, "desktop package.json");
 ensureExists(tauriConfigPath, "Tauri config");
 ensureExists(defaultsFilePath, "Lumina defaults file");
+ensureExists(runtimeToolsDir, "Lumina runtime tools");
 ensureExists(path.join(openClawRoot, "assets"), "OpenClaw assets");
 ensureExists(runtimeDistPath, "OpenClaw dist");
 ensureExists(proxyEntryPath, "tool-proxy server");
+ensureExists(proxyRoutingPath, "tool-proxy Lumina Code routing policy");
+ensureExists(proxyCatalogPath, "tool-proxy model catalog");
 ensureExists(proxyConfigPath, "tool-proxy config");
 ensureExists(luminaCodeVsixPath, "Lumina Code VSIX");
 verifyLuminaCodeVsixManifest(luminaCodeVsixPath);

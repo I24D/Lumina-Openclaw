@@ -964,6 +964,7 @@ function validateConfigObjectWithPluginsBase(
   const config = opts.applyDefaults
     ? materializeRuntimeConfig(base.config, "snapshot", {
         manifestRegistry: registryInfo?.registry,
+        skipProviderPolicy: opts.pluginValidation === "skip",
       })
     : base.config;
   if (opts.pluginValidation === "skip") {

@@ -8,23 +8,39 @@ import {
   applyAgentDefaults,
   applyContextPruningDefaults,
   applyMessageDefaults,
+  applyModelDefaults,
 } from "./defaults.js";
 
 const mocks = vi.hoisted(() => ({
   applyProviderConfigDefaultsForConfig: vi.fn(),
+  normalizeProviderConfigForConfigDefaults: vi.fn(
+    (params: { providerConfig: unknown }) => params.providerConfig,
+  ),
+  normalizeConfiguredProviderCatalogModelId: vi.fn(
+    (_provider: string, modelId: string) => modelId,
+  ),
+}));
+
+vi.mock("../agents/model-ref-shared.js", () => ({
+  normalizeConfiguredProviderCatalogModelId: (
+    ...args: Parameters<typeof mocks.normalizeConfiguredProviderCatalogModelId>
+  ) => mocks.normalizeConfiguredProviderCatalogModelId(...args),
 }));
 
 vi.mock("./provider-policy.js", () => ({
   applyProviderConfigDefaultsForConfig: (
     ...args: Parameters<typeof mocks.applyProviderConfigDefaultsForConfig>
   ) => mocks.applyProviderConfigDefaultsForConfig(...args),
-  normalizeProviderConfigForConfigDefaults: (_params: { providerConfig: unknown }) =>
-    _params.providerConfig,
+  normalizeProviderConfigForConfigDefaults: (
+    ...args: Parameters<typeof mocks.normalizeProviderConfigForConfigDefaults>
+  ) => mocks.normalizeProviderConfigForConfigDefaults(...args),
 }));
 
 describe("config defaults", () => {
   beforeEach(() => {
     mocks.applyProviderConfigDefaultsForConfig.mockReset();
+    mocks.normalizeProviderConfigForConfigDefaults.mockClear();
+    mocks.normalizeConfiguredProviderCatalogModelId.mockClear();
     vi.stubEnv("ANTHROPIC_API_KEY", "");
     vi.stubEnv("ANTHROPIC_OAUTH_TOKEN", "");
   });
@@ -87,6 +103,31 @@ describe("config defaults", () => {
     const [[defaultsParams]] = mocks.applyProviderConfigDefaultsForConfig.mock
       .calls as unknown as Array<[{ manifestRegistry?: unknown }]>;
     expect(defaultsParams.manifestRegistry).toBe(manifestRegistry);
+  });
+
+  it("skips provider policy loading on the desktop fast path", () => {
+    const next = applyModelDefaults(
+      {
+        models: {
+          providers: {
+            lumina: {
+              baseUrl: "http://127.0.0.1:4321/v1",
+              api: "openai-completions",
+              models: [{ id: "I24D", name: "Lumina IA" }],
+            },
+          },
+        },
+      } as never,
+      { skipProviderPolicy: true },
+    );
+
+    expect(mocks.normalizeProviderConfigForConfigDefaults).not.toHaveBeenCalled();
+    expect(mocks.normalizeConfiguredProviderCatalogModelId).toHaveBeenCalledWith(
+      "lumina",
+      "I24D",
+      { allowManifestNormalization: false },
+    );
+    expect(next.models?.providers?.lumina?.models?.[0]?.contextWindow).toBeDefined();
   });
 
   it("defaults ackReactionScope without deriving other message fields", () => {

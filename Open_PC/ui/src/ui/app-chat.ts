@@ -52,6 +52,7 @@ export type ChatHost = ChatInputHistoryState & {
   chatStream: string | null;
   connected: boolean;
   chatAttachments: ChatAttachment[];
+  chatVisionActive?: boolean;
   chatQueue: ChatQueueItem[];
   chatRunId: string | null;
   chatSending: boolean;
@@ -575,15 +576,24 @@ export async function handleSendChat(
     return;
   }
   const previousDraft = host.chatMessage;
-  const message = (messageOverride ?? host.chatMessage).trim();
+  const rawMessage = (messageOverride ?? host.chatMessage).trim();
   const submittedSessionKey = host.sessionKey;
   const attachments = host.chatAttachments ?? [];
   const attachmentsToSend = messageOverride == null ? snapshotChatAttachments(attachments) : [];
   const hasAttachments = attachmentsToSend.length > 0;
 
-  if (!message && !hasAttachments) {
+  if (!rawMessage && !hasAttachments) {
     return;
   }
+
+  // Vision mode: when ON, prepend an instruction so the agent captures the screen
+  // before responding. This is the MVP equivalent of Copilot Vision's "share screen".
+  // Skipped for slash commands and stop/btw commands (handled later anyway).
+  const isSlash = rawMessage.startsWith("/");
+  const visionOn = host.chatVisionActive === true && messageOverride == null && !isSlash;
+  const message = visionOn
+    ? `[vision-mode] Antes de responder, usa la herramienta \`lumina_screen_capture\` para ver lo que tengo en la pantalla ahora mismo. Luego responde a:\n\n${rawMessage}`
+    : rawMessage;
 
   if (messageOverride != null && opts?.confirmReset && !confirmChatResetCommand(message)) {
     return;

@@ -36,6 +36,14 @@ export type RemoteBrainToolDefinition = {
   parameters: Record<string, unknown>;
 };
 
+export type RemoteBrainAttachment = {
+  type: "image" | "video" | "audio" | "document";
+  url: string;
+  fileName?: string;
+  mimeType?: string;
+  caption?: string;
+};
+
 type RemoteBrainRuntimeTool = {
   definition: RemoteBrainToolDefinition;
   execute: (toolCallId: string, args: Record<string, unknown>) => Promise<unknown>;
@@ -50,6 +58,9 @@ type RemoteBrainTurnResponse = {
   finishReason: string;
   model?: string;
   usage?: unknown;
+  speechText?: string;
+  attachments: RemoteBrainAttachment[];
+  traceId?: string;
 };
 
 type RemoteBrainConfig = {
@@ -84,6 +95,9 @@ export type GatewayRemoteBrainLoopResult =
       usage?: unknown;
       executedToolCalls: number;
       pendingToolCalls?: RemoteBrainToolCall[];
+      speechText?: string;
+      attachments?: RemoteBrainAttachment[];
+      traceId?: string;
     };
 
 export type GatewayRemoteBrainLoopParams = {
@@ -115,6 +129,75 @@ function normalizeNonEmptyString(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeRemoteBrainAttachments(value: unknown): RemoteBrainAttachment[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item): RemoteBrainAttachment | null => {
+      if (!isRecord(item)) {
+        return null;
+      }
+      const rawType = normalizeNonEmptyString(item.type)?.toLowerCase();
+      const url = normalizeNonEmptyString(item.url);
+      if (
+        !url ||
+        !rawType ||
+        !["image", "video", "audio", "document", "file"].includes(rawType)
+      ) {
+        return null;
+      }
+      return {
+        type: rawType === "file" ? "document" : (rawType as RemoteBrainAttachment["type"]),
+        url,
+        fileName:
+          normalizeNonEmptyString(item.fileName) ?? normalizeNonEmptyString(item.filename),
+        mimeType:
+          normalizeNonEmptyString(item.mimeType) ?? normalizeNonEmptyString(item.mimetype),
+        caption: normalizeNonEmptyString(item.caption),
+      };
+    })
+    .filter((item): item is RemoteBrainAttachment => item !== null);
+}
+
+export function buildRemoteBrainAssistantContent(
+  reply: string,
+  attachments: RemoteBrainAttachment[] = [],
+): Array<Record<string, unknown>> {
+  const content: Array<Record<string, unknown>> = [];
+  if (reply.trim()) {
+    content.push({ type: "text", text: reply.trim() });
+  }
+  for (const attachment of attachments) {
+    const label = attachment.caption || attachment.fileName || "Lumina artifact";
+    if (attachment.type === "image") {
+      content.push({
+        type: "image",
+        url: attachment.url,
+        openUrl: attachment.url,
+        alt: label,
+        ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+      });
+      continue;
+    }
+    content.push({
+      type: attachment.type === "audio" ? "audio" : "file",
+      url: attachment.url,
+      title: label,
+      fileName: attachment.fileName || undefined,
+      mimeType:
+        attachment.mimeType ||
+        (attachment.type === "video"
+          ? "video/*"
+          : attachment.type === "audio"
+            ? "audio/*"
+            : "application/octet-stream"),
+      artifactType: attachment.type,
+    });
+  }
+  return content.length > 0 ? content : [{ type: "text", text: "" }];
 }
 
 function normalizeBooleanEnv(value: string | undefined): boolean | undefined {
@@ -359,7 +442,7 @@ async function resolveLocalRuntimeTools(params: {
     messageProvider: params.messageProvider,
     accountId: params.accountId,
     agentTo: params.agentTo,
-    agentThreadId: params.agentThreadId,
+    agentThreadId: params.agentThreadId !== undefined ? String(params.agentThreadId) : undefined,
     senderIsOwner: params.senderIsOwner,
     allowGatewaySubagentBinding: true,
     allowMediaInvokeCommands: true,
@@ -418,6 +501,7 @@ async function callRemoteBrainTurn(params: {
       assistantMessage: { role: "assistant", content: "" },
       toolCalls: [],
       finishReason: "error",
+      attachments: [],
     };
   }
 
@@ -452,6 +536,7 @@ async function callRemoteBrainTurn(params: {
       assistantMessage: { role: "assistant", content: "" },
       toolCalls: [],
       finishReason: "error",
+      attachments: [],
     };
   }
 
@@ -474,6 +559,7 @@ async function callRemoteBrainTurn(params: {
       assistantMessage: { role: "assistant", content: "" },
       toolCalls: [],
       finishReason: "error",
+      attachments: [],
     };
   }
 
@@ -510,6 +596,7 @@ async function callRemoteBrainTurn(params: {
     content: stringifyMessageContent(responseRecord.reply),
     tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
   });
+  const attachments = normalizeRemoteBrainAttachments(responseRecord.attachments);
 
   return {
     ok: true,
@@ -521,6 +608,13 @@ async function callRemoteBrainTurn(params: {
       (toolCalls.length > 0 ? "tool_calls" : "stop"),
     model: normalizeNonEmptyString(responseRecord.model),
     usage: responseRecord.usage,
+    speechText:
+      normalizeNonEmptyString(responseRecord.speechText) ??
+      normalizeNonEmptyString(responseRecord.speech_text),
+    attachments,
+    traceId:
+      normalizeNonEmptyString(responseRecord.traceId) ??
+      normalizeNonEmptyString(responseRecord.trace_id),
   };
 }
 
@@ -597,6 +691,9 @@ export async function runGatewayRemoteBrainLoop(
         model: response.model,
         usage: response.usage,
         executedToolCalls,
+        speechText: response.speechText,
+        attachments: response.attachments,
+        traceId: response.traceId,
       };
     }
 
@@ -616,6 +713,9 @@ export async function runGatewayRemoteBrainLoop(
         model: response.model,
         usage: response.usage,
         executedToolCalls,
+        speechText: response.speechText,
+        attachments: response.attachments,
+        traceId: response.traceId,
       };
     }
 

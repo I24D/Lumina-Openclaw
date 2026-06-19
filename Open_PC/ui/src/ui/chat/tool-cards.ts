@@ -8,7 +8,18 @@ import { formatToolDetail, resolveToolDisplay } from "../tool-display.ts";
 import type { ToolCard } from "../types/chat-types.ts";
 import { extractTextCached } from "./message-extract.ts";
 import { isToolResultMessage } from "./role-normalizer.ts";
-import { formatToolOutputForSidebar, getTruncatedPreview } from "./tool-helpers.ts";
+// Side-effect import: registra el custom element <lumina-tool-terminal>.
+// Si xterm.js no se puede cargar (entorno sin DOM, etc.), el componente
+// se rinde como <pre> mediante su propio fallback interno.
+import "./tool-terminal.ts";
+import {
+  boundToolOutputForRender,
+  formatToolOutputForSidebar,
+  getTruncatedPreview,
+} from "./tool-helpers.ts";
+
+/** Labels que sabemos son outputs ejecutados (vs args / input). */
+const TERMINAL_OUTPUT_LABELS = new Set(["Tool output", "output", "stdout", "result"]);
 
 export type ToolPreview = NonNullable<ToolCard["preview"]>;
 
@@ -176,7 +187,8 @@ export function extractToolCards(message: unknown, prefix = "tool"): ToolCard[] 
       const name = typeof item.name === "string" ? item.name : "tool";
       const cardId = resolveToolCardId(item, m, index, prefix);
       const existing = findLatestCard(cards, cardId, name);
-      const text = extractToolText(item);
+      const rawText = extractToolText(item);
+      const text = rawText === undefined ? undefined : boundToolOutputForRender(rawText);
       const preview = extractToolPreview(text, name);
       if (existing) {
         existing.outputText = text;
@@ -205,7 +217,8 @@ export function extractToolCards(message: unknown, prefix = "tool"): ToolCard[] 
       (typeof m.toolName === "string" && m.toolName) ||
       (typeof m.tool_name === "string" && m.tool_name) ||
       "tool";
-    const text = extractTextCached(message) ?? undefined;
+    const rawText = extractTextCached(message) ?? undefined;
+    const text = rawText === undefined ? undefined : boundToolOutputForRender(rawText);
     cards.push({
       id: resolveToolCardId({}, m, 0, prefix),
       name,
@@ -382,7 +395,13 @@ function renderToolDataBlock(params: {
       ${empty
         ? html`<div class="chat-tool-card__block-empty muted">${text}</div>`
         : expanded
-          ? html`<pre class="chat-tool-card__block-content"><code>${text}</code></pre>`
+          ? TERMINAL_OUTPUT_LABELS.has(label)
+            ? html`<lumina-tool-terminal
+                class="chat-tool-card__block-content chat-tool-card__block-content--terminal"
+                .text=${text}
+                tool-name=${label}
+              ></lumina-tool-terminal>`
+            : html`<pre class="chat-tool-card__block-content"><code>${text}</code></pre>`
           : html`<div class="chat-tool-card__block-preview mono">
               ${getTruncatedPreview(text)}
             </div>`}

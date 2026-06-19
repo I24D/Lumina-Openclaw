@@ -7,6 +7,7 @@ import {
 } from "./pi-bundle-mcp-materialize.js";
 import type { McpCatalogTool } from "./pi-bundle-mcp-types.js";
 import type { SessionMcpRuntime } from "./pi-bundle-mcp-types.js";
+import { MAX_DELIVERED_TOOL_RESULT_TEXT_CHARS } from "./tool-result-output-guard.js";
 
 function expectTextContentBlock(block: unknown, text: string) {
   const content = block as { type?: string; text?: string } | undefined;
@@ -73,6 +74,30 @@ describe("createBundleMcpToolRuntime", () => {
       mcpServer: "bundleProbe",
       mcpTool: "bundle_probe",
     });
+  });
+
+  it("bounds oversized MCP results before they reach the agent session", async () => {
+    const runtime = await materializeBundleMcpToolsForRun({
+      runtime: makeToolRuntime({
+        serverName: "filesystem",
+        resultText: `${"head-".repeat(8_000)}${"tail-".repeat(8_000)}`,
+      }),
+    });
+
+    const result = await runtime.tools[0].execute(
+      "call-large-directory-list",
+      {},
+      undefined,
+      undefined,
+    );
+    const content = result.content[0];
+    if (content?.type !== "text") {
+      throw new Error("expected bounded MCP text result");
+    }
+    expect(content.text.length).toBeLessThanOrEqual(MAX_DELIVERED_TOOL_RESULT_TEXT_CHARS);
+    expect(content.text).toContain("OpenClaw output guard");
+    expect(content.text).toContain("head-");
+    expect(content.text).toContain("tail-");
   });
 
   it("disambiguates bundle MCP tools that collide with existing tool names", async () => {

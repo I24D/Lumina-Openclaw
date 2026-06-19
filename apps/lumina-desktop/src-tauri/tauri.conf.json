@@ -1,6 +1,6 @@
 {
   "productName": "Lumina OpenClaw",
-  "version": "1.0.10",
+  "version": "1.0.14",
   "identifier": "ai.lumina.desktop",
   "build": {
     "frontendDist": "lumina://localhost"
@@ -25,6 +25,8 @@
       "../build/runtime-bundle/payload/ui/": "ui",
       "../build/openclaw-package/": "openclaw",
       "../../../tool-proxy/server.mjs": "proxy/server.mjs",
+      "../../../tool-proxy/lumina-code-routing.mjs": "proxy/lumina-code-routing.mjs",
+      "../../../tool-proxy/lumina-model-catalog.mjs": "proxy/lumina-model-catalog.mjs",
       "../../../tool-proxy/proxy-config.json": "proxy/proxy-config.json",
       "../dist/bootstrap.js": "desktop-shell/bootstrap.js",
       "../dist/config.js": "desktop-shell/config.js",

@@ -714,7 +714,7 @@ describe("config help copy quality", () => {
     expect(/transcript|lock/i.test(acquireTimeout)).toBe(true);
 
     const stale = FIELD_HELP["session.writeLock.staleMs"];
-    expect(stale.includes("1800000")).toBe(true);
+    expect(stale.includes("30000")).toBe(true);
     expect(stale.includes("OPENCLAW_SESSION_WRITE_LOCK_STALE_MS")).toBe(true);
 
     const maxHold = FIELD_HELP["session.writeLock.maxHoldMs"];

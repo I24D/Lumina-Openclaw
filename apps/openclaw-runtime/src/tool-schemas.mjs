@@ -146,6 +146,17 @@ export const LUMINA_TOOL_SCHEMAS = [
           type: "boolean",
           description: "For list: include subdirectories recursively. Default: false.",
         },
+        limit: {
+          type: "number",
+          description: "For list: number of entries to return. Default: 200. Max: 500.",
+          minimum: 1,
+          maximum: 500,
+        },
+        offset: {
+          type: "number",
+          description: "For list: zero-based offset for pagination. Default: 0.",
+          minimum: 0,
+        },
         encoding: {
           type: "string",
           description: "Text encoding for read/write. Default: utf8.",

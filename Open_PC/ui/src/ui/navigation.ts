@@ -6,7 +6,7 @@ export const TAB_GROUPS = [
   { label: "chat", tabs: ["chat"] },
   {
     label: "control",
-    tabs: ["overview", "instances", "sessions", "usage", "cron"],
+    tabs: ["overview", "instances", "sessions", "usage", "cron", "security"],
   },
   { label: "agent", tabs: ["agents", "skills", "nodes", "provider", "luminaCode", "dreams"] },
   {
@@ -36,7 +36,8 @@ export type Tab =
   | "aiAgents"
   | "debug"
   | "logs"
-  | "dreams";
+  | "dreams"
+  | "security";
 
 export const SETTINGS_TABS = [
   "config",
@@ -72,6 +73,7 @@ const TAB_PATHS: Record<Tab, string> = {
   debug: "/debug",
   logs: "/logs",
   dreams: "/dreaming",
+  security: "/security",
 };
 
 const PATH_ALIASES: Record<string, Tab> = {
@@ -226,9 +228,17 @@ export function titleForTab(tab: Tab) {
   if (tab === "config") {
     return t("nav.settings");
   }
+  // "security" is a new tab not in the i18n catalogue yet — return a static label
+  // (falls back gracefully if t() returns the raw key for missing entries).
+  if (tab === "security") {
+    return "Security Guardian";
+  }
   return t(`tabs.${tab}`);
 }
 
 export function subtitleForTab(tab: Tab) {
+  if (tab === "security") {
+    return "Estado en vivo de AV, Defender, firewall y FIM";
+  }
   return t(`subtitles.${tab}`);
 }

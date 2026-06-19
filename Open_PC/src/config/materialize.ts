@@ -54,7 +54,10 @@ export function asRuntimeConfig(config: OpenClawConfig): RuntimeConfig {
 export function materializeRuntimeConfig(
   config: OpenClawConfig,
   mode: ConfigMaterializationMode,
-  options: { manifestRegistry?: Pick<PluginManifestRegistry, "plugins"> } = {},
+  options: {
+    manifestRegistry?: Pick<PluginManifestRegistry, "plugins">;
+    skipProviderPolicy?: boolean;
+  } = {},
 ): RuntimeConfig {
   const profile = MATERIALIZATION_PROFILES[mode];
   let next = applyMessageDefaults(config);
@@ -64,12 +67,18 @@ export function materializeRuntimeConfig(
   next = applySessionDefaults(next);
   next = applyAgentDefaults(next);
   if (profile.includeContextPruningDefaults) {
-    next = applyContextPruningDefaults(next, { manifestRegistry: options.manifestRegistry });
+    next = applyContextPruningDefaults(next, {
+      manifestRegistry: options.manifestRegistry,
+      skipProviderPolicy: options.skipProviderPolicy,
+    });
   }
   if (profile.includeCompactionDefaults) {
     next = applyCompactionDefaults(next);
   }
-  next = applyModelDefaults(next, { manifestRegistry: options.manifestRegistry });
+  next = applyModelDefaults(next, {
+    manifestRegistry: options.manifestRegistry,
+    skipProviderPolicy: options.skipProviderPolicy,
+  });
   next = applyTalkConfigNormalization(next);
   if (profile.normalizePaths) {
     normalizeConfigPaths(next);

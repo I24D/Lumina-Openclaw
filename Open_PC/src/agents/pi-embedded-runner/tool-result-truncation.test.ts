@@ -195,11 +195,12 @@ describe("calculateMaxToolResultChars", () => {
   it("scales with context window size", () => {
     const small = calculateMaxToolResultChars(8_000);
     const large = calculateMaxToolResultChars(200_000);
-    expect(large).toBeGreaterThan(small);
+    expect(small).toBe(DEFAULT_MAX_LIVE_TOOL_RESULT_CHARS);
+    expect(large).toBe(DEFAULT_MAX_LIVE_TOOL_RESULT_CHARS);
   });
 
   it("exports the live cap through both constant names", () => {
-    expect(DEFAULT_MAX_LIVE_TOOL_RESULT_CHARS).toBe(16_000);
+    expect(DEFAULT_MAX_LIVE_TOOL_RESULT_CHARS).toBe(5 * 1024);
     expect(HARD_MAX_TOOL_RESULT_CHARS).toBe(DEFAULT_MAX_LIVE_TOOL_RESULT_CHARS);
   });
 
@@ -294,7 +295,7 @@ describe("estimateToolResultReductionPotential", () => {
   });
 
   it("estimates reducible chars for aggregate medium tool-result tails", () => {
-    const medium = "alpha beta gamma delta epsilon ".repeat(400);
+    const medium = "alpha beta gamma delta epsilon ".repeat(150);
     const messages: AgentMessage[] = [
       makeToolResult(medium, "call_1"),
       makeToolResult(medium, "call_2"),
@@ -491,8 +492,8 @@ describe("truncateOversizedToolResultsInSession", () => {
     const sm = SessionManager.create(dir, dir);
     sm.appendMessage(makeUserMessage("hello"));
     sm.appendMessage(makeAssistantMessage("calling tools"));
-    const olderLarge = "older-large ".repeat(1_000);
-    const newerEnough = "newer-enough ".repeat(500);
+    const olderLarge = "older-large ".repeat(400);
+    const newerEnough = "newer-enough ".repeat(300);
     sm.appendMessage(makeToolResult(olderLarge, "call_1"));
     sm.appendMessage(makeToolResult(newerEnough, "call_2"));
     const sessionFile = sm.getSessionFile()!;

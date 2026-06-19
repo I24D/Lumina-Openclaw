@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import { onAgentEvent } from "../infra/agent-events.js";
-import { type GatewayRemoteBrainLoopParams, runGatewayRemoteBrainLoop } from "./remote-brain.js";
+import {
+  buildRemoteBrainAssistantContent,
+  type GatewayRemoteBrainLoopParams,
+  runGatewayRemoteBrainLoop,
+} from "./remote-brain.js";
 
 const TEST_CFG = {} as OpenClawConfig;
 
@@ -189,5 +193,49 @@ describe("runGatewayRemoteBrainLoop", () => {
     expect(result.executedToolCalls).toBe(0);
     expect(result.pendingToolCalls?.[0]?.function.name).toBe("get_weather");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves Lumina speech text and multimodal artifacts", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse({
+        ok: true,
+        reply: "Ciudad futurista",
+        speechText: "Listo, generé la imagen y la dejé visible en el chat.",
+        attachments: [
+          {
+            type: "image",
+            url: "https://example.com/city.png",
+            caption: "Ciudad futurista",
+            mimeType: "image/png",
+          },
+        ],
+        traceId: "trace-image-1",
+        toolCalls: [],
+        finishReason: "stop",
+      }),
+    );
+
+    const result = await runGatewayRemoteBrainLoop(
+      createLoopParams({
+        deps: { fetchImpl, localTools: [] },
+      }),
+    );
+
+    if (!result.enabled || !result.ok) {
+      throw new Error("expected successful multimodal result");
+    }
+    expect(result.speechText).toMatch(/imagen/i);
+    expect(result.attachments).toHaveLength(1);
+    expect(result.traceId).toBe("trace-image-1");
+    expect(buildRemoteBrainAssistantContent(result.reply, result.attachments)).toEqual([
+      { type: "text", text: "Ciudad futurista" },
+      {
+        type: "image",
+        url: "https://example.com/city.png",
+        openUrl: "https://example.com/city.png",
+        alt: "Ciudad futurista",
+        mimeType: "image/png",
+      },
+    ]);
   });
 });

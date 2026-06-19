@@ -34,9 +34,7 @@ overrides:
 packageExtensionsChecksum: sha256-oc/FAHkBR844HBfph1RZWyRMHHBpIFya25tyv5SGf6s=
 
 patchedDependencies:
-  '@agentclientprotocol/claude-agent-acp@0.36.1':
-    hash: f4f95d000b8694ca27dbbb969a7ebbfa9e45001e245a927201cb8bc43b6be641
-    path: patches/@agentclientprotocol__claude-agent-acp@0.36.1.patch
+  '@agentclientprotocol/claude-agent-acp@0.36.1': f4f95d000b8694ca27dbbb969a7ebbfa9e45001e245a927201cb8bc43b6be641
 
 importers:
 
@@ -903,7 +901,31 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
+  extensions/lumina-input-control:
+    dependencies:
+      typebox:
+        specifier: 1.1.38
+        version: 1.1.38
+
+  extensions/lumina-memory:
+    dependencies:
+      typebox:
+        specifier: 1.1.38
+        version: 1.1.38
+
+  extensions/lumina-observation:
+    dependencies:
+      typebox:
+        specifier: 1.1.38
+        version: 1.1.38
+
   extensions/lumina-pc:
+    dependencies:
+      typebox:
+        specifier: 1.1.38
+        version: 1.1.38
+
+  extensions/lumina-presence:
     dependencies:
       typebox:
         specifier: 1.1.38
@@ -1750,6 +1772,12 @@ importers:
       '@noble/ed25519':
         specifier: 3.1.0
         version: 3.1.0
+      '@xterm/addon-fit':
+        specifier: 0.10.0
+        version: 0.10.0(@xterm/xterm@5.5.0)
+      '@xterm/xterm':
+        specifier: 5.5.0
+        version: 5.5.0
       dompurify:
         specifier: 3.4.5
         version: 3.4.5
@@ -4448,6 +4476,14 @@ packages:
 
   '@wasm-audio-decoders/opus-ml@0.0.2':
     resolution: {integrity: sha512-58rWEqDGg+CKCyEeKm2KoxxSwTWtHh/NLTW9ObR4K8CGF6VwuuGudEI1CtniS/oSRmL1nJq/eh8MKARiluw4DQ==}
+
+  '@xterm/addon-fit@0.10.0':
+    resolution: {integrity: sha512-UFYkDm4HUahf2lnEyHvio51TNGiLK66mqP2JoATy7hRZeXaGMRDr00JiSF7m63vR5WKATF605yEggJKsw0JpMQ==}
+    peerDependencies:
+      '@xterm/xterm': ^5.0.0
+
+  '@xterm/xterm@5.5.0':
+    resolution: {integrity: sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A==}
 
   '@zed-industries/codex-acp-darwin-arm64@0.14.0':
     resolution: {integrity: sha512-FWjHKlNJTZmXWM/2/GAQAg0WJEjPlfxEQJgvfxuzK1xZh81CDg9U6uSgZ1ggBkkN2bOoCnOupvGAPOmBoL5m2Q==}
@@ -10441,6 +10477,12 @@ snapshots:
   '@wasm-audio-decoders/opus-ml@0.0.2':
     dependencies:
       '@wasm-audio-decoders/common': 9.0.7
+
+  '@xterm/addon-fit@0.10.0(@xterm/xterm@5.5.0)':
+    dependencies:
+      '@xterm/xterm': 5.5.0
+
+  '@xterm/xterm@5.5.0': {}
 
   '@zed-industries/codex-acp-darwin-arm64@0.14.0':
     optional: true

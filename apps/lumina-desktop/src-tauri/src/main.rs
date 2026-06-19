@@ -27,6 +27,9 @@ use url::Url;
 
 const READY_TIMEOUT_MS: u64 = 600_000;
 const POLL_INTERVAL_MS: u64 = 500;
+const WATCHDOG_CHECK_INTERVAL_SECS: u64 = 5;
+const WATCHDOG_STARTUP_GRACE_SECS: u64 = 60;
+const WATCHDOG_FAILURES_BEFORE_RESTART: u32 = 4;
 const LUMINA_CODE_PROXY_PORT: u16 = 4321;
 const UI_SCHEME: &str = "lumina";
 const UI_HOST: &str = "localhost";
@@ -1580,17 +1583,27 @@ fn run_node_helper(helper_context: &HelperContext, startup: &StartupState, args:
 }
 
 fn apply_helper_environment(command: &mut Command, helper_context: &HelperContext) {
+    if let Some(resource_root) = &helper_context.resource_root {
+        let resource_root = strip_unc_prefix(resource_root.clone());
+        let runtime_manager_binary = resource_root.join("runtime-tools").join(if cfg!(windows) {
+            "lumina-bootstrapper.exe"
+        } else {
+            "lumina-bootstrapper"
+        });
+        command.env("LUMINA_REPO_ROOT", &resource_root);
+        command.env("LUMINA_RESOURCE_ROOT", &resource_root);
+        command.env("LUMINA_RUNTIME_MANAGER_BINARY", runtime_manager_binary);
+        return;
+    }
+
+    command.env_remove("LUMINA_RESOURCE_ROOT");
+    command.env_remove("LUMINA_RUNTIME_MANAGER_BINARY");
     let effective_repo_root = if helper_context.repo_root.exists() {
         helper_context.repo_root.clone()
-    } else if let Some(resource_root) = &helper_context.resource_root {
-        resource_root.clone()
     } else {
         helper_context.desktop_root.clone()
     };
     command.env("LUMINA_REPO_ROOT", strip_unc_prefix(effective_repo_root));
-    if let Some(resource_root) = &helper_context.resource_root {
-        command.env("LUMINA_RESOURCE_ROOT", strip_unc_prefix(resource_root.clone()));
-    }
 }
 
 fn resolve_helper_script_path(helper_context: &HelperContext) -> Result<PathBuf> {
@@ -1851,7 +1864,7 @@ fn wait_for_ports_or_exit(
         // confirms the existing session is healthy, which can happen before we
         // reach the try_wait() check below — causing a false "exited before
         // readiness" error and preventing navigation from firing.
-        if is_port_ready(proxy_port) && is_port_ready(gateway_port) {
+        if is_port_ready(proxy_port) && is_gateway_health_ready(gateway_port) {
             return Ok(());
         }
 
@@ -1859,7 +1872,7 @@ fn wait_for_ports_or_exit(
             // Give ports a final grace window in case they opened at the same
             // instant the bootstrapper exited (warm-start race).
             thread::sleep(Duration::from_millis(200));
-            if is_port_ready(proxy_port) && is_port_ready(gateway_port) {
+            if is_port_ready(proxy_port) && is_gateway_health_ready(gateway_port) {
                 return Ok(());
             }
             let tail = output.lock().expect("runtime output mutex poisoned").trim().to_string();
@@ -1892,6 +1905,30 @@ fn is_port_ready(port: u16) -> bool {
         Duration::from_millis(400),
     )
     .is_ok()
+}
+
+fn is_gateway_health_ready(port: u16) -> bool {
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(500)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+    let request = format!(
+        "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+    );
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+    let mut response = [0_u8; 128];
+    let Ok(bytes_read) = stream.read(&mut response) else {
+        return false;
+    };
+    if bytes_read == 0 {
+        return false;
+    }
+    let response_head = String::from_utf8_lossy(&response[..bytes_read]);
+    response_head.starts_with("HTTP/1.1 200") || response_head.starts_with("HTTP/1.0 200")
 }
 
 fn stop_runtime_manager(state: &AppState) -> Result<()> {
@@ -1948,8 +1985,12 @@ fn stop_runtime_manager(state: &AppState) -> Result<()> {
 fn spawn_gateway_watchdog(app: AppHandle, helper_context: HelperContext, startup: StartupState) {
     use std::sync::atomic::Ordering;
     thread::spawn(move || {
+        let mut consecutive_failures = 0_u32;
+        let mut grace_until =
+            Instant::now() + Duration::from_secs(WATCHDOG_STARTUP_GRACE_SECS);
+
         loop {
-            thread::sleep(Duration::from_secs(5));
+            thread::sleep(Duration::from_secs(WATCHDOG_CHECK_INTERVAL_SECS));
 
             let state = match app.try_state::<AppState>() {
                 Some(s) => s,
@@ -1960,9 +2001,31 @@ fn spawn_gateway_watchdog(app: AppHandle, helper_context: HelperContext, startup
                 break;
             }
 
+            if Instant::now() < grace_until {
+                continue;
+            }
+
             let proxy_ready = is_port_ready(startup.config.proxy_port);
+            // The watchdog measures process liveness, not application readiness.
+            // A busy /health handler must never trigger a restart loop while the
+            // gateway is still accepting connections.
             let gateway_ready = is_port_ready(startup.config.gateway_port);
             if proxy_ready && gateway_ready {
+                consecutive_failures = 0;
+                continue;
+            }
+
+            consecutive_failures += 1;
+            eprintln!(
+                "[watchdog] Runtime health check failed {}/{}: proxy {}={}, gateway {}={}",
+                consecutive_failures,
+                WATCHDOG_FAILURES_BEFORE_RESTART,
+                startup.config.proxy_port,
+                if proxy_ready { "ok" } else { "down" },
+                startup.config.gateway_port,
+                if gateway_ready { "ok" } else { "down" }
+            );
+            if consecutive_failures < WATCHDOG_FAILURES_BEFORE_RESTART {
                 continue;
             }
 
@@ -1970,19 +2033,14 @@ fn spawn_gateway_watchdog(app: AppHandle, helper_context: HelperContext, startup
                 break;
             }
 
-            eprintln!(
-                "[watchdog] Runtime ports are unhealthy, restarting runtime manager: proxy {}={}, gateway {}={}",
-                startup.config.proxy_port,
-                if proxy_ready { "ok" } else { "down" },
-                startup.config.gateway_port,
-                if gateway_ready { "ok" } else { "down" }
-            );
-
+            consecutive_failures = 0;
             let _ = stop_runtime_manager(&state);
 
             match start_runtime_manager(&helper_context, &startup, state) {
                 Ok(()) => {
                     eprintln!("[watchdog] Runtime manager restarted successfully.");
+                    grace_until =
+                        Instant::now() + Duration::from_secs(WATCHDOG_STARTUP_GRACE_SECS);
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.eval("window.location.reload();");
                     }

@@ -186,6 +186,7 @@ import { renderLoginGate } from "./views/login-gate.ts";
 import { renderLuminaAuthGate, type LuminaAuthMode } from "./views/lumina-auth-gate.ts";
 import { renderLuminaCode } from "./views/lumina-code.ts";
 import { renderOverview } from "./views/overview.ts";
+import { renderSecurityGuardian } from "./views/security-guardian.ts";
 import { renderProviderSetup } from "./views/provider-setup.ts";
 
 let pendingUpdate: (() => void) | undefined;
@@ -2091,6 +2092,19 @@ export function renderApp(state: AppViewState) {
               }),
             )
           : nothing}
+        ${state.tab === "security"
+          ? (() => {
+              // Lazy start polling the first time the user opens the panel.
+              state.startSecurityDashboardPolling();
+              return renderSecurityGuardian({
+                data: state.securityDashboard as Parameters<typeof renderSecurityGuardian>[0]["data"],
+                error: state.securityDashboardError,
+                loading: state.securityDashboardLoading,
+                lastFetchedAt: state.securityDashboardLastFetchedAt,
+                onRefresh: () => void state.fetchSecurityDashboard(),
+              });
+            })()
+          : nothing}
         ${state.tab === "sessions"
           ? renderLazyView(lazySessions, (m) =>
               m.renderSessions({
@@ -2814,8 +2828,8 @@ export function renderApp(state: AppViewState) {
               customModelId: providerCustomModelId,
               customModelName: providerCustomModelName,
               customApiFormat: providerCustomApiFormat,
-              onSelectLuminaModel: async (modelId) => {
-                await switchProviderModel(state, `lumina/${modelId}`);
+              onSelectLuminaModel: async (providerId, modelId) => {
+                await switchProviderModel(state, `${providerId}/${modelId}`);
               },
               onCustomPanelOpenChange: (open) => {
                 providerCustomPanelOpen = open;
@@ -2947,6 +2961,10 @@ export function renderApp(state: AppViewState) {
                     });
                   },
                   onToggleRealtimeTalk: () => state.toggleRealtimeTalk(),
+                  visionActive: state.chatVisionActive,
+                  onToggleVision: () => state.toggleChatVision(),
+                  cameraPipActive: state.chatCameraPipActive,
+                  onToggleCameraPip: () => void state.toggleChatCameraPip(),
                   onToggleRealtimeTalkOptions: () => {
                     state.realtimeTalkOptionsOpen = !state.realtimeTalkOptionsOpen;
                   },

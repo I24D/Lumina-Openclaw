@@ -12,6 +12,7 @@ import {
 } from "./pi-bundle-mcp-names.js";
 import type { BundleMcpToolRuntime, SessionMcpRuntime } from "./pi-bundle-mcp-types.js";
 import { normalizeToolParameterSchema } from "./pi-tools-parameter-schema.js";
+import { boundAgentToolResultText } from "./tool-result-output-guard.js";
 import type { AnyAgentTool } from "./tools/common.js";
 
 function toAgentToolResult(params: {
@@ -56,10 +57,15 @@ function toAgentToolResult(params: {
   if (params.result.isError === true) {
     details.status = "error";
   }
-  return {
-    content: normalizedContent,
-    details,
-  };
+  return boundAgentToolResultText(
+    {
+      content: normalizedContent,
+      details,
+    },
+    {
+      toolName: `${params.serverName}__${params.toolName}`,
+    },
+  );
 }
 
 export async function materializeBundleMcpToolsForRun(params: {

@@ -62,9 +62,11 @@ export const PROXY_PORT = parseInt(
 // ── Operational limits ─────────────────────────────────────────────────────
 /** Maximum tool-calling loop iterations per turn */
 export const MAX_TOOL_ITERATIONS = parseInt(
-  process.env.MAX_TOOL_ITERATIONS ?? "5",
+  process.env.MAX_TOOL_ITERATIONS ?? "20",
   10,
 );
+
+export const TOOL_ITERATION_LIMIT_MESSAGE = "l\u00edmite alcanzado, dime c\u00f3mo continuar";
 
 /** How often to refresh host state cache (ms) */
 export const HOST_STATE_REFRESH_MS = parseInt(
@@ -88,5 +90,6 @@ export const config = {
   OPENCLAW_TOKEN,
   PROXY_PORT,
   MAX_TOOL_ITERATIONS,
+  TOOL_ITERATION_LIMIT_MESSAGE,
   HOST_STATE_REFRESH_MS,
 };

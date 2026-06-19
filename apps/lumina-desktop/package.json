@@ -1,6 +1,6 @@
 {
   "name": "@lumina/desktop",
-  "version": "1.0.10",
+  "version": "1.0.14",
   "description": "Lumina - Desktop app (Tauri)",
   "private": true,
   "author": "I24D",
@@ -16,6 +16,7 @@
     "tauri:dev": "npm run build:shell && npm run prepare:assets && npm run prepare:bundle && node --experimental-strip-types ../../scripts/run-cargo-bootstrapper.ts run --manifest-path apps/lumina-desktop/src-tauri/Cargo.toml",
     "tauri:build": "npm run build:shell && npm run prepare:assets && npm run prepare:bundle && node --experimental-strip-types ../../scripts/run-cargo-bootstrapper.ts build --manifest-path apps/lumina-desktop/src-tauri/Cargo.toml --release",
     "tauri:bundle": "node --experimental-strip-types ../../scripts/run-tauri-cli.ts exec tauri build --bundles nsis",
+    "tauri:bundle:signed": "node --experimental-strip-types ../../scripts/run-tauri-cli.ts exec tauri build --bundles nsis --config src-tauri/tauri.windows-signing.conf.json",
     "tauri:bundle:all": "node --experimental-strip-types ../../scripts/run-tauri-cli.ts exec tauri build --bundles nsis,msi",
     "tauri:archive": "npm run tauri:build && node --experimental-strip-types ../../scripts/archive-tauri-shell.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json"

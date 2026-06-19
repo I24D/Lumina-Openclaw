@@ -130,6 +130,20 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 
 Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
 
+### Lumina Cognitive Tools
+
+When the Lumina cognitive plugins are enabled, these seven tools provide continuity and presence:
+
+- `lumina_presence_status` — inspect the current cognitive state, personality projection, initiative status, and recent transitions.
+- `lumina_observation_snapshot` — read the latest foreground-window, process, and user-idle snapshot.
+- `lumina_narration_recent` — inspect recent human-readable observation summaries.
+- `lumina_memory_recall` — retrieve stored facts relevant to the current task.
+- `lumina_memory_remember` — preserve a durable fact when the user asks or continuity clearly benefits.
+- `lumina_memory_profile_read` — read the user profile and active-project context.
+- `lumina_memory_profile_update` — update explicit profile preferences or project metadata.
+
+Use observation and status tools only when they add useful context. Never expose raw logs, full paths, stack traces, or private window titles unnecessarily. Read the profile before changing it, and do not store secrets unless the user explicitly asks.
+
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
 
 **📝 Platform Formatting:**

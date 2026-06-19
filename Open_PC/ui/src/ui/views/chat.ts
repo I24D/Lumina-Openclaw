@@ -17,6 +17,7 @@ import { buildChatItems } from "../chat/build-chat-items.ts";
 import { renderChatQueue } from "../chat/chat-queue.ts";
 import { buildRawSidebarContent } from "../chat/chat-sidebar-raw.ts";
 import { renderWelcomeState, resolveAssistantDisplayAvatar } from "../chat/chat-welcome.ts";
+import { renderVoiceOverlay } from "../chat/voice-overlay.ts";
 import { renderContextNotice } from "../chat/context-notice.ts";
 import { DeletedMessages } from "../chat/deleted-messages.ts";
 import { exportChatMarkdown } from "../chat/export.ts";
@@ -223,6 +224,10 @@ export type ChatProps = {
   onRealtimeTalkOptionsChange?: (
     next: Partial<NonNullable<ChatProps["realtimeTalkOptions"]>>,
   ) => void;
+  visionActive?: boolean;
+  onToggleVision?: () => void;
+  cameraPipActive?: boolean;
+  onToggleCameraPip?: () => void;
   onDismissError?: () => void;
   onAbort?: () => void;
   onQueueRemove: (id: string) => void;
@@ -1681,6 +1686,43 @@ export function renderChat(props: ChatProps) {
                   </button>
                 `
               : nothing}
+            ${props.onToggleVision
+              ? html`
+                  <button
+                    class="agent-chat__input-btn ${props.visionActive
+                      ? "agent-chat__input-btn--vision-active"
+                      : ""}"
+                    @click=${props.onToggleVision}
+                    title=${props.visionActive ? "Vision ON — Lumina ve tu pantalla" : "Activar Vision — Lumina mira tu pantalla"}
+                    aria-label=${props.visionActive ? "Desactivar Vision" : "Activar Vision"}
+                    aria-pressed=${props.visionActive ? "true" : "false"}
+                    ?disabled=${!props.connected}
+                  >
+                    ${props.visionActive ? icons.eye : icons.eyeOff}
+                    <span class="agent-chat__control-label">${props.visionActive ? "Vision" : "Vision"}</span>
+                  </button>
+                `
+              : nothing}
+            ${props.onToggleCameraPip
+              ? html`
+                  <button
+                    class="agent-chat__input-btn ${props.cameraPipActive
+                      ? "agent-chat__input-btn--camera-active"
+                      : ""}"
+                    @click=${props.onToggleCameraPip}
+                    title=${props.cameraPipActive ? "Cámara ON — Lumina te ve a ti" : "Activar cámara — preview de webcam"}
+                    aria-label=${props.cameraPipActive ? "Apagar cámara" : "Activar cámara"}
+                    aria-pressed=${props.cameraPipActive ? "true" : "false"}
+                    ?disabled=${!props.connected}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M23 7l-7 5 7 5V7z"/>
+                      <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                    </svg>
+                    <span class="agent-chat__control-label">Cámara</span>
+                  </button>
+                `
+              : nothing}
             ${tokens ? html`<span class="agent-chat__token-count">${tokens}</span>` : nothing}
             ${renderChatRunStatusIndicator(composerRunStatus)}
           </div>
@@ -1700,6 +1742,16 @@ export function renderChat(props: ChatProps) {
           })}
         </div>
       </div>
+
+      ${renderVoiceOverlay({
+        active: Boolean(props.realtimeTalkActive),
+        status: props.realtimeTalkStatus,
+        detail: props.realtimeTalkDetail ?? null,
+        transcript: props.realtimeTalkTranscript ?? null,
+        conversation: props.realtimeTalkConversation,
+        assistantName: props.assistantName,
+        onClose: () => props.onToggleRealtimeTalk?.(),
+      })}
     </section>
   `;
 }

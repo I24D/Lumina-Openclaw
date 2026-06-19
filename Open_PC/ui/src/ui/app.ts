@@ -253,21 +253,32 @@ export class OpenClawApp extends LitElement {
   @state() chatQueueBySession: Record<string, ChatQueueItem[]> = {};
   @state() chatAttachments: ChatAttachment[] = [];
   @state() realtimeTalkActive = false;
+  @state() chatVisionActive = false;
+  @state() chatCameraPipActive = false;
+  @state() securityDashboard: unknown = null;
+  @state() securityDashboardError: string | null = null;
+  @state() securityDashboardLoading = false;
+  @state() securityDashboardLastFetchedAt: string | null = null;
+  private securityDashboardTimer: ReturnType<typeof setInterval> | null = null;
   @state() realtimeTalkStatus: RealtimeTalkStatus = "idle";
   @state() realtimeTalkDetail: string | null = null;
   @state() realtimeTalkTranscript: string | null = null;
   @state() realtimeTalkConversation: RealtimeTalkConversationEntry[] = [];
   @state() realtimeTalkOptionsOpen = false;
   @state() realtimeTalkOptions = {
-    provider: "",
-    model: "",
-    voice: "",
+    provider: "google",
+    model: "gemini-2.5-flash-native-audio-preview-12-2025",
+    voice: "Kore",
     transport: "",
     vadThreshold: "",
     silenceDurationMs: "",
     prefixPaddingMs: "",
     reasoningEffort: "",
   };
+  // Fallback chain: if Google realtime voice fails (missing key, quota, etc.),
+  // automatically retry once with OpenAI as configured backup.
+  private realtimeTalkFallbackChain = ["google", "openai"] as const;
+  private realtimeTalkFallbackIndex = 0;
   private realtimeTalkSession: RealtimeTalkSession | null = null;
   private realtimeTalkConversationState: RealtimeTalkConversationState =
     createRealtimeTalkConversationState();
@@ -1093,6 +1104,68 @@ export class OpenClawApp extends LitElement {
     };
   }
 
+  toggleChatVision() {
+    this.chatVisionActive = !this.chatVisionActive;
+  }
+
+  async fetchSecurityDashboard() {
+    this.securityDashboardLoading = true;
+    try {
+      const res = await fetch("http://127.0.0.1:18792/public/dashboard", {
+        method: "GET",
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      this.securityDashboard = await res.json();
+      this.securityDashboardError = null;
+      this.securityDashboardLastFetchedAt = new Date().toISOString();
+    } catch (err) {
+      this.securityDashboard = null;
+      this.securityDashboardError =
+        err instanceof Error ? err.message : String(err);
+    } finally {
+      this.securityDashboardLoading = false;
+    }
+  }
+
+  startSecurityDashboardPolling() {
+    if (this.securityDashboardTimer) return;
+    void this.fetchSecurityDashboard();
+    this.securityDashboardTimer = setInterval(() => {
+      void this.fetchSecurityDashboard();
+    }, 15_000);
+  }
+
+  stopSecurityDashboardPolling() {
+    if (this.securityDashboardTimer) {
+      clearInterval(this.securityDashboardTimer);
+      this.securityDashboardTimer = null;
+    }
+  }
+
+  async toggleChatCameraPip() {
+    const { mountCameraPip, unmountCameraPip } = await import("./chat/camera-pip.ts");
+    if (this.chatCameraPipActive) {
+      unmountCameraPip();
+      this.chatCameraPipActive = false;
+      return;
+    }
+    try {
+      await mountCameraPip({
+        onClose: () => {
+          this.chatCameraPipActive = false;
+          this.requestUpdate();
+        },
+      });
+      this.chatCameraPipActive = true;
+    } catch (err) {
+      console.error("[lumina] camera pip mount failed:", err);
+      this.lastError = "No se pudo iniciar la cámara: " + String(err);
+    }
+  }
+
   async toggleRealtimeTalk() {
     if (this.realtimeTalkSession) {
       if (this.realtimeTalkStatus === "error") {
@@ -1143,15 +1216,43 @@ export class OpenClawApp extends LitElement {
     this.realtimeTalkSession = session;
     try {
       await session.start();
+      // Successful start — reset fallback index so the next manual stop+start
+      // begins fresh with the primary provider again.
+      this.realtimeTalkFallbackIndex = 0;
     } catch (error) {
       session.stop();
       if (this.realtimeTalkSession === session) {
         this.realtimeTalkSession = null;
       }
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const isProviderConfigError =
+        /not configured|not registered|missing provider|provider.*invalid/i.test(errMsg);
+
+      // Fallback chain: if this looks like a provider config issue and we have
+      // a next provider in the chain, retry once with the next one before
+      // giving up. The user gets a brief detail of what happened.
+      if (
+        isProviderConfigError &&
+        this.realtimeTalkFallbackIndex + 1 < this.realtimeTalkFallbackChain.length
+      ) {
+        this.realtimeTalkFallbackIndex += 1;
+        const nextProvider = this.realtimeTalkFallbackChain[this.realtimeTalkFallbackIndex];
+        this.realtimeTalkOptions = { ...this.realtimeTalkOptions, provider: nextProvider };
+        // Status hint while retrying
+        this.realtimeTalkStatus = "connecting";
+        this.realtimeTalkDetail = `Provider primario falló; intentando ${nextProvider}…`;
+        // Retry through the same toggle; recursion depth is bounded by chain length.
+        this.realtimeTalkActive = false;
+        await this.toggleRealtimeTalk();
+        return;
+      }
+
       this.realtimeTalkActive = false;
       this.realtimeTalkStatus = "error";
-      this.realtimeTalkDetail = error instanceof Error ? error.message : String(error);
-      this.lastError = this.realtimeTalkDetail;
+      this.realtimeTalkDetail = errMsg;
+      this.lastError = errMsg;
+      // Reset chain so the user's next manual attempt starts from the primary again.
+      this.realtimeTalkFallbackIndex = 0;
     }
   }
 
@@ -1214,6 +1315,11 @@ export class OpenClawApp extends LitElement {
   async handleExecApprovalDecision(decision: "allow-once" | "allow-always" | "deny") {
     const active = this.execApprovalQueue[0];
     if (!active || !this.client || this.execApprovalBusy) {
+      return;
+    }
+    if (active.pluginId === "lumina-proxy-approval") {
+      this.execApprovalQueue = this.execApprovalQueue.filter((entry) => entry.id !== active.id);
+      await handleSendChatInternal(this, decision === "deny" ? "no" : "approve");
       return;
     }
     this.execApprovalBusy = true;

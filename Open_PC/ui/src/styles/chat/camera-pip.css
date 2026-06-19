@@ -1,0 +1,148 @@
+/* =============================================
+   CAMERA PIP — picture-in-picture webcam preview.
+   Draggable, resizable, snaps to edges.
+   ============================================= */
+
+.lumina-camera-pip {
+  position: fixed;
+  z-index: 8500; /* below voice overlay (9000), above chat */
+  background: var(--panel, #18181b);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow:
+    0 10px 36px rgba(0, 0, 0, 0.45),
+    0 0 0 1px color-mix(in srgb, var(--accent, #6366f1) 22%, transparent);
+  user-select: none;
+  transition: box-shadow 160ms ease;
+  animation: lumina-camera-pip-in 220ms ease-out;
+}
+
+.lumina-camera-pip--dragging {
+  transition: none;
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.6),
+    0 0 0 2px color-mix(in srgb, var(--accent, #6366f1) 45%, transparent);
+  cursor: grabbing;
+}
+
+.lumina-camera-pip__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #000;
+  /* Mirror like a typical webcam preview */
+  transform: scaleX(-1);
+}
+
+.lumina-camera-pip__drag {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+}
+.lumina-camera-pip__drag:active {
+  cursor: grabbing;
+}
+
+.lumina-camera-pip__live {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger, #ef4444) 92%, black 8%);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  pointer-events: none;
+}
+.lumina-camera-pip__live::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: white;
+  animation: lumina-camera-pip-live-blink 1s ease-in-out infinite;
+}
+.lumina-camera-pip__live::after {
+  content: "LIVE";
+}
+
+.lumina-camera-pip__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: color-mix(in srgb, black 60%, transparent);
+  border: none;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms;
+}
+.lumina-camera-pip__close:hover {
+  background: color-mix(in srgb, black 80%, transparent);
+}
+
+.lumina-camera-pip__resize {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  background: linear-gradient(
+    135deg,
+    transparent 0%,
+    transparent 50%,
+    color-mix(in srgb, var(--accent, #6366f1) 60%, transparent) 50%,
+    color-mix(in srgb, var(--accent, #6366f1) 60%, transparent) 100%
+  );
+  border-bottom-right-radius: 14px;
+}
+
+.lumina-camera-pip__error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-align: center;
+  background: var(--panel-strong, #1f1f23);
+}
+.lumina-camera-pip--error .lumina-camera-pip__video {
+  display: none;
+}
+.lumina-camera-pip--error .lumina-camera-pip__live {
+  display: none;
+}
+
+@keyframes lumina-camera-pip-in {
+  from { opacity: 0; transform: scale(0.92) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes lumina-camera-pip-live-blink {
+  0%, 60%, 100% { opacity: 1; }
+  30% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lumina-camera-pip,
+  .lumina-camera-pip__live::before {
+    animation: none;
+  }
+}

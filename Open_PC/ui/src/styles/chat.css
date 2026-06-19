@@ -3,3 +3,5 @@
 @import "./chat/grouped.css";
 @import "./chat/tool-cards.css";
 @import "./chat/sidebar.css";
+@import "./chat/voice-overlay.css";
+@import "./chat/camera-pip.css";

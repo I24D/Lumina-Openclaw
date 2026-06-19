@@ -1,5 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import type { LuminaConfig } from "./config.js";
@@ -9,6 +10,7 @@ import { resolveRuntimePaths, type RuntimePaths } from "./runtime-paths.js";
 const POLL_INTERVAL_MS = 500;
 const READY_TIMEOUT_MS = 600_000;
 const HEALTH_INTERVAL_MS = 2_500;
+const HEALTH_HTTP_TIMEOUT_MS = 1_000;
 const HEALTH_FAILURES_BEFORE_RESTART = 4;
 
 let runtimeManagerProcess: ChildProcess | null = null;
@@ -73,6 +75,31 @@ function isPortReady(port: number): Promise<boolean> {
         resolve(false);
       })
       .connect(port, "127.0.0.1");
+  });
+}
+
+function isHttpHealthReady(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path: "/health",
+        method: "GET",
+        timeout: HEALTH_HTTP_TIMEOUT_MS,
+      },
+      (res) => {
+        res.resume();
+        res.on("end", () => resolve(Number(res.statusCode) >= 200 && Number(res.statusCode) < 500));
+      },
+    );
+
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.on("error", () => resolve(false));
+    req.end();
   });
 }
 
@@ -187,7 +214,7 @@ function startHealthMonitor(config: LuminaConfig): void {
     if (!activeProcess || activeProcess.exitCode !== null) {
       return;
     }
-    void Promise.all([isPortReady(config.proxyPort), isPortReady(config.gatewayPort)])
+    void Promise.all([isHttpHealthReady(config.proxyPort), isHttpHealthReady(config.gatewayPort)])
       .then(([proxyReady, gatewayReady]) => {
         if (intentionalStop) {
           return;
@@ -201,7 +228,7 @@ function startHealthMonitor(config: LuminaConfig): void {
           `[runtime-manager] Health check failed ${healthFailureCount}/${HEALTH_FAILURES_BEFORE_RESTART}: proxy=${proxyReady ? "ok" : "down"} gateway=${gatewayReady ? "ok" : "down"}`,
         );
         if (healthFailureCount >= HEALTH_FAILURES_BEFORE_RESTART) {
-          scheduleGatewayRestart(config, "Runtime ports stopped responding", 1_000);
+          scheduleGatewayRestart(config, "Runtime health endpoints stopped responding", 1_000);
         }
       })
       .catch((err: unknown) => {

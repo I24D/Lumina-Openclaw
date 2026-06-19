@@ -76,7 +76,7 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
   private closed = false;
   private pendingCalls = new Map<string, PendingFunctionCall>();
   private readonly consultAbortControllers = new Set<AbortController>();
-  private readonly outputQueue = new RealtimeTalkPcmOutputQueue();
+  private readonly outputQueue: RealtimeTalkPcmOutputQueue;
   private readonly emitTalkEvent: ReturnType<typeof createRealtimeTalkEventEmitter>;
 
   constructor(
@@ -84,6 +84,11 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
     private readonly ctx: RealtimeTalkTransportContext,
   ) {
     this.emitTalkEvent = createRealtimeTalkEventEmitter(ctx, session);
+    this.outputQueue = new RealtimeTalkPcmOutputQueue((playing) => {
+      if (!this.closed) {
+        this.ctx.callbacks.onStatus?.(playing ? "speaking" : "listening");
+      }
+    });
   }
 
   async start(): Promise<void> {
@@ -98,6 +103,18 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
     this.media = await navigator.mediaDevices.getUserMedia({ audio: true });
     this.inputContext = new AudioContext({ sampleRate: this.session.audio.inputSampleRateHz });
     this.outputContext = new AudioContext({ sampleRate: this.session.audio.outputSampleRateHz });
+    // Phase 5 lip sync — give the mascot an analyser that taps the output.
+    // Done lazily inside a Promise so we don't take a hard dep on the
+    // overlay being mounted at this exact moment (tests, headless, etc.).
+    void import("./voice-overlay.ts")
+      .then(({ attachVoiceOverlayAnalyser }) => {
+        if (this.closed || !this.outputContext) return;
+        const analyser = attachVoiceOverlayAnalyser(this.outputContext);
+        if (analyser !== null) {
+          this.outputQueue.setAnalyserTap(analyser);
+        }
+      })
+      .catch(() => undefined);
     this.ws = new WebSocket(wsUrl);
     this.ws.binaryType = "arraybuffer";
     this.ws.addEventListener("open", () => {

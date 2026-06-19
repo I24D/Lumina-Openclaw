@@ -16,6 +16,7 @@ import { promisify } from "node:util";
 import { Type } from "typebox";
 import { ToolInputError, jsonResult } from "../../../../src/agents/tools/common.js";
 import type { AnyAgentTool } from "../../../../src/agents/tools/common.js";
+import { capTerminalText, TERMINAL_CAPTURE_CHAR_LIMIT } from "../utils/tool-output-budget.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -103,12 +104,13 @@ export function createShellRunTool(config: ShellRunConfig): AnyAgentTool {
         const { stdout, stderr } = await execFileAsync(exe, args, {
           timeout: timeoutMs,
           encoding: "utf8",
+          maxBuffer: TERMINAL_CAPTURE_CHAR_LIMIT * 16,
           windowsHide: true,
         });
         return jsonResult({
           ok: true,
-          stdout: stdout.trim(),
-          stderr: stderr.trim(),
+          stdout: capTerminalText(stdout).trim(),
+          stderr: capTerminalText(stderr).trim(),
           exit_code: 0,
           shell: useShell,
           command,
@@ -121,8 +123,8 @@ export function createShellRunTool(config: ShellRunConfig): AnyAgentTool {
         };
         return jsonResult({
           ok: false,
-          stdout: (e.stdout ?? "").trim(),
-          stderr: (e.stderr ?? "").trim(),
+          stdout: capTerminalText(e.stdout ?? "").trim(),
+          stderr: capTerminalText(e.stderr ?? "").trim(),
           exit_code: typeof e.code === "number" ? e.code : -1,
           error: e.message,
           shell: useShell,

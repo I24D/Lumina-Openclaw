@@ -11,6 +11,7 @@ import path from "node:path";
 import { Type } from "typebox";
 import { ToolInputError, jsonResult } from "../../../../src/agents/tools/common.js";
 import type { AnyAgentTool } from "../../../../src/agents/tools/common.js";
+import { compactToolResultForModel } from "../utils/tool-output-budget.js";
 
 const ACTIONS = [
   "read",
@@ -24,6 +25,15 @@ const ACTIONS = [
   "stat",
 ] as const;
 type FileAction = (typeof ACTIONS)[number];
+
+const DEFAULT_LIST_LIMIT = 200;
+const MAX_LIST_LIMIT = 500;
+
+function normalizeListWindow(value: unknown, fallback: number, max: number): number {
+  const numeric = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(Math.max(Math.trunc(numeric), 0), max);
+}
 
 async function safeReadText(filePath: string, maxBytes = 512_000): Promise<string> {
   const handle = await fs.open(filePath, "r");
@@ -70,6 +80,19 @@ export function createFileOpsTool(): AnyAgentTool {
           description: "For list: include subdirectories recursively. Default: false.",
         }),
       ),
+      limit: Type.Optional(
+        Type.Number({
+          description: "For list: number of entries to return. Default: 200. Max: 500.",
+          minimum: 1,
+          maximum: MAX_LIST_LIMIT,
+        }),
+      ),
+      offset: Type.Optional(
+        Type.Number({
+          description: "For list: zero-based offset for pagination. Default: 0.",
+          minimum: 0,
+        }),
+      ),
       encoding: Type.Optional(
         Type.String({
           description: "Text encoding for read/write. Default: utf8.",
@@ -87,7 +110,11 @@ export function createFileOpsTool(): AnyAgentTool {
         case "read": {
           try {
             const text = await safeReadText(resolved);
-            return jsonResult({ ok: true, path: resolved, content: text });
+            return jsonResult({
+              ok: true,
+              path: resolved,
+              content: compactToolResultForModel(text, { toolName: "lumina_file_ops.read" }),
+            });
           } catch (err: unknown) {
             return jsonResult({ ok: false, path: resolved, error: String(err) });
           }
@@ -117,12 +144,35 @@ export function createFileOpsTool(): AnyAgentTool {
         case "list": {
           try {
             const entries = await fs.readdir(resolved, { withFileTypes: true });
-            const items = entries.map((e) => ({
+            const allItems = entries.map((e) => ({
               name: e.name,
               type: e.isDirectory() ? "dir" : e.isSymbolicLink() ? "symlink" : "file",
               path: path.join(resolved, e.name),
             }));
-            return jsonResult({ ok: true, path: resolved, count: items.length, entries: items });
+            const limit = Math.max(
+              1,
+              normalizeListWindow(params.limit, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT),
+            );
+            const offset = normalizeListWindow(params.offset, 0, Number.MAX_SAFE_INTEGER);
+            const page = allItems.slice(offset, offset + limit);
+            const end = offset + page.length;
+            const hasMore = end < allItems.length;
+            const start = page.length === 0 ? 0 : offset + 1;
+            const hint = hasMore
+              ? `Showing entries ${start}-${end} of ${allItems.length}. For next page call with offset ${end} and limit ${limit}.`
+              : `Showing entries ${start}-${end} of ${allItems.length}.`;
+            return jsonResult({
+              ok: true,
+              path: resolved,
+              count: page.length,
+              totalCount: allItems.length,
+              limit,
+              offset,
+              nextOffset: hasMore ? end : null,
+              hasMore,
+              hint,
+              entries: page,
+            });
           } catch (err: unknown) {
             return jsonResult({ ok: false, path: resolved, error: String(err) });
           }

@@ -90,6 +90,96 @@ export function renderWelcomeState(props: ChatWelcomeProps) {
           `;
         })}
       </div>
+
+      ${renderCapabilitiesPanel(props)}
+    </div>
+  `;
+}
+
+// Capabilities panel — visible on welcome screen so the user sees
+// what Lumina can do via integrated apps and MCPs (Copilot-style).
+type CapabilityCard = {
+  id: string;
+  label: string;
+  caption: string;
+  prompt: string;
+  glyph: string;
+};
+
+const CAPABILITY_CARDS: CapabilityCard[] = [
+  {
+    id: "gmail",
+    label: "Gmail",
+    caption: "Lee, busca, responde y agrupa correos.",
+    prompt: "Revisa mi Gmail y dime qué urge hoy.",
+    glyph: "✉️",
+  },
+  {
+    id: "drive",
+    label: "Google Drive",
+    caption: "Encuentra y resume archivos compartidos.",
+    prompt: "Busca en mi Drive los últimos archivos sobre I24D.",
+    glyph: "📂",
+  },
+  {
+    id: "meta-ads",
+    label: "Meta Ads",
+    caption: "Crea, audita y optimiza campañas en FB/IG.",
+    prompt: "Dame el estado de mis campañas activas en Meta Ads.",
+    glyph: "📣",
+  },
+  {
+    id: "whatsapp",
+    label: "WhatsApp",
+    caption: "Responde, resume hilos, manda recordatorios.",
+    prompt: "Resume los mensajes no leídos de WhatsApp.",
+    glyph: "💬",
+  },
+  {
+    id: "browser",
+    label: "Browser & Web",
+    caption: "Navega, scrapea, llena formularios por ti.",
+    prompt: "Abre y resume esta página: ",
+    glyph: "🌐",
+  },
+  {
+    id: "screen",
+    label: "Pantalla & Sistema",
+    caption: "Ve tu pantalla, lee archivos, ejecuta comandos.",
+    prompt: "Mira mi pantalla y dime qué tengo abierto.",
+    glyph: "🖥️",
+  },
+];
+
+function renderCapabilitiesPanel(props: ChatWelcomeProps) {
+  return html`
+    <div class="agent-chat__capabilities">
+      <div class="agent-chat__capabilities-title">Lo que Lumina puede hacer</div>
+      <div class="agent-chat__capabilities-grid">
+        ${CAPABILITY_CARDS.map(
+          (card) => html`
+            <button
+              type="button"
+              class="agent-chat__capability"
+              data-cap=${card.id}
+              @click=${() => {
+                props.onDraftChange(card.prompt);
+                if (!card.prompt.endsWith(" ") && !card.prompt.endsWith(": ")) {
+                  props.onSend();
+                }
+              }}
+              title=${card.caption}
+              aria-label=${`${card.label}: ${card.caption}`}
+            >
+              <span class="agent-chat__capability-glyph" aria-hidden="true">${card.glyph}</span>
+              <span class="agent-chat__capability-body">
+                <span class="agent-chat__capability-label">${card.label}</span>
+                <span class="agent-chat__capability-caption">${card.caption}</span>
+              </span>
+            </button>
+          `,
+        )}
+      </div>
     </div>
   `;
 }

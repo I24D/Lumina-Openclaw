@@ -22,7 +22,12 @@ describe("RealtimeTalkSession consult handoff", () => {
             payload: {
               runId: "run-1",
               state: "final",
-              message: { text: "Basement lights are off." },
+              message: {
+                text: "Basement lights are off. Full diagnostic details remain in the chat.",
+                __openclaw: {
+                  luminaSpeechText: "Basement lights are off.",
+                },
+              },
             },
           });
         });
@@ -56,6 +61,10 @@ describe("RealtimeTalkSession consult handoff", () => {
     expect(toolCall?.[1]?.sessionKey).toBe("agent:main:main");
     expect(toolCall?.[1]?.name).toBe("openclaw_agent_consult");
     expect(toolCall?.[1]?.args).toEqual({ question: "Are the basement lights off?" });
-    expect(submit).toHaveBeenCalledWith("call-1", { result: "Basement lights are off." });
+    expect(submit).toHaveBeenCalledWith("call-1", {
+      result: "Basement lights are off. Full diagnostic details remain in the chat.",
+      speechText: "Basement lights are off.",
+      instruction: "Speak speechText to the user. The complete result and artifacts are in OpenClaw.",
+    });
   });
 });

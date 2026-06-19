@@ -148,6 +148,7 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
         }
         return;
       case "response.audio_transcript.done":
+      case "response.output_audio_transcript.done":
         if (event.transcript) {
           this.ctx.callbacks.onTranscript?.({
             role: "assistant",
@@ -161,6 +162,16 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
             payload: { text: event.transcript },
           });
         }
+        return;
+      case "response.audio.delta":
+      case "response.output_audio.delta":
+      case "response.audio_transcript.delta":
+      case "response.output_audio_transcript.delta":
+        this.ctx.callbacks.onStatus?.("speaking");
+        return;
+      case "response.audio.done":
+      case "response.output_audio.done":
+        this.ctx.callbacks.onStatus?.("listening");
         return;
       case "response.function_call_arguments.delta":
         this.bufferToolDelta(event);

@@ -25,6 +25,7 @@ import {
   type SessionOperationEventPayload,
 } from "./app-tool-stream.ts";
 import { shouldReloadHistoryForFinalEvent } from "./chat-event-reload.ts";
+import { extractText } from "./chat/message-extract.ts";
 import { reconcileChatRunLifecycle } from "./chat/run-lifecycle.ts";
 import { parseChatSideResult, type ChatSideResult } from "./chat/side-result.ts";
 import { formatConnectError } from "./connect-error.ts";
@@ -145,6 +146,73 @@ type GatewayHostWithSideResults = GatewayHost & {
 const SESSIONS_CHANGED_RELOAD_DEBOUNCE_MS = 5_000;
 const DEFERRED_SESSION_MESSAGE_REPLAY_POLL_MS = 250;
 const DEFERRED_SESSION_MESSAGE_REPLAY_TIMEOUT_MS = 10_000;
+const LUMINA_PENDING_APPROVAL_RE = /\[LUMINA_PENDING:([A-Za-z0-9_-]+|\{[\s\S]*?\})\]/;
+const LUMINA_PROXY_APPROVAL_PLUGIN_ID = "lumina-proxy-approval";
+
+function decodeLuminaPendingApproval(value: string): unknown {
+  const text = value.trim();
+  if (text.startsWith("{")) return JSON.parse(text);
+  const base64 = text.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+  return JSON.parse(globalThis.atob(padded));
+}
+
+function stableShortHash(text: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function describeLuminaPendingApproval(payload: unknown): string {
+  if (!payload || typeof payload !== "object") {
+    return "Lumina local action";
+  }
+  const record = payload as { calls?: unknown; tool?: unknown; args?: unknown };
+  const calls = Array.isArray(record.calls) ? record.calls : null;
+  if (calls?.length) {
+    return calls
+      .map((call) => {
+        const entry = call && typeof call === "object" ? (call as Record<string, unknown>) : {};
+        return `${String(entry.tool ?? "tool")}: ${JSON.stringify(entry.args ?? {})}`;
+      })
+      .join("\n");
+  }
+  return `${String(record.tool ?? "tool")}: ${JSON.stringify(record.args ?? {})}`;
+}
+
+function enqueueLuminaProxyApprovalFromText(host: GatewayHost, text: string | null | undefined) {
+  const match = String(text ?? "").match(LUMINA_PENDING_APPROVAL_RE);
+  if (!match) return;
+  let payload: unknown;
+  try {
+    payload = decodeLuminaPendingApproval(match[1]);
+  } catch {
+    return;
+  }
+  const id = `lumina-proxy-${stableShortHash(match[1])}`;
+  if (host.execApprovalQueue.some((entry) => entry.id === id)) {
+    return;
+  }
+  const now = Date.now();
+  enqueueApprovalRequest(host, {
+    id,
+    kind: "plugin",
+    request: {
+      command: "Lumina local permission request",
+      host: "Lumina OpenClaw",
+      ask: "Approve to continue this local action in chat.",
+    },
+    pluginTitle: "Lumina necesita permiso",
+    pluginDescription: describeLuminaPendingApproval(payload),
+    pluginSeverity: "high",
+    pluginId: LUMINA_PROXY_APPROVAL_PLUGIN_ID,
+    createdAtMs: now,
+    expiresAtMs: now + 10 * 60_000,
+  });
+}
 
 function enqueueApprovalRequest(host: GatewayHost, entry: ExecApprovalRequest | null) {
   if (!entry) {
@@ -745,8 +813,10 @@ function handleChatGatewayEvent(host: GatewayHost, payload: ChatEventPayload | u
     sideResultHost.chatSideResultTerminalRuns?.delete(payload.runId);
     return;
   }
+  const approvalText = payload?.message == null ? null : extractText(payload.message);
   const activeRunIdBeforeEvent = host.chatRunId;
   const state = handleChatEvent(host as unknown as ChatState, payload);
+  enqueueLuminaProxyApprovalFromText(host, approvalText ?? host.chatStream);
   const terminalEventIsForDifferentActiveRun = isEventForDifferentActiveRun(
     payload,
     activeRunIdBeforeEvent,

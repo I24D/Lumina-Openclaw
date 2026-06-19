@@ -1624,7 +1624,7 @@ export const FIELD_HELP: Record<string, string> = {
   "session.writeLock.acquireTimeoutMs":
     "Milliseconds to wait while acquiring a session transcript write lock before reporting the session as busy. Default: 60000; env override: OPENCLAW_SESSION_WRITE_LOCK_ACQUIRE_TIMEOUT_MS.",
   "session.writeLock.staleMs":
-    "Milliseconds before an existing session transcript lock can be treated as stale and reclaimed. Default: 1800000; env override: OPENCLAW_SESSION_WRITE_LOCK_STALE_MS.",
+    "Milliseconds before an existing session transcript lock can be treated as stale and reclaimed. Default: 30000; env override: OPENCLAW_SESSION_WRITE_LOCK_STALE_MS.",
   "session.writeLock.maxHoldMs":
     "Milliseconds a held in-process session transcript lock may remain held before the watchdog releases it. Default: 300000; env override: OPENCLAW_SESSION_WRITE_LOCK_MAX_HOLD_MS.",
   "session.agentToAgent":

@@ -86,7 +86,10 @@ export async function loadGatewayStartupConfigSnapshot(params: {
   const snapshotRead =
     params.initialSnapshotRead ??
     (await measure("config.snapshot.read", () =>
-      readConfigFileSnapshotWithPluginMetadata({ measure }),
+      readConfigFileSnapshotWithPluginMetadata({
+        measure,
+        skipPluginValidation: isTruthyEnvValue(process.env.OPENCLAW_DESKTOP_FAST_START),
+      }),
     ));
   const configSnapshot = snapshotRead.snapshot;
   const pluginMetadataSnapshot = snapshotRead.pluginMetadataSnapshot;

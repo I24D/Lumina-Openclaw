@@ -1,9 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { formatToolOutputForSidebar, getTruncatedPreview } from "./tool-helpers.ts";
+import {
+  boundToolOutputForRender,
+  formatToolOutputForSidebar,
+  getTruncatedPreview,
+  TOOL_OUTPUT_RENDER_MAX_CHARS,
+} from "./tool-helpers.ts";
 
 const emptyStringHelperCases = [
   { name: "formatToolOutputForSidebar", resolve: formatToolOutputForSidebar },
   { name: "getTruncatedPreview", resolve: getTruncatedPreview },
+  { name: "boundToolOutputForRender", resolve: boundToolOutputForRender },
 ];
 
 describe("tool-helpers", () => {
@@ -141,6 +147,20 @@ describe("tool-helpers", () => {
       const result = getTruncatedPreview(input);
 
       expect(result).toBe(`${"x".repeat(80)}\n${"x".repeat(19)}…`);
+    });
+  });
+
+  describe("boundToolOutputForRender", () => {
+    it("keeps small output unchanged", () => {
+      expect(boundToolOutputForRender("small")).toBe("small");
+    });
+
+    it("keeps head and tail while bounding large output", () => {
+      const result = boundToolOutputForRender(`${"head-".repeat(8_000)}${"tail-".repeat(8_000)}`);
+      expect(result.length).toBeLessThanOrEqual(TOOL_OUTPUT_RENDER_MAX_CHARS);
+      expect(result).toContain("UI output guard");
+      expect(result).toContain("head-");
+      expect(result).toContain("tail-");
     });
   });
 });

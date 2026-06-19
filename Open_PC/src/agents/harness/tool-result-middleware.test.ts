@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MAX_DELIVERED_TOOL_RESULT_TEXT_CHARS } from "../tool-result-output-guard.js";
 import { createAgentToolResultMiddlewareRunner } from "./tool-result-middleware.js";
 
 describe("createAgentToolResultMiddlewareRunner", () => {
@@ -132,6 +133,61 @@ describe("createAgentToolResultMiddlewareRunner", () => {
     });
 
     expect(result).toBe(original);
+  });
+
+  it("bounds oversized tool text even when no middleware is registered", async () => {
+    const cyclicDetails: Record<string, unknown> = { ok: true };
+    cyclicDetails.self = cyclicDetails;
+    const runner = createAgentToolResultMiddlewareRunner({ runtime: "pi" }, []);
+
+    const result = await runner.applyToolResultMiddleware({
+      toolCallId: "call-large",
+      toolName: "filesystem__list_directory",
+      args: {},
+      result: {
+        content: [
+          {
+            type: "text",
+            text: `${"head-".repeat(8_000)}${"tail-".repeat(8_000)}`,
+          },
+        ],
+        details: cyclicDetails,
+      },
+    });
+
+    const content = result.content[0];
+    if (content?.type !== "text") {
+      throw new Error("expected bounded text content");
+    }
+    expect(content.text.length).toBeLessThanOrEqual(MAX_DELIVERED_TOOL_RESULT_TEXT_CHARS);
+    expect(content.text).toContain("OpenClaw output guard");
+    expect(content.text).toContain("head-");
+    expect(content.text).toContain("tail-");
+    expect(result.details).toBe(cyclicDetails);
+  });
+
+  it("preserves image blocks while bounding aggregate tool text", async () => {
+    const runner = createAgentToolResultMiddlewareRunner({ runtime: "pi" }, []);
+
+    const result = await runner.applyToolResultMiddleware({
+      toolCallId: "call-image",
+      toolName: "vision",
+      args: {},
+      result: {
+        content: [
+          { type: "text", text: "a".repeat(30_000) },
+          { type: "image", mimeType: "image/png", data: "base64-image" },
+          { type: "text", text: "z".repeat(30_000) },
+        ],
+        details: {},
+      },
+    });
+
+    expect(result.content.some((block) => block.type === "image")).toBe(true);
+    const text = result.content.find((block) => block.type === "text");
+    expect(text?.type === "text" ? text.text.length : 0).toBeLessThanOrEqual(
+      MAX_DELIVERED_TOOL_RESULT_TEXT_CHARS,
+    );
   });
 
   it("sanitizes incoming cyclic details so a no-op middleware does not fail closed", async () => {

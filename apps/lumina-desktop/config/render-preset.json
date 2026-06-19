@@ -15,7 +15,7 @@
   "remoteBrainUrl": "https://i24d-whatsapp-ai.onrender.com/api/openclaw/brain/turn",
   "remoteBrainTimeoutMs": 45000,
   "remoteBrainMaxTurns": 8,
-  "runtimeReleaseManifestUrl": "https://github.com/I24D/Public-Lumina/releases/download/lumina-desktop-v1.0.10/lumina-release-1.0.10-win32-x64.manifest.json",
+  "runtimeReleaseManifestUrl": "https://github.com/I24D/Public-Lumina/releases/download/lumina-desktop-v1.0.12/lumina-release-1.0.12-win32-x64.manifest.json",
   "runtimeReleaseChannel": "stable",
   "skipOpenClawChannels": true,
   "defaultTab": "chat",

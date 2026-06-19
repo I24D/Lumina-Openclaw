@@ -35,22 +35,23 @@ function resolveLatestLuminaCodeVsixPath() {
   if (process.env.LUMINA_CODE_VSIX_PATH) {
     return process.env.LUMINA_CODE_VSIX_PATH;
   }
-  const buildDir = path.join(
-    workspaceRoot,
-    "src",
-    "lumina-code",
-    "official",
-    "extensions",
-    "vscode",
-    "build",
-  );
-  const latestFileName = fs.existsSync(buildDir)
-    ? fs
-        .readdirSync(buildDir)
-        .filter((fileName) => /^lumina-code-.+\.vsix$/i.test(fileName))
-        .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))[0]
-    : undefined;
-  return path.join(buildDir, latestFileName ?? "lumina-code-0.1.0.vsix");
+  const buildDirs = [
+    path.join(workspaceRoot, "Lumina-Code", "official", "extensions", "vscode", "build"),
+    path.join(workspaceRoot, "src", "lumina-code", "official", "extensions", "vscode", "build"),
+  ];
+  for (const buildDir of buildDirs) {
+    if (!fs.existsSync(buildDir)) {
+      continue;
+    }
+    const latestFileName = fs
+      .readdirSync(buildDir)
+      .filter((fileName) => /^lumina-code-.+\.vsix$/i.test(fileName))
+      .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))[0];
+    if (latestFileName) {
+      return path.join(buildDir, latestFileName);
+    }
+  }
+  return path.join(buildDirs[0], "lumina-code-0.1.0.vsix");
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -228,6 +229,8 @@ function checkSourceLayout() {
 
   // Tool proxy (bundled into every release)
   checkExists(path.join(toolProxyRoot, "server.mjs"),        "tool-proxy entry");
+  checkExists(path.join(toolProxyRoot, "lumina-code-routing.mjs"), "tool-proxy routing policy");
+  checkExists(path.join(toolProxyRoot, "lumina-model-catalog.mjs"), "tool-proxy model catalog");
   checkExists(path.join(toolProxyRoot, "proxy-config.json"), "tool-proxy config");
   checkJsonParseable(path.join(toolProxyRoot, "proxy-config.json"), "proxy-config.json");
   if (checkFileNotEmpty(luminaCodeVsixPath, "Lumina Code VSIX")) {
@@ -245,6 +248,10 @@ function checkSourceLayout() {
   checkExists(
     path.join(repoRoot, "rust", "lumina-bootstrapper", "Cargo.toml"),
     "bootstrapper Cargo.toml",
+  );
+  checkExists(
+    path.join(repoRoot, "rust", "lumina-voice", "Cargo.toml"),
+    "voice sidecar Cargo.toml",
   );
   checkExists(
     path.join(desktopRoot, "src-tauri", "Cargo.toml"),

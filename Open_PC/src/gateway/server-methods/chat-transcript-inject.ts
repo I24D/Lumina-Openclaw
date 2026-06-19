@@ -56,6 +56,7 @@ export async function appendInjectedAssistantMessageToTranscript(params: {
   idempotencyKey?: string;
   abortMeta?: GatewayInjectedAbortMeta;
   ttsSupplement?: GatewayInjectedTtsSupplementMarker;
+  metadata?: Record<string, unknown>;
   now?: number;
   config?: OpenClawConfig;
 }): Promise<GatewayInjectedTranscriptAppendResult> {
@@ -95,6 +96,9 @@ export async function appendInjectedAssistantMessageToTranscript(params: {
     api: "openai-responses",
     provider: "openclaw",
     model: "gateway-injected",
+    ...(params.metadata && Object.keys(params.metadata).length > 0
+      ? { __openclaw: params.metadata }
+      : {}),
     ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
     ...(params.ttsSupplement ? { openclawTtsSupplement: params.ttsSupplement } : {}),
     ...(params.abortMeta

@@ -7,6 +7,7 @@ import type {
 } from "../../plugins/agent-tool-result-middleware-types.js";
 import { createLazyPromiseLoader } from "../../shared/lazy-promise.js";
 import { truncateUtf16Safe } from "../../utils.js";
+import { boundAgentToolResultText } from "../tool-result-output-guard.js";
 
 const log = createSubsystemLogger("agents/harness");
 const MAX_MIDDLEWARE_CONTENT_BLOCKS = 200;
@@ -432,14 +433,18 @@ export function createAgentToolResultMiddlewareRunner(
       event: AgentToolResultMiddlewareEvent,
     ): Promise<OpenClawAgentToolResult> {
       const handlersForRun = await resolveHandlers();
+      const boundedInput = boundAgentToolResultText(event.result, {
+        toolName: event.toolName,
+      });
       // Fast path: with no middleware registered the result is delivered
-      // unchanged; skip validation entirely so tool emitters that produce
+      // without middleware validation so tool emitters that produce
       // dependency payloads on `details` (SDK objects with methods, cycles)
-      // are not penalized for behavior the validator was added to police.
+      // are not penalized. Text is still bounded so a single external tool
+      // cannot freeze transcript persistence or the web UI.
       if (handlersForRun.length === 0) {
-        return event.result;
+        return boundedInput;
       }
-      let current = sanitizeToolResultForMiddleware(event.result);
+      let current = sanitizeToolResultForMiddleware(boundedInput);
       for (const handler of handlersForRun) {
         try {
           const next = await handler({ ...event, result: current }, middlewareContext);
@@ -447,7 +452,10 @@ export function createAgentToolResultMiddlewareRunner(
           // Validate the current object after every handler so in-place writes
           // cannot bypass the same shape and size bounds as returned results.
           const candidate = next?.result ?? current;
-          const coercedCandidate = coerceMiddlewareToolResult(candidate);
+          const boundedCandidate = boundAgentToolResultText(candidate, {
+            toolName: event.toolName,
+          });
+          const coercedCandidate = coerceMiddlewareToolResult(boundedCandidate);
           if (coercedCandidate) {
             current = coercedCandidate;
           } else {

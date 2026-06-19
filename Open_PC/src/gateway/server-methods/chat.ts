@@ -115,7 +115,10 @@ import {
   validateChatSendParams,
 } from "../protocol/index.js";
 import { CHAT_SEND_SESSION_KEY_MAX_LENGTH } from "../protocol/schema/primitives.js";
-import { runGatewayRemoteBrainLoop } from "../remote-brain.js";
+import {
+  buildRemoteBrainAssistantContent,
+  runGatewayRemoteBrainLoop,
+} from "../remote-brain.js";
 import { getMaxChatHistoryMessagesBytes } from "../server-constants.js";
 import { readSessionTranscriptIndex } from "../session-transcript-index.fs.js";
 import {
@@ -1469,6 +1472,7 @@ async function appendAssistantTranscriptMessage(params: {
     runId: string;
   };
   ttsSupplement?: GatewayInjectedTtsSupplementMarker;
+  metadata?: Record<string, unknown>;
   cfg?: OpenClawConfig;
 }): Promise<TranscriptAppendResult> {
   const transcriptPath = resolveTranscriptPath({
@@ -1509,6 +1513,7 @@ async function appendAssistantTranscriptMessage(params: {
     idempotencyKey: params.idempotencyKey,
     abortMeta: params.abortMeta,
     ttsSupplement: params.ttsSupplement,
+    metadata: params.metadata,
     config: params.cfg,
   });
 }
@@ -2827,12 +2832,23 @@ export const chatHandlers: GatewayRequestHandlers = {
             const sessionId = latestEntry?.sessionId ?? backingSessionId ?? clientRunId;
             const appended = await appendAssistantTranscriptMessage({
               message: remoteBrain.reply,
+              content: buildRemoteBrainAssistantContent(
+                remoteBrain.reply,
+                remoteBrain.attachments ?? [],
+              ),
               sessionId,
               storePath: latestStorePath,
               sessionFile: latestEntry?.sessionFile,
               agentId,
               createIfMissing: true,
               idempotencyKey: clientRunId,
+              metadata: {
+                source: "lumina-remote-brain",
+                ...(remoteBrain.speechText
+                  ? { luminaSpeechText: remoteBrain.speechText }
+                  : {}),
+                ...(remoteBrain.traceId ? { traceId: remoteBrain.traceId } : {}),
+              },
               cfg,
             });
             if (appended.ok) {
@@ -2843,10 +2859,20 @@ export const chatHandlers: GatewayRequestHandlers = {
               );
               message = {
                 role: "assistant",
-                content: [{ type: "text", text: remoteBrain.reply }],
+                content: buildRemoteBrainAssistantContent(
+                  remoteBrain.reply,
+                  remoteBrain.attachments ?? [],
+                ),
                 timestamp: Date.now(),
                 stopReason: "stop",
                 usage: { input: 0, output: 0, totalTokens: 0 },
+                __openclaw: {
+                  source: "lumina-remote-brain",
+                  ...(remoteBrain.speechText
+                    ? { luminaSpeechText: remoteBrain.speechText }
+                    : {}),
+                  ...(remoteBrain.traceId ? { traceId: remoteBrain.traceId } : {}),
+                },
               };
             }
           }

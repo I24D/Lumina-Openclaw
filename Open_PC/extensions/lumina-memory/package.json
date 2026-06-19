@@ -1,0 +1,21 @@
+{
+  "name": "@openclaw/lumina-memory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lumina Memory — structured long-term memory: user profile, fact store, semantic recall. Phase 2. Provides four read/write tools to the agent and an optional mem0 adapter for vectorial recall.",
+  "type": "module",
+  "dependencies": {
+    "typebox": "1.1.38"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.4.4"
+    },
+    "build": {
+      "openclawVersion": "2026.5.22"
+    }
+  }
+}

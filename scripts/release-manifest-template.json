@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "lumina-openclaw-desktop-1.0.5-win32-x64",
+  "channel": "stable",
+  "version": "1.0.5",
+  "publishedAt": "2026-04-27T00:00:00.000Z",
+  "product": {
+    "appId": "ai.lumina.desktop",
+    "productName": "Lumina OpenClaw",
+    "vendor": "I24D"
+  },
+  "target": {
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "bundle": {
+    "bundleId": "lumina-openclaw-desktop",
+    "bundleVersion": "1.0.5",
+    "minBootstrapVersion": "1.0.0"
+  },
+  "bootstrap": {
+    "strategy": "download-and-expand-runtime-bundle"
+  },
+  "artifacts": [
+    {
+      "id": "runtime-bundle",
+      "role": "runtime-bundle",
+      "platform": "win32",
+      "arch": "x64",
+      "format": "tar.gz",
+      "fileName": "openclaw-runtime-1.0.5-win32-x64.tar.gz",
+      "relativePath": "openclaw-runtime-1.0.5-win32-x64.tar.gz",
+      "url": "https://github.com/I24D/Lumina-I24D/releases/download/runtime-1.0.5/openclaw-runtime-1.0.5-win32-x64.tar.gz",
+      "byteSize": 0,
+      "sha256": "FILL_AFTER_BUILD",
+      "bundleManifestSha256": "FILL_AFTER_BUILD",
+      "bundleManifestRelativePath": "bundle.manifest.json"
+    },
+    {
+      "id": "bundle-manifest",
+      "role": "bundle-manifest",
+      "platform": "win32",
+      "arch": "x64",
+      "format": "json",
+      "fileName": "bundle.manifest.json",
+      "relativePath": "bundle.manifest.json",
+      "url": "https://github.com/I24D/Lumina-I24D/releases/download/runtime-1.0.5/bundle.manifest.json",
+      "byteSize": 0,
+      "sha256": "FILL_AFTER_BUILD"
+    }
+  ]
+}

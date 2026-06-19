@@ -46,7 +46,7 @@ export class GatewayRelayRealtimeTalkTransport implements RealtimeTalkTransport 
   private inputProcessor: ScriptProcessorNode | null = null;
   private unsubscribe: (() => void) | null = null;
   private closed = false;
-  private readonly outputQueue = new RealtimeTalkPcmOutputQueue();
+  private readonly outputQueue: RealtimeTalkPcmOutputQueue;
   private readonly consultAbortControllers = new Set<AbortController>();
   private cancelRequestedForPlayback = false;
   private speechFramesDuringPlayback = 0;
@@ -55,7 +55,13 @@ export class GatewayRelayRealtimeTalkTransport implements RealtimeTalkTransport 
   constructor(
     private readonly session: RealtimeTalkGatewayRelaySessionResult,
     private readonly ctx: RealtimeTalkTransportContext,
-  ) {}
+  ) {
+    this.outputQueue = new RealtimeTalkPcmOutputQueue((playing) => {
+      if (!this.closed) {
+        this.ctx.callbacks.onStatus?.(playing ? "speaking" : "listening");
+      }
+    });
+  }
 
   async start(): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -83,6 +89,17 @@ export class GatewayRelayRealtimeTalkTransport implements RealtimeTalkTransport 
     });
     this.inputContext = new AudioContext({ sampleRate: this.session.audio.inputSampleRateHz });
     this.outputContext = new AudioContext({ sampleRate: this.session.audio.outputSampleRateHz });
+    // Phase 5 lip sync — tap the PCM output queue so the mascot's mouth
+    // tracks Lumina's real voice envelope (same as Google Live transport).
+    void import("./voice-overlay.ts")
+      .then(({ attachVoiceOverlayAnalyser }) => {
+        if (!this.outputContext) return;
+        const analyser = attachVoiceOverlayAnalyser(this.outputContext);
+        if (analyser !== null) {
+          this.outputQueue.setAnalyserTap(analyser);
+        }
+      })
+      .catch(() => undefined);
     this.startMicrophonePump();
   }
 

@@ -2,7 +2,13 @@ import { REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME } from "../../../../src/talk/age
 import type { TalkEvent } from "../../../../src/talk/talk-events.js";
 import type { GatewayBrowserClient, GatewayEventFrame } from "../gateway.ts";
 
-export type RealtimeTalkStatus = "idle" | "connecting" | "listening" | "thinking" | "error";
+export type RealtimeTalkStatus =
+  | "idle"
+  | "connecting"
+  | "listening"
+  | "thinking"
+  | "speaking"
+  | "error";
 export type RealtimeTalkEvent = TalkEvent;
 
 export type RealtimeTalkCallbacks = {
@@ -208,12 +214,25 @@ function extractTextFromMessage(message: unknown): string {
   return parts.join("\n\n").trim();
 }
 
+function extractSpeechTextFromMessage(message: unknown): string | undefined {
+  if (!message || typeof message !== "object") {
+    return undefined;
+  }
+  const record = message as Record<string, unknown>;
+  const metadata =
+    record.__openclaw && typeof record.__openclaw === "object" && !Array.isArray(record.__openclaw)
+      ? (record.__openclaw as Record<string, unknown>)
+      : undefined;
+  const value = metadata?.luminaSpeechText;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 function waitForChatResult(params: {
   client: GatewayBrowserClient;
   runId: string;
   timeoutMs: number;
   signal?: AbortSignal;
-}): Promise<string> {
+}): Promise<{ text: string; speechText?: string }> {
   return new Promise((resolve, reject) => {
     if (params.signal?.aborted) {
       reject(new DOMException("OpenClaw tool call aborted", "AbortError"));
@@ -239,7 +258,10 @@ function waitForChatResult(params: {
       }
       if (payload.state === "final") {
         cleanup();
-        resolve(extractTextFromMessage(payload.message) || "OpenClaw finished with no text.");
+        resolve({
+          text: extractTextFromMessage(payload.message) || "OpenClaw finished with no text.",
+          speechText: extractSpeechTextFromMessage(payload.message),
+        });
       } else if (payload.state === "aborted") {
         cleanup();
         reject(
@@ -307,7 +329,11 @@ export async function submitRealtimeTalkConsult(params: {
       timeoutMs: 120_000,
       signal: params.signal,
     });
-    submit(callId, { result });
+    submit(callId, {
+      result: result.text,
+      speechText: result.speechText ?? result.text,
+      instruction: "Speak speechText to the user. The complete result and artifacts are in OpenClaw.",
+    });
   } catch (error) {
     if (aborted || params.signal?.aborted || isAbortError(error)) {
       return;

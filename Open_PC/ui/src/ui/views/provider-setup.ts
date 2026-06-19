@@ -35,11 +35,20 @@ export type ProviderSetupProps = {
   customModelId: string;
   customModelName: string;
   customApiFormat: string;
-  onSelectLuminaModel: (modelId: string) => void;
+  onSelectLuminaModel: (providerId: string, modelId: string) => void;
   onCustomPanelOpenChange: (open: boolean) => void;
   onCustomFieldChange: (field: string, value: string) => void;
   onSaveCustomProvider: () => void;
 };
+
+type ManagedModelRef = {
+  providerId: string;
+  modelId: string;
+};
+
+function modelChoice(id: string, name: string, description: string): LuminaModelChoice {
+  return { id, name, description };
+}
 
 const LUMINA_PROVIDER_CATALOG: LuminaProviderCatalog[] = [
   {
@@ -138,6 +147,62 @@ const LUMINA_PROVIDER_CATALOG: LuminaProviderCatalog[] = [
         name: "Claude Haiku 4.5",
         description: "Claude rapido y eficiente.",
       },
+    ],
+  },
+  {
+    id: "ollama-cloud",
+    name: "Ollama Cloud",
+    badge: "Router",
+    description: "Modelos cloud de Ollama enrutados por el proxy local de Lumina.",
+    defaultModelId: "qwen3-coder-next",
+    models: [
+      modelChoice("minimax-m3", "MiniMax M3", "Modelo Ollama Cloud con vision, tools y thinking."),
+      modelChoice("minimax-m2.7", "MiniMax M2.7", "Modelo Ollama Cloud para razonamiento y tools."),
+      modelChoice("minimax-m2.5", "MiniMax M2.5", "Modelo Ollama Cloud para razonamiento y tools."),
+      modelChoice("minimax-m2.1", "MiniMax M2.1", "Modelo Ollama Cloud ligero con tools."),
+      modelChoice("minimax-m2", "MiniMax M2", "Modelo Ollama Cloud para razonamiento y tools."),
+      modelChoice("nemotron-3-ultra", "Nemotron 3 Ultra", "Modelo NVIDIA de alta capacidad en Ollama Cloud."),
+      modelChoice("nemotron-3-super", "Nemotron 3 Super", "Modelo NVIDIA balanceado en Ollama Cloud."),
+      modelChoice("nemotron-3-nano:30b", "Nemotron 3 Nano 30B", "Modelo NVIDIA rapido en Ollama Cloud."),
+      modelChoice("gemma4:31b", "Gemma 4 31B", "Modelo Google multimodal en Ollama Cloud."),
+      modelChoice("gemma3:27b", "Gemma 3 27B", "Modelo Google con vision en Ollama Cloud."),
+      modelChoice("gemma3:12b", "Gemma 3 12B", "Modelo Google con vision en Ollama Cloud."),
+      modelChoice("gemma3:4b", "Gemma 3 4B", "Modelo Google ligero con vision en Ollama Cloud."),
+      modelChoice("qwen3.5:397b", "Qwen3.5 397B", "Modelo Alibaba grande con tools y thinking."),
+      modelChoice("qwen3-coder-next", "Qwen3 Coder Next", "Modelo recomendado para codigo y agentes."),
+      modelChoice("qwen3-coder:480b", "Qwen3 Coder 480B", "Modelo Alibaba grande optimizado para codigo."),
+      modelChoice(
+        "qwen3-vl:235b-instruct",
+        "Qwen3 VL 235B Instruct",
+        "Modelo Alibaba multimodal instruct.",
+      ),
+      modelChoice("qwen3-vl:235b", "Qwen3 VL 235B", "Modelo Alibaba multimodal en Ollama Cloud."),
+      modelChoice("qwen3-next:80b", "Qwen3 Next 80B", "Modelo Alibaba para tools y thinking."),
+      modelChoice("glm-5.1", "GLM 5.1", "Modelo Z.ai para razonamiento y tools."),
+      modelChoice("glm-5", "GLM 5", "Modelo Z.ai para razonamiento y tools."),
+      modelChoice("glm-4.7", "GLM 4.7", "Modelo Z.ai para razonamiento y tools."),
+      modelChoice("glm-4.6", "GLM 4.6", "Modelo Z.ai para razonamiento y tools."),
+      modelChoice("deepseek-v3.2", "DeepSeek V3.2", "Modelo DeepSeek cloud via Ollama."),
+      modelChoice("deepseek-v3.1:671b", "DeepSeek V3.1 671B", "Modelo DeepSeek grande via Ollama."),
+      modelChoice("kimi-k2.6", "Kimi K2.6", "Modelo Moonshot multimodal con thinking."),
+      modelChoice("kimi-k2.5", "Kimi K2.5", "Modelo Moonshot multimodal con thinking."),
+      modelChoice("kimi-k2-thinking", "Kimi K2 Thinking", "Modelo Moonshot orientado a razonamiento."),
+      modelChoice("kimi-k2:1t", "Kimi K2 1T", "Modelo Moonshot grande en Ollama Cloud."),
+      modelChoice("gpt-oss:120b", "GPT OSS 120B", "Modelo OpenAI OSS grande via Ollama."),
+      modelChoice("gpt-oss:20b", "GPT OSS 20B", "Modelo OpenAI OSS rapido via Ollama."),
+      modelChoice(
+        "gemini-3-flash-preview",
+        "Gemini 3 Flash Preview",
+        "Modelo Google servido desde Ollama Cloud.",
+      ),
+      modelChoice("ministral-3:14b", "Ministral 3 14B", "Modelo Mistral multimodal via Ollama."),
+      modelChoice("ministral-3:8b", "Ministral 3 8B", "Modelo Mistral rapido via Ollama."),
+      modelChoice("ministral-3:3b", "Ministral 3 3B", "Modelo Mistral ligero via Ollama."),
+      modelChoice("mistral-large-3:675b", "Mistral Large 3 675B", "Modelo Mistral grande via Ollama."),
+      modelChoice("devstral-2:123b", "Devstral 2 123B", "Modelo Mistral para codigo."),
+      modelChoice("devstral-small-2:24b", "Devstral Small 2 24B", "Modelo Mistral ligero para codigo."),
+      modelChoice("cogito-2.1:671b", "Cogito 2.1 671B", "Modelo Essential para razonamiento."),
+      modelChoice("rnj-1:8b", "RNJ 1 8B", "Modelo Essential ligero con tools."),
     ],
   },
   {
@@ -336,11 +401,24 @@ const DIRECT_PROVIDER_CATALOG: DirectProviderCatalog[] = [
   },
 ];
 
-function activeLuminaModelId(activeModel: string | null): string | null {
+function createModelRef(providerId: string, modelId: string): string {
+  return `${providerId}/${modelId}`;
+}
+
+function parseManagedModelRef(modelRef: string | null): ManagedModelRef | null {
+  if (!modelRef) return null;
+  const separator = modelRef.indexOf("/");
+  if (separator <= 0 || separator >= modelRef.length - 1) return null;
+  const providerId = modelRef.slice(0, separator);
+  const modelId = modelRef.slice(separator + 1);
+  const provider = LUMINA_PROVIDER_CATALOG.find((entry) => entry.id === providerId);
+  if (!provider || !provider.models.some((model) => model.id === modelId)) return null;
+  return { providerId, modelId };
+}
+
+function activeManagedModelRef(activeModel: string | null): ManagedModelRef | null {
   if (!activeModel) return null;
-  const parts = activeModel.split("/");
-  if (parts[0] === "lumina" && parts[1]) return parts.slice(1).join("/");
-  return null;
+  return parseManagedModelRef(activeModel);
 }
 
 function findProviderModel(
@@ -396,14 +474,17 @@ function setDirectModelPreset(
 }
 
 function renderPrimaryModelCard(props: ProviderSetupProps) {
-  const activeLumina = activeLuminaModelId(props.activeModel);
-  const customActive = props.activeModel && !activeLumina;
-  const selectedValue = activeLumina ?? "";
+  const activeManaged = activeManagedModelRef(props.activeModel);
+  const customActive = props.activeModel && !activeManaged;
+  const selectedValue = activeManaged
+    ? createModelRef(activeManaged.providerId, activeManaged.modelId)
+    : "";
   const disabled = !props.connected || props.configSaving;
-  const activeChoice = activeLumina
-    ? LUMINA_PROVIDER_CATALOG.flatMap((provider) => provider.models).find(
-        (model) => model.id === activeLumina,
-      )
+  const activeProvider = activeManaged
+    ? LUMINA_PROVIDER_CATALOG.find((provider) => provider.id === activeManaged.providerId)
+    : null;
+  const activeChoice = activeProvider
+    ? activeProvider.models.find((model) => model.id === activeManaged?.modelId)
     : null;
   return html`
     <section class="provider-role-card">
@@ -430,7 +511,12 @@ function renderPrimaryModelCard(props: ProviderSetupProps) {
           class="provider-main-select"
           .value=${selectedValue}
           ?disabled=${disabled}
-          @change=${(e: Event) => props.onSelectLuminaModel((e.target as HTMLSelectElement).value)}
+          @change=${(e: Event) => {
+            const nextRef = parseManagedModelRef((e.target as HTMLSelectElement).value);
+            if (nextRef) {
+              props.onSelectLuminaModel(nextRef.providerId, nextRef.modelId);
+            }
+          }}
         >
           ${customActive
             ? html`<option value="" disabled>Proveedor propio activo: ${props.activeModel}</option>`
@@ -440,7 +526,9 @@ function renderPrimaryModelCard(props: ProviderSetupProps) {
               <optgroup label=${provider.name}>
                 ${provider.models.map(
                   (model) =>
-                    html`<option value=${model.id}>${managedOptionLabel(provider, model)}</option>`,
+                    html`<option value=${createModelRef(provider.id, model.id)}>
+                      ${managedOptionLabel(provider, model)}
+                    </option>`,
                 )}
               </optgroup>
             `,
@@ -468,13 +556,15 @@ function renderPrimaryModelCard(props: ProviderSetupProps) {
 function renderLuminaProviderCard(
   props: ProviderSetupProps,
   provider: LuminaProviderCatalog,
-  activeLumina: string | null,
+  activeManaged: ManagedModelRef | null,
 ) {
-  const isActiveProvider = provider.models.some((model) => model.id === activeLumina);
+  const isActiveProvider = activeManaged?.providerId === provider.id;
   const selectedModel = findProviderModel(
     provider,
-    isActiveProvider ? activeLumina : provider.defaultModelId,
+    isActiveProvider ? activeManaged.modelId : provider.defaultModelId,
   );
+  const isSelected =
+    activeManaged?.providerId === provider.id && activeManaged.modelId === selectedModel.id;
   const disabled = !props.connected || props.configSaving;
   return html`
     <article class="provider-card ${isActiveProvider ? "provider-card--active" : ""}">
@@ -494,7 +584,8 @@ function renderLuminaProviderCard(
           class="provider-model-picker__select"
           .value=${selectedModel.id}
           ?disabled=${disabled}
-          @change=${(e: Event) => props.onSelectLuminaModel((e.target as HTMLSelectElement).value)}
+          @change=${(e: Event) =>
+            props.onSelectLuminaModel(provider.id, (e.target as HTMLSelectElement).value)}
         >
           ${provider.models.map((model) => html`<option value=${model.id}>${model.name}</option>`)}
         </select>
@@ -502,17 +593,17 @@ function renderLuminaProviderCard(
       <span class="provider-model-picker__hint">${selectedModel.description}</span>
       <button
         class="provider-card__action"
-        ?disabled=${disabled || activeLumina === selectedModel.id}
-        @click=${() => props.onSelectLuminaModel(selectedModel.id)}
+        ?disabled=${disabled || isSelected}
+        @click=${() => props.onSelectLuminaModel(provider.id, selectedModel.id)}
       >
-        ${activeLumina === selectedModel.id ? "Seleccionado" : "Usar"}
+        ${isSelected ? "Seleccionado" : "Usar"}
       </button>
     </article>
   `;
 }
 
 function renderLuminaSection(props: ProviderSetupProps) {
-  const activeLumina = activeLuminaModelId(props.activeModel);
+  const activeManaged = activeManagedModelRef(props.activeModel);
   return html`
     <section class="provider-section">
       <div class="provider-section__header">
@@ -526,7 +617,7 @@ function renderLuminaSection(props: ProviderSetupProps) {
       </div>
       <div class="provider-cards">
         ${LUMINA_PROVIDER_CATALOG.map((provider) =>
-          renderLuminaProviderCard(props, provider, activeLumina),
+          renderLuminaProviderCard(props, provider, activeManaged),
         )}
       </div>
     </section>

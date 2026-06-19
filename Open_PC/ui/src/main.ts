@@ -1,5 +1,13 @@
 import "./styles.css";
+import "@xterm/xterm/css/xterm.css";
 import "./ui/app.ts";
+import { webSpeechFallback } from "./ui/chat/web-speech-fallback.ts";
+
+// Expose Web Speech fallback globally for debug & for the realtime-talk
+// pipeline to invoke when the sidecar fails. Safe no-op if speechSynthesis
+// is not available in this WebView.
+(window as unknown as { luminaWebSpeech?: typeof webSpeechFallback }).luminaWebSpeech =
+  webSpeechFallback;
 
 type ViteImportMeta = ImportMeta & {
   readonly env?: {

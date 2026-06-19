@@ -1,5 +1,6 @@
 param(
   [string]$Source = "C:\I24D_WhatsApp\Lumina_PC\tool-proxy\server.mjs",
+  [string]$RoutingSource = "C:\I24D_WhatsApp\Lumina_PC\tool-proxy\lumina-code-routing.mjs",
   [string]$Target = "C:\Program Files\Lumina OpenClaw\proxy\server.mjs"
 )
 
@@ -12,6 +13,10 @@ $TargetDir = [System.IO.Path]::GetDirectoryName($Target)
 
 if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
   throw "Source proxy file not found: $Source"
+}
+
+if (-not (Test-Path -LiteralPath $RoutingSource -PathType Leaf)) {
+  throw "Source routing policy file not found: $RoutingSource"
 }
 
 if (-not $Target.StartsWith($InstallRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -28,6 +33,7 @@ if (Test-Path -LiteralPath $Target -PathType Leaf) {
 }
 
 Copy-Item -LiteralPath $Source -Destination $Target -Force
+Copy-Item -LiteralPath $RoutingSource -Destination (Join-Path $TargetDir "lumina-code-routing.mjs") -Force
 
 $ProxyProcesses = Get-CimInstance Win32_Process |
   Where-Object {

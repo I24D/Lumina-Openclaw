@@ -1,0 +1,21 @@
+{
+  "name": "@openclaw/lumina-observation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lumina Observation — passive observers of the Windows desktop (foreground window, top processes, user idle) + change filter + LLM-backed narrator that turns technical events into one-line natural-language descriptions. Phase 3.",
+  "type": "module",
+  "dependencies": {
+    "typebox": "1.1.38"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.4.4"
+    },
+    "build": {
+      "openclawVersion": "2026.5.22"
+    }
+  }
+}

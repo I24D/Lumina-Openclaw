@@ -19,6 +19,7 @@ import type { OpenClawConfig } from "./types.openclaw.js";
 type WarnState = { warned: boolean };
 type ProviderPolicyDefaultsOptions = {
   manifestRegistry?: Pick<PluginManifestRegistry, "plugins">;
+  skipProviderPolicy?: boolean;
 };
 
 let defaultWarnState: WarnState = { warned: false };
@@ -159,11 +160,13 @@ export function applyModelDefaults(
   if (providerConfig) {
     const nextProviders = { ...providerConfig };
     for (const [providerId, provider] of Object.entries(providerConfig)) {
-      const normalizedProvider = normalizeProviderConfigForConfigDefaults({
-        provider: providerId,
-        providerConfig: provider,
-        manifestRegistry: options.manifestRegistry,
-      });
+      const normalizedProvider = options.skipProviderPolicy
+        ? provider
+        : normalizeProviderConfigForConfigDefaults({
+            provider: providerId,
+            providerConfig: provider,
+            manifestRegistry: options.manifestRegistry,
+          });
       const models = normalizedProvider.models;
       if (!Array.isArray(models) || models.length === 0) {
         if (normalizedProvider !== provider) {
@@ -181,7 +184,12 @@ export function applyModelDefaults(
       const nextModels = models.map((model) => {
         const raw = model as ModelDefinitionLike;
         let modelMutated = false;
-        const id = normalizeConfiguredProviderCatalogModelId(providerId, raw.id);
+        const id = normalizeConfiguredProviderCatalogModelId(providerId, raw.id, {
+          allowManifestNormalization: !options.skipProviderPolicy,
+          ...(options.manifestRegistry?.plugins
+            ? { manifestPlugins: options.manifestRegistry.plugins }
+            : {}),
+        });
         if (id !== raw.id) {
           modelMutated = true;
         }
@@ -485,6 +493,9 @@ export function applyContextPruningDefaults(
   cfg: OpenClawConfig,
   options: ProviderPolicyDefaultsOptions = {},
 ): OpenClawConfig {
+  if (options.skipProviderPolicy) {
+    return cfg;
+  }
   if (!cfg.agents?.defaults) {
     return cfg;
   }

@@ -10,6 +10,7 @@
 @import "./styles/dreams.css";
 @import "./styles/provider.css";
 @import "./styles/lumina-code.css";
+@import "./styles/security-guardian.css";
 @import "@create-markdown/preview/themes/system.css";
 
 .cm-preview {
