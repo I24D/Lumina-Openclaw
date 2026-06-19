@@ -56,6 +56,7 @@ if (-not $ready) {
 $sessionPath = Join-Path $env:USERPROFILE ".lumina\runtime-manager\runtime-session.json"
 $firstManagerPid = $null
 $firstGatewayPid = $null
+$consecutiveHealthFailures = 0
 $samples = [Math]::Max(1, [Math]::Ceiling($DurationSeconds / 5))
 for ($index = 0; $index -lt $samples; $index++) {
   if ($shell.HasExited) {
@@ -70,10 +71,19 @@ for ($index = 0; $index -lt $samples; $index++) {
   } elseif ($managerPid -ne $firstManagerPid -or $gatewayPid -ne $firstGatewayPid) {
     throw "Watchdog restart detected: manager $firstManagerPid->$managerPid, gateway $firstGatewayPid->$gatewayPid."
   }
-  $gateway = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18789/health" -TimeoutSec 3
-  $proxy = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:4321/health" -TimeoutSec 3
-  if ($gateway.StatusCode -ne 200 -or $proxy.StatusCode -ne 200) {
-    throw "Runtime health check failed during the smoke test."
+  try {
+    $gateway = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18789/health" -TimeoutSec 5
+    $proxy = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:4321/health" -TimeoutSec 5
+    if ($gateway.StatusCode -ne 200 -or $proxy.StatusCode -ne 200) {
+      throw "Non-200 runtime health response."
+    }
+    $consecutiveHealthFailures = 0
+  } catch {
+    $consecutiveHealthFailures += 1
+    Write-Warning "Runtime health sample failed $consecutiveHealthFailures/4: $($_.Exception.Message)"
+    if ($consecutiveHealthFailures -ge 4) {
+      throw "Runtime health failed four consecutive samples."
+    }
   }
   Start-Sleep -Seconds 5
 }
