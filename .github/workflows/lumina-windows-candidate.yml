@@ -1,6 +1,9 @@
 name: lumina-windows-candidate
 
 on:
+  push:
+    branches:
+      - "release/lumina-desktop-v*"
   workflow_dispatch:
     inputs:
       version:
@@ -65,7 +68,7 @@ jobs:
       - name: Validate frozen version
         shell: pwsh
         run: |
-          $expected = "${{ inputs.version }}"
+          $expected = "${{ inputs.version || '1.0.14' }}"
           $files = @(
             "package.json",
             "apps/lumina-desktop/package.json",
@@ -117,7 +120,7 @@ jobs:
           "LUMINA_CODE_VSIX_PATH=$($vsix.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Import Authenticode certificate
-        if: ${{ inputs.require_signing }}
+        if: ${{ inputs.require_signing == true }}
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -143,7 +146,7 @@ jobs:
           Remove-Item -LiteralPath $pfxPath -Force
 
       - name: Configure unsigned candidate mode
-        if: ${{ !inputs.require_signing }}
+        if: ${{ inputs.require_signing != true }}
         shell: pwsh
         run: '"LUMINA_REQUIRE_WINDOWS_SIGNING=0" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append'
 
@@ -158,18 +161,18 @@ jobs:
         run: pnpm --filter @lumina/desktop tauri:build
 
       - name: Build signed NSIS setup
-        if: ${{ inputs.require_signing }}
+        if: ${{ inputs.require_signing == true }}
         run: pnpm --filter @lumina/desktop tauri:bundle:signed
 
       - name: Build unsigned NSIS candidate
-        if: ${{ !inputs.require_signing }}
+        if: ${{ inputs.require_signing != true }}
         run: pnpm --filter @lumina/desktop tauri:bundle
 
       - name: Stage setup.exe
         run: pnpm desktop:setup:win:stage
 
       - name: Verify Authenticode signatures
-        if: ${{ inputs.require_signing }}
+        if: ${{ inputs.require_signing == true }}
         shell: pwsh
         run: |
           $setup = Get-ChildItem -LiteralPath apps/lumina-desktop/release -Filter "*setup.exe" |
@@ -188,14 +191,14 @@ jobs:
             Select-Object -Last 1
           & scripts/test-installed-release.ps1 `
             -SetupPath $setup.FullName `
-            -DurationSeconds ([int]"${{ inputs.smoke_seconds }}")
+            -DurationSeconds ([int]"${{ inputs.smoke_seconds || '120' }}")
 
       - name: Upload Windows candidate
         uses: actions/upload-artifact@v4
         with:
-          name: lumina-openclaw-${{ inputs.version }}-windows-x64-${{ inputs.require_signing && 'signed' || 'unsigned' }}
+          name: lumina-openclaw-${{ inputs.version || '1.0.14' }}-windows-x64-${{ inputs.require_signing == true && 'signed' || 'unsigned' }}
           path: |
-            apps/lumina-desktop/release/Lumina.OpenClaw_${{ inputs.version }}_x64-setup.exe
-            apps/lumina-desktop/release/Lumina.OpenClaw_${{ inputs.version }}_x64-setup.exe.sha256
+            apps/lumina-desktop/release/Lumina.OpenClaw_${{ inputs.version || '1.0.14' }}_x64-setup.exe
+            apps/lumina-desktop/release/Lumina.OpenClaw_${{ inputs.version || '1.0.14' }}_x64-setup.exe.sha256
           if-no-files-found: error
           retention-days: 14
