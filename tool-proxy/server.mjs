@@ -75,34 +75,6 @@ function normalizeVoiceSidecarMode(value) {
   return "auto";
 }
 
-function isSmartAppControlEnforced() {
-  if (process.platform !== "win32") return false;
-  const systemRoot = process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows";
-  const regPath = join(systemRoot, "System32", "reg.exe");
-  try {
-    const result = spawnSync(
-      regPath,
-      [
-        "query",
-        "HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy",
-        "/v",
-        "VerifiedAndReputablePolicyState",
-      ],
-      {
-        encoding: "utf8",
-        windowsHide: true,
-        timeout: 5_000,
-      },
-    );
-    if ((result.status ?? 1) !== 0) return false;
-    return /VerifiedAndReputablePolicyState\s+REG_DWORD\s+0x1\b/i.test(
-      String(result.stdout ?? ""),
-    );
-  } catch {
-    return false;
-  }
-}
-
 function resolveVoiceBinary() {
   const candidates = [
     process.env.LUMINA_VOICE_BIN,
@@ -125,12 +97,6 @@ function startVoiceSidecar() {
   const mode = normalizeVoiceSidecarMode(process.env.LUMINA_VOICE_SIDECAR);
   if (mode === "off") {
     console.log("[proxy] voice sidecar disabled by LUMINA_VOICE_SIDECAR");
-    return;
-  }
-  if (mode === "auto" && isSmartAppControlEnforced()) {
-    console.log(
-      "[proxy] voice sidecar skipped: Windows Smart App Control is enforcing trusted-code rules; realtime Talk will use its WebRTC/WebSocket/browser voice paths",
-    );
     return;
   }
   const bin = resolveVoiceBinary();

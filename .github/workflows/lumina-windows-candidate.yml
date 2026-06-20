@@ -65,6 +65,16 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust/lumina-bootstrapper -> target
+            rust/lumina-voice -> target
+            apps/lumina-desktop/src-tauri -> target
+          shared-key: "lumina-rust-windows"
+          cache-on-failure: false
+
       - name: Validate frozen version
         shell: pwsh
         run: |
