@@ -142,6 +142,38 @@ describe("web outbound", () => {
     expect(sendMessage).toHaveBeenCalledWith("+1555", "hi", undefined, undefined);
   });
 
+  it("applies the final reasoning safety guard before sending", async () => {
+    const result = await sendMessageWhatsApp(
+      "+1555",
+      "She's saying the exchange is warm. Let me respond naturally.\n\nTodo esta bien.",
+      {
+        verbose: false,
+        cfg: WHATSAPP_TEST_CFG,
+      },
+    );
+
+    expect(result).toEqual({
+      messageId: "msg123",
+      toJid: "1555@s.whatsapp.net",
+    });
+    expect(sendMessage).toHaveBeenCalledWith("+1555", "Todo esta bien.", undefined, undefined);
+  });
+
+  it("does not send inseparable internal reasoning", async () => {
+    const result = await sendMessageWhatsApp(
+      "+1555",
+      "The user is asking about the exchange. I need to re-examine it before replying.",
+      {
+        verbose: false,
+        cfg: WHATSAPP_TEST_CFG,
+      },
+    );
+
+    expect(result).toEqual({ messageId: "", toJid: "1555@s.whatsapp.net" });
+    expect(sendComposingTo).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it("checks send readiness before composing or sending direct messages", async () => {
     const assertSendReady = vi.fn(async () => {
       throw new Error("WhatsApp reachout timelock is active");

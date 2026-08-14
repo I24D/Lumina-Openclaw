@@ -408,9 +408,24 @@ describe("whatsapp inbound dispatch", () => {
       SenderE164: "+15550002222",
       OriginatingChannel: "whatsapp",
       OriginatingTo: "123@g.us",
+      ConversationLabel: "Test Group",
       WasMentioned: false,
       GroupRequireMention: false,
     });
+  });
+
+  it("uses the WhatsApp sender name as the direct conversation label", async () => {
+    const ctx = await buildWhatsAppInboundContext({
+      combinedBody: "hi",
+      msg: makeMsg({ admission: directAdmission("+15550002222") }),
+      route: makeRoute({ sessionKey: "agent:main:whatsapp:direct:+15550002222" }),
+      sender: {
+        name: "Alice",
+        e164: "+15550002222",
+      },
+    });
+
+    expect(ctx.ConversationLabel).toBe("Alice");
   });
 
   it("keeps agent and command bodies independently overridable", async () => {
@@ -1155,6 +1170,74 @@ describe("whatsapp inbound dispatch", () => {
       { text: "🧹 Compacting context...", isCompactionNotice: true },
       { kind: "block" },
     );
+    expect(deliverReply).not.toHaveBeenCalled();
+    expect(rememberSentText).not.toHaveBeenCalled();
+  });
+
+  it("removes inline provider reasoning before WhatsApp delivery and echo bookkeeping", async () => {
+    const deliverReply = vi.fn(async () => acceptedDeliveryResult());
+    const rememberSentText = vi.fn();
+
+    await dispatchBufferedReply({ deliverReply, rememberSentText });
+
+    const deliver = getCapturedDeliver();
+    expect(deliver).toBeTypeOf("function");
+
+    await deliver?.(
+      {
+        text:
+          "She's saying the conversation feels positive. Let me respond naturally.\n\n" +
+          "Claro que si, nos llevamos bien.",
+      },
+      { kind: "final" },
+    );
+
+    expectReplyResultFields(deliverReply, { text: "Claro que si, nos llevamos bien." });
+    expectRememberSentContextFields(rememberSentText, "Claro que si, nos llevamos bien.", {
+      combinedBody: "hi",
+      combinedBodySessionKey: "agent:main:whatsapp:direct:+1000",
+    });
+  });
+
+  it("removes Spanish inline provider reasoning before WhatsApp delivery", async () => {
+    const deliverReply = vi.fn(async () => acceptedDeliveryResult());
+    const rememberSentText = vi.fn();
+
+    await dispatchBufferedReply({ deliverReply, rememberSentText });
+
+    const deliver = getCapturedDeliver();
+    expect(deliver).toBeTypeOf("function");
+    await deliver?.(
+      {
+        text:
+          'El contacto es "\u{1F497}." - relaci\u00f3n desconocida y tono casual. ' +
+          'Dijo solo "Si". Respuesta corta y casual.\n\nok dale \u{1F44D}',
+      },
+      { kind: "final" },
+    );
+
+    expectReplyResultFields(deliverReply, { text: "ok dale \u{1F44D}" });
+    expectRememberSentContextFields(rememberSentText, "ok dale \u{1F44D}", {
+      combinedBody: "hi",
+      combinedBodySessionKey: "agent:main:whatsapp:direct:+1000",
+    });
+  });
+
+  it("suppresses inseparable inline provider reasoning before WhatsApp delivery", async () => {
+    const deliverReply = vi.fn(async () => acceptedDeliveryResult());
+    const rememberSentText = vi.fn();
+
+    await dispatchBufferedReply({ deliverReply, rememberSentText });
+
+    const deliver = getCapturedDeliver();
+    expect(deliver).toBeTypeOf("function");
+    await deliver?.(
+      {
+        text: "The user is asking about the exchange. I need to re-examine it before replying.",
+      },
+      { kind: "final" },
+    );
+
     expect(deliverReply).not.toHaveBeenCalled();
     expect(rememberSentText).not.toHaveBeenCalled();
   });

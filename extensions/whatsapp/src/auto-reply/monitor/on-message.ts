@@ -309,7 +309,7 @@ export function createWebOnMessageHandler(params: {
         SessionKey: route.sessionKey,
         AccountId: route.accountId,
         ChatType: conversationKind,
-        ConversationLabel: conversationId,
+        ConversationLabel: msg.group?.subject?.trim() || conversationId,
         GroupSubject: msg.group?.subject,
         SenderName: sender.name ?? undefined,
         SenderId: getPrimaryIdentityId(sender) ?? undefined,

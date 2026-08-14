@@ -26,6 +26,7 @@ import {
   prepareWhatsAppOutboundMedia,
   resolveAdditiveWhatsAppMediaUrls,
 } from "./outbound-media-contract.js";
+import { sanitizeWhatsAppOutboundText } from "./outbound-safety.js";
 import { markdownToWhatsApp, toWhatsappJid } from "./text-runtime.js";
 
 const outboundLog = createSubsystemLogger("gateway/channels/whatsapp").child("outbound");
@@ -155,12 +156,19 @@ export async function sendMessageWhatsApp(
     onDeliveryResult?: (result: { messageId: string; toJid: string }) => Promise<void> | void;
   },
 ): Promise<{ messageId: string; toJid: string }> {
-  let text = options.preserveLeadingWhitespace ? body : normalizeWhatsAppPayloadText(body);
   const jid = toWhatsappJid(to);
   const mediaUrls = resolveAdditiveWhatsAppMediaUrls(options);
   const mediaPayload = options.mediaPayload;
   const primaryMediaUrl = mediaUrls[0] ?? mediaPayload?.fileName;
   const hasMedia = Boolean(mediaPayload || primaryMediaUrl);
+  const safety = sanitizeWhatsAppOutboundText(body);
+  if (safety.action === "suppress") {
+    outboundLog.warn(
+      `Suppressed WhatsApp text that matched internal reasoning safety rules${hasMedia ? "; sending media without a caption" : ""}`,
+    );
+  }
+  const safeBody = safety.action === "send" ? safety.text : "";
+  let text = options.preserveLeadingWhitespace ? safeBody : normalizeWhatsAppPayloadText(safeBody);
   if (!text && !hasMedia) {
     return { messageId: "", toJid: jid };
   }

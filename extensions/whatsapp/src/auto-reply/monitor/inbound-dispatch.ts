@@ -26,6 +26,7 @@ import {
   normalizeWhatsAppOutboundPayload,
   normalizeWhatsAppPayloadTextPreservingIndentation,
 } from "../../outbound-media-contract.js";
+import { sanitizeWhatsAppOutboundText } from "../../outbound-safety.js";
 import type { WhatsAppReplyDeliveryResult } from "../deliver-reply.js";
 import { markWhatsAppVisibleDeliveryError } from "../util.js";
 import { formatGroupMembers } from "./group-members.js";
@@ -195,6 +196,17 @@ function resolveWhatsAppDeliverablePayload(
     }
     return { ...payload, text: undefined };
   }
+  if (typeof payload.text === "string") {
+    const safety = sanitizeWhatsAppOutboundText(payload.text);
+    if (safety.action === "suppress") {
+      return resolveSendableOutboundReplyParts(payload).hasMedia
+        ? { ...payload, text: undefined }
+        : null;
+    }
+    if (safety.filtered) {
+      return { ...payload, text: safety.text };
+    }
+  }
   return payload;
 }
 
@@ -316,6 +328,10 @@ export async function buildWhatsAppInboundContext(params: {
   const admission = requireWhatsAppInboundAdmission(params.msg);
   const conversationId = admission.conversation.id;
   const conversationKind = admission.conversation.kind;
+  const conversationLabel =
+    (conversationKind === "group" ? params.msg.group?.subject : params.sender.name)?.trim() ||
+    params.sender.e164?.trim() ||
+    conversationId;
   const wasMentioned = params.msg.groupMention?.wasMentioned ?? params.msg.wasMentioned;
   const inboundHistory =
     conversationKind === "group"
@@ -368,7 +384,7 @@ export async function buildWhatsAppInboundContext(params: {
     conversation: {
       kind: conversationKind,
       id: conversationId,
-      label: conversationId,
+      label: conversationLabel,
     },
     route: {
       agentId: params.route.agentId,
