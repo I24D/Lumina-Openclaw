@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import type { SessionsListResult } from "../../api/types.ts";
 import type { ApplicationGatewaySnapshot } from "../../app/context.ts";
 import {
   createLobsterPetLook,
@@ -18,6 +19,7 @@ import {
   mountSidebar,
   type SidebarLifecycleState,
   successfulSessionPatch,
+  TWO_AGENTS,
   type TestSessionMenu,
 } from "../app-sidebar.ts";
 import { waitForFast } from "../wait-for.ts";
@@ -159,6 +161,110 @@ describe("AppSidebar session pagination", () => {
     expect(rows()).toHaveLength(10);
     expect(button("Load more threads")).not.toBeNull();
     expect(button("Collapse")).toBeNull();
+  });
+});
+
+describe("AppSidebar unified threads", () => {
+  it("loads the agent roster while the shell is on the chat route", async () => {
+    const gateway = createGateway({} as GatewayBrowserClient);
+    const sessions = createSessions("main", ["agent:main:main"]);
+    const { context } = await mountSidebar(gateway, sessions);
+
+    expect(context.agents.ensureList).toHaveBeenCalledOnce();
+  });
+
+  it("loads every configured agent and filters names, numbers, and agent scope", async () => {
+    const sessions = createSessionsHarness("main", ["agent:main:whatsapp:direct:+15550001111"]);
+    const selectedResult = sessions.sessions.state.result;
+    if (!selectedResult) {
+      throw new Error("expected selected session list");
+    }
+    const additionalResearchSessions: SessionsListResult["sessions"] = Array.from(
+      { length: 10 },
+      (_, index) => ({
+        key: `agent:research:whatsapp:direct:+15550003${String(index).padStart(2, "0")}`,
+        kind: "direct",
+        displayName: `Contact ${index + 1}`,
+        updatedAt: -index,
+      }),
+    );
+    const allSessionsResult = {
+      ...selectedResult,
+      count: 12,
+      totalCount: 12,
+      sessions: [
+        {
+          key: "agent:main:whatsapp:direct:+15550001111",
+          kind: "direct",
+          displayName: "Alice",
+          updatedAt: 2,
+        },
+        {
+          key: "agent:research:whatsapp:direct:+15550002222",
+          kind: "direct",
+          displayName: "Bob",
+          updatedAt: 1,
+        },
+        ...additionalResearchSessions,
+      ],
+    } satisfies SessionsListResult;
+    const request = vi.fn((method: string, _params?: Record<string, unknown>) =>
+      Promise.resolve(method === "sessions.list" ? allSessionsResult : undefined),
+    );
+    const gateway = createGateway({ request } as unknown as GatewayBrowserClient);
+    const { sidebar } = await mountSidebar(gateway, sessions.sessions, "panel", TWO_AGENTS);
+
+    await waitForFast(() => {
+      expect(sidebar.querySelector('[data-session-key$="+15550001111"]')).not.toBeNull();
+      expect(sidebar.querySelector('[data-session-key$="+15550002222"]')).not.toBeNull();
+    });
+    expect(sidebar.querySelectorAll("[data-session-key]")).toHaveLength(12);
+    expect(sidebar.querySelector(".sidebar-session-pagination__button")).toBeNull();
+    expect(request).toHaveBeenCalledWith(
+      "sessions.list",
+      expect.objectContaining({
+        agentId: "main",
+        configuredAgentsOnly: true,
+        includeDerivedTitles: true,
+        limit: 50,
+      }),
+    );
+    expect(request).toHaveBeenCalledWith(
+      "sessions.list",
+      expect.objectContaining({
+        agentId: "research",
+        configuredAgentsOnly: true,
+        includeDerivedTitles: true,
+        limit: 50,
+      }),
+    );
+    expect(
+      [...sidebar.querySelectorAll(".sidebar-recent-session__name")].map(
+        (node) => node.textContent,
+      ),
+    ).toEqual(expect.arrayContaining(["Alice", "Bob"]));
+
+    const agentFilter = sidebar.querySelector<HTMLSelectElement>(".sidebar-thread-agent-filter");
+    if (!agentFilter) {
+      throw new Error("expected agent filter");
+    }
+    agentFilter.value = "research";
+    agentFilter.dispatchEvent(new Event("change", { bubbles: true }));
+    await sidebar.updateComplete;
+    expect(sidebar.querySelector('[data-session-key$="+15550001111"]')).toBeNull();
+    expect(sidebar.querySelector('[data-session-key$="+15550002222"]')).not.toBeNull();
+
+    agentFilter.value = "all";
+    agentFilter.dispatchEvent(new Event("change", { bubbles: true }));
+    const search = sidebar.querySelector<HTMLInputElement>(".sidebar-thread-search__input");
+    if (!search) {
+      throw new Error("expected thread search");
+    }
+    search.value = "+15550001111";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    await sidebar.updateComplete;
+    expect(sidebar.querySelector('[data-session-key$="+15550001111"]')).not.toBeNull();
+    expect(sidebar.querySelector('[data-session-key$="+15550002222"]')).toBeNull();
   });
 });
 

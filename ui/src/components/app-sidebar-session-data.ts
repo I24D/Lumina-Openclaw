@@ -47,8 +47,10 @@ import {
 export abstract class AppSidebarSessionDataElement extends AppSidebarBase {
   @state() protected visibleSessionLimit = SIDEBAR_SESSION_PAGE_SIZE;
   @state() protected sessionsResult: SessionsListResult | null = null;
+  @state() protected allSessionsResult: SessionsListResult | null = null;
   @state() protected sessionsAgentId: string | null = null;
   @state() protected sessionsLoading = false;
+  @state() protected allSessionsLoading = false;
   @state() protected childSessionRowsByParent: Readonly<
     Record<string, readonly GatewaySessionRow[]>
   > = {};
@@ -68,6 +70,10 @@ export abstract class AppSidebarSessionDataElement extends AppSidebarBase {
 
   private readonly subscriptions = new SubscriptionsController(this);
   private sessionsSource: SessionCapability | null = null;
+  private allSessionsGeneration = 0;
+  private allSessionsRefreshActive = false;
+  private allSessionsRefreshQueued = false;
+  private allSessionsRosterKey = "";
   private childSessionGeneration = 0;
   private childSessionCanonicalListRevision: number | null = null;
   private activeSessionLineageRouteKey: string | null = null;
@@ -78,6 +84,8 @@ export abstract class AppSidebarSessionDataElement extends AppSidebarBase {
   private gatewaySource: ApplicationContext<RouteId>["gateway"] | null = null;
   private gatewayClient: GatewayBrowserClient | null = null;
   private gatewayConnected = false;
+  private agentsListSource: ApplicationContext<RouteId>["agents"] | null = null;
+  private agentsListClient: GatewayBrowserClient | null = null;
   // Mutation completions belong to one context/capability/connection epoch.
   // Bumping this prevents old failures or batch tails crossing a reconnect.
   private sessionMutationEpoch = 0;
@@ -197,6 +205,8 @@ export abstract class AppSidebarSessionDataElement extends AppSidebarBase {
 
   override updated() {
     this.syncSessionsScrollObserver();
+    this.ensureAgentsList();
+    this.synchronizeAllSessionsRoster();
     if (this.context) {
       this.synchronizeSessionCatalogAgent(this.expandedAgentId());
     }
@@ -473,6 +483,7 @@ export abstract class AppSidebarSessionDataElement extends AppSidebarBase {
         globalThis.clearTimeout(this.activeSessionLineageRetryTimer);
         this.activeSessionLineageRetryTimer = null;
       }
+      this.requestAllSessionsRefresh();
     }
     const snapshot = sessions.state;
     const gateway = this.context?.gateway;
@@ -521,6 +532,151 @@ export abstract class AppSidebarSessionDataElement extends AppSidebarBase {
     }
   }
 
+  private requestAllSessionsRefresh() {
+    const configuredAgents =
+      this.context?.agents.state.agentsList?.agents.filter((agent) => agent.kind !== "system") ??
+      [];
+    if (
+      configuredAgents.length <= 1 ||
+      !this.isConnected ||
+      !this.context?.gateway.snapshot.connected ||
+      !this.sessionsSource
+    ) {
+      return;
+    }
+    this.allSessionsRosterKey = configuredAgents
+      .map((agent) => normalizeAgentId(agent.id))
+      .toSorted()
+      .join("\n");
+    if (this.allSessionsRefreshActive) {
+      this.allSessionsRefreshQueued = true;
+      return;
+    }
+    this.allSessionsRefreshActive = true;
+    this.allSessionsRefreshQueued = false;
+    void this.refreshAllSessions().finally(() => {
+      this.allSessionsRefreshActive = false;
+      if (this.allSessionsRefreshQueued) {
+        this.requestAllSessionsRefresh();
+      }
+    });
+  }
+
+  private ensureAgentsList() {
+    const agents = this.context?.agents;
+    const gateway = this.context?.gateway;
+    const client = gateway?.snapshot.client ?? null;
+    if (!agents || !gateway?.snapshot.connected || !client || agents.state.agentsList) {
+      return;
+    }
+    if (this.agentsListSource === agents && this.agentsListClient === client) {
+      return;
+    }
+    this.agentsListSource = agents;
+    this.agentsListClient = client;
+    void agents.ensureList();
+  }
+
+  private synchronizeAllSessionsRoster() {
+    const agentIds =
+      this.context?.agents.state.agentsList?.agents
+        .filter((agent) => agent.kind !== "system")
+        .map((agent) => normalizeAgentId(agent.id))
+        .toSorted() ?? [];
+    const rosterKey = agentIds.join("\n");
+    if (rosterKey === this.allSessionsRosterKey) {
+      return;
+    }
+    this.allSessionsRosterKey = rosterKey;
+    this.allSessionsGeneration += 1;
+    this.allSessionsResult = null;
+    this.allSessionsLoading = false;
+    if (agentIds.length > 1) {
+      this.requestAllSessionsRefresh();
+    }
+  }
+
+  private async refreshAllSessions() {
+    const sessions = this.sessionsSource;
+    const gateway = this.context?.gateway;
+    const client = gateway?.snapshot.client;
+    const agentIds =
+      this.context?.agents.state.agentsList?.agents
+        .filter((agent) => agent.kind !== "system")
+        .map((agent) => normalizeAgentId(agent.id))
+        .toSorted() ?? [];
+    if (!sessions || !gateway?.snapshot.connected || !client || agentIds.length <= 1) {
+      return;
+    }
+    const generation = ++this.allSessionsGeneration;
+    const rowsByKey = new Map<string, GatewaySessionRow>();
+    let firstPage: SessionsListResult | null = null;
+    this.allSessionsLoading = true;
+    try {
+      // Each agent can own a different SQLite store. Querying those stores as
+      // one global request is not reliable, so page them sequentially here.
+      for (const agentId of agentIds) {
+        let offset = 0;
+        const seenOffsets = new Set<number>();
+        while (!seenOffsets.has(offset)) {
+          seenOffsets.add(offset);
+          const page = await client.request<SessionsListResult>("sessions.list", {
+            agentId,
+            ...(offset > 0 ? { offset } : {}),
+            limit: 50,
+            includeGlobal: true,
+            includeUnknown: true,
+            configuredAgentsOnly: true,
+            includeDerivedTitles: true,
+          });
+          if (
+            generation !== this.allSessionsGeneration ||
+            sessions !== this.sessionsSource ||
+            gateway !== this.context?.gateway ||
+            gateway.snapshot.client !== client ||
+            !gateway.snapshot.connected ||
+            !page
+          ) {
+            return;
+          }
+          firstPage ??= page;
+          for (const row of page.sessions) {
+            rowsByKey.set(row.key, row);
+            if (row.key && !this.sessionCreatedOrder.has(row.key)) {
+              this.sessionCreatedOrder.set(row.key, this.sessionCreatedOrder.size);
+            }
+          }
+          const nextOffset = page.nextOffset;
+          if (page.hasMore !== true || nextOffset == null || nextOffset <= offset) {
+            break;
+          }
+          offset = nextOffset;
+        }
+      }
+      if (!firstPage) {
+        return;
+      }
+      const allRows = [...rowsByKey.values()];
+      this.allSessionsResult = {
+        ...firstPage,
+        count: allRows.length,
+        totalCount: allRows.length,
+        limitApplied: allRows.length,
+        offset: 0,
+        nextOffset: null,
+        hasMore: false,
+        sessions: allRows,
+      };
+    } catch {
+      // Keep the last complete aggregate visible; the selected-agent list is
+      // still available as a fallback on first load.
+    } finally {
+      if (generation === this.allSessionsGeneration) {
+        this.allSessionsLoading = false;
+      }
+    }
+  }
+
   private synchronizeGateway(gateway: ApplicationContext<RouteId>["gateway"]) {
     const client = gateway.snapshot.client;
     const connected = gateway.snapshot.connected;
@@ -535,6 +691,12 @@ export abstract class AppSidebarSessionDataElement extends AppSidebarBase {
     this.gatewaySource = gateway;
     this.gatewayClient = client;
     this.gatewayConnected = connected;
+    if (!connected) {
+      this.agentsListSource = null;
+      this.agentsListClient = null;
+    }
+    this.allSessionsGeneration += 1;
+    this.allSessionsLoading = false;
     this.presenceInstanceId = client?.instanceId;
     if (!connected) {
       this.presencePayload = undefined;
@@ -542,6 +704,9 @@ export abstract class AppSidebarSessionDataElement extends AppSidebarBase {
       this.presencePayload = gateway.snapshot.hello?.snapshot;
     }
     if (!sourceOrClientChanged) {
+      if (connectedStarted) {
+        this.requestAllSessionsRefresh();
+      }
       return;
     }
     this.clearSessionCache();
@@ -552,6 +717,9 @@ export abstract class AppSidebarSessionDataElement extends AppSidebarBase {
     this.loadingMoreSessionCatalogIds = new Set();
     this.sessionCatalogPageDepths.clear();
     this.sessionCatalogRevisions.clear();
+    if (connected) {
+      this.requestAllSessionsRefresh();
+    }
   }
 
   private clearSessionCache() {
@@ -559,6 +727,7 @@ export abstract class AppSidebarSessionDataElement extends AppSidebarBase {
     this.childSessionCanonicalListRevision = null;
     this.reconnectListRevision = null;
     this.sessionsResult = null;
+    this.allSessionsResult = null;
     this.sessionsAgentId = null;
     this.sessionRowsByAgent = {};
     this.childSessionRowsByParent = {};

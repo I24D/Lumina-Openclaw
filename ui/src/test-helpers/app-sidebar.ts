@@ -279,6 +279,7 @@ export function createContext(
     sessions,
     agents: {
       state: { agentsList },
+      ensureList: vi.fn(async () => agentsList),
       subscribe: () => () => undefined,
     },
     agentSelection: {

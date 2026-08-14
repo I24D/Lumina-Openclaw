@@ -30,7 +30,7 @@ describe("AppSidebar session catalog pagination", () => {
       await sidebar.updateComplete;
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(request).toHaveBeenNthCalledWith(1, "sessions.catalog.list", {
+      expect(request).toHaveBeenCalledWith("sessions.catalog.list", {
         agentId: "main",
         limitPerHost: 40,
         progressId: expect.any(String),
@@ -46,7 +46,7 @@ describe("AppSidebar session catalog pagination", () => {
       await sidebar.updateComplete;
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(request).toHaveBeenNthCalledWith(2, "sessions.catalog.list", {
+      expect(request).toHaveBeenCalledWith("sessions.catalog.list", {
         agentId: "research",
         limitPerHost: 40,
         progressId: expect.any(String),

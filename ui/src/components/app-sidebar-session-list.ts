@@ -4,6 +4,7 @@ import { keyed } from "lit/directives/keyed.js";
 import { titleForRoute } from "../app-navigation.ts";
 import { sessionHasPendingApproval } from "../app/approval-presentation.ts";
 import { t } from "../i18n/index.ts";
+import { normalizeAgentLabel } from "../lib/agents/display.ts";
 import { sessionHasBoard } from "../lib/board/provider.ts";
 import { formatDurationCompact } from "../lib/format.ts";
 import { startHoverMarquee, stopHoverMarquee } from "../lib/hover-marquee.ts";
@@ -569,6 +570,9 @@ export abstract class AppSidebarSessionListElement extends AppSidebarSessionNarr
   }
 
   private renderSessionPagination(rows: SidebarRecentSession[], visible: number) {
+    if (this.allSessionsResult) {
+      return nothing;
+    }
     const canShowMore = visible < rows.length;
     const collapsedVisible = limitSidebarSessionRows(rows, SIDEBAR_SESSION_PAGE_SIZE).length;
     const canShowLess = visible > SIDEBAR_SESSION_SEE_LESS_THRESHOLD && visible > collapsedVisible;
@@ -606,9 +610,69 @@ export abstract class AppSidebarSessionListElement extends AppSidebarSessionNarr
     `;
   }
 
+  private renderThreadToolbar() {
+    const agents = this.sidebarSessionFilterAgents();
+    return html`
+      <div class="sidebar-thread-toolbar" aria-busy=${String(this.allSessionsLoading)}>
+        <div class="sidebar-thread-search" role="search">
+          <span class="sidebar-thread-search__icon" aria-hidden="true">${icons.search}</span>
+          <input
+            class="sidebar-thread-search__input"
+            type="search"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label=${t("chat.selectors.sessionSearch")}
+            placeholder=${t("chat.selectors.sessionSearch")}
+            .value=${this.sidebarSessionSearch}
+            @input=${(event: Event) =>
+              this.setSidebarSessionSearch((event.currentTarget as HTMLInputElement).value)}
+            @keydown=${(event: KeyboardEvent) => {
+              if (event.key !== "Escape" || !this.sidebarSessionSearch) {
+                return;
+              }
+              event.preventDefault();
+              this.setSidebarSessionSearch("");
+            }}
+          />
+          ${this.sidebarSessionSearch
+            ? html`<button
+                type="button"
+                class="sidebar-thread-search__clear"
+                aria-label=${t("chat.selectors.clearSessionSearch")}
+                @click=${(event: MouseEvent) => {
+                  const input = (
+                    event.currentTarget as HTMLElement
+                  ).parentElement?.querySelector<HTMLInputElement>("input");
+                  this.setSidebarSessionSearch("");
+                  input?.focus();
+                }}
+              >
+                ${icons.x}
+              </button>`
+            : nothing}
+        </div>
+        <select
+          class="sidebar-thread-agent-filter"
+          aria-label=${t("agentScope.label")}
+          .value=${this.sidebarSessionAgentFilter}
+          @change=${(event: Event) =>
+            this.setSidebarSessionAgentFilter((event.currentTarget as HTMLSelectElement).value)}
+        >
+          <option value="all">${t("agentScope.allAgents")}</option>
+          ${agents.map(
+            (agent) =>
+              html`<option value=${normalizeAgentId(agent.id)}>
+                ${normalizeAgentLabel(agent)}
+              </option>`,
+          )}
+        </select>
+      </div>
+    `;
+  }
+
   protected renderSessions() {
     const navigationState = this.getSessionNavigationState();
-    const visibleSessions = this.selectedAgentSessionRows(navigationState);
+    const visibleSessions = this.sidebarSessionRows(navigationState);
     const expandedAgentId = this.expandedAgentId();
     return html`
       <section
@@ -643,6 +707,7 @@ export abstract class AppSidebarSessionListElement extends AppSidebarSessionNarr
             `
           : nothing}
         <div class="sidebar-recent-sessions" aria-label=${titleForRoute("sessions")}>
+          ${this.renderThreadToolbar()}
           ${this.renderSessionListBody(visibleSessions, {
             showDraft:
               Boolean(this.draftSessionAgentId) &&

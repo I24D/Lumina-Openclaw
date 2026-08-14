@@ -926,7 +926,7 @@ html.openclaw-native-web-chrome .shell:not(.shell--mobile-nav) .sidebar-brand .s
      horizontal scrollbar beside the divider. */
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-color: color-mix(in srgb, currentColor 8%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--muted) 42%, transparent) transparent;
   scrollbar-width: thin;
   /* Cancel the shell's horizontal padding so the thumb hugs its right edge;
      both values share --sidebar-pad-x so they cannot drift. */
@@ -937,6 +937,22 @@ html.openclaw-native-web-chrome .shell:not(.shell--mobile-nav) .sidebar-brand .s
 .sidebar-shell__body::-webkit-scrollbar,
 .sidebar-shell__body::-webkit-scrollbar-track {
   background: transparent;
+}
+
+.sidebar-shell__body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sidebar-shell__body::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  background-clip: padding-box;
+}
+
+.sidebar-shell__body::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 68%, transparent);
+  background-clip: padding-box;
 }
 
 .sidebar-shell__footer {
@@ -1217,6 +1233,109 @@ html.openclaw-native-macos
   /* Sessions are app chrome, not hyperlinks: the whole region uses the
      default arrow cursor; the pointer hand is reserved for real links. */
   cursor: default;
+}
+
+.sidebar-thread-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  margin: 0 10px;
+}
+
+.sidebar-thread-search {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  color: var(--muted);
+}
+
+.sidebar-thread-search__icon {
+  position: absolute;
+  inset-inline-start: 8px;
+  z-index: 1;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+
+.sidebar-thread-search__icon svg,
+.sidebar-thread-search__clear svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.7px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sidebar-thread-search__input,
+.sidebar-thread-agent-filter {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--card) 72%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+}
+
+.sidebar-thread-search__input {
+  padding-block: 0;
+  padding-inline: 27px 28px;
+}
+
+.sidebar-thread-search__input::placeholder {
+  color: color-mix(in srgb, var(--muted) 82%, transparent);
+}
+
+.sidebar-thread-search__input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.sidebar-thread-agent-filter {
+  padding: 0 6px;
+  text-overflow: ellipsis;
+}
+
+.sidebar-thread-search__input:focus,
+.sidebar-thread-agent-filter:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 54%, var(--border));
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  box-shadow: var(--focus-ring);
+}
+
+.sidebar-thread-search__clear {
+  position: absolute;
+  inset-inline-end: 3px;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+}
+
+.sidebar-thread-search__clear:hover,
+.sidebar-thread-search__clear:focus-visible {
+  background: color-mix(in srgb, var(--bg-hover) 84%, transparent);
+  color: var(--text);
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .sidebar-thread-search__input,
+  .sidebar-thread-agent-filter {
+    font-size: 16px;
+  }
 }
 
 .sidebar-shell__body--scroll-top {

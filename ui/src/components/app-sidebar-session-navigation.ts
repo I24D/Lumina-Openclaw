@@ -3,7 +3,7 @@ import type { GatewaySessionRow, SessionsListResult } from "../api/types.ts";
 import { SIDEBAR_NAV_ROUTES, serializeSidebarEntry } from "../app-navigation.ts";
 import { pathForRoute } from "../app-route-paths.ts";
 import { t } from "../i18n/index.ts";
-import { listSelectableAgents } from "../lib/agents/display.ts";
+import { listSelectableAgents, normalizeAgentLabel } from "../lib/agents/display.ts";
 import {
   isCronSessionKey,
   resolveChannelSessionInfo,
@@ -26,6 +26,7 @@ import {
   areUiSessionKeysEquivalent,
   buildAgentMainSessionKey,
   isAcpSessionKey,
+  isSessionKeyTiedToAgent,
   isUiGlobalScopeConfigured,
   normalizeAgentId,
   parseAgentSessionKey,
@@ -60,6 +61,8 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
   @state() protected sessionsGrouping: SidebarSessionsGrouping =
     loadStoredSidebarSessionsGrouping();
   @state() protected sessionsShowCron = loadStoredSidebarSessionsShowCron();
+  @state() protected sidebarSessionSearch = "";
+  @state() protected sidebarSessionAgentFilter = "all";
 
   private sessionSelectionAnchor: string | null = null;
   private collapsedActiveRouteKey: string | null = null;
@@ -231,7 +234,12 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
     const expandedRows = sections.flatMap((section) =>
       this.isSessionSectionCollapsed(section.id) ? [] : section.rows,
     );
-    const visibleRows = limitSidebarSessionRows(expandedRows, this.visibleSessionLimit);
+    // The unified roster is already fully paged from the Gateway. Keep every
+    // matching contact available in the sidebar's own scroll area instead of
+    // hiding the eleventh row behind a control below the viewport.
+    const visibleRows = this.allSessionsResult
+      ? expandedRows
+      : limitSidebarSessionRows(expandedRows, this.visibleSessionLimit);
     const keep = new Set(visibleRows.map((row) => row.key));
     // totalRowCount is the pre-pagination size: headers and empty-zone
     // checks must not mistake a page-filtered section for an empty one.
@@ -250,7 +258,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
 
   protected reconciledSidebarZone() {
     const navigationState = this.getSessionNavigationState();
-    const rows = this.selectedAgentSessionRows(navigationState);
+    const rows = this.sidebarSessionRows(navigationState);
     const pinnedRows = rows.filter((row) => row.pinned);
     // Only loaded rows count as authoritative unpinned state; entries for
     // other agents' sessions must survive canonical writes untouched.
@@ -284,7 +292,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
   /** Rows in on-screen order; shift ranges and batch actions share this ordering. */
   protected visibleSessionRowsInOrder(): SidebarRecentSession[] {
     const navigationState = this.getSessionNavigationState();
-    const rows = this.selectedAgentSessionRows(navigationState);
+    const rows = this.sidebarSessionRows(navigationState);
     const { visibleRows } = this.zonedVisibleSections(rows);
     const pinnedByKey = new Map(rows.filter((row) => row.pinned).map((row) => [row.key, row]));
     const pinnedRows = this.reconciledSidebarZone().entries.flatMap((entry) =>
@@ -423,13 +431,43 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
     return { activeId, agent, agents: listSelectableAgents(roster) };
   }
 
+  protected sidebarSessionFilterAgents() {
+    return listSelectableAgents(this.context?.agents.state.agentsList?.agents ?? []);
+  }
+
+  protected setSidebarSessionSearch(query: string) {
+    this.sidebarSessionSearch = query;
+    this.visibleSessionLimit = SIDEBAR_SESSION_PAGE_SIZE;
+    this.clearSessionSelection();
+  }
+
+  protected setSidebarSessionAgentFilter(agentId: string) {
+    this.sidebarSessionAgentFilter = agentId === "all" ? "all" : normalizeAgentId(agentId);
+    this.visibleSessionLimit = SIDEBAR_SESSION_PAGE_SIZE;
+    this.clearSessionSelection();
+  }
+
+  private loadedSessionRowsForAgent(agentId: string): readonly GatewaySessionRow[] {
+    const normalized = normalizeAgentId(agentId);
+    const aggregateRows = this.allSessionsResult?.sessions;
+    if (aggregateRows) {
+      const defaultAgentId = resolveUiDefaultAgentId({
+        agentsList: this.context?.agents.state.agentsList,
+        hello: this.context?.gateway.snapshot.hello,
+      });
+      return aggregateRows.filter((row) =>
+        isSessionKeyTiedToAgent(row.key, normalized, defaultAgentId),
+      );
+    }
+    return normalized === normalizeAgentId(this.sessionsAgentId ?? "")
+      ? (this.sessionsResult?.sessions ?? [])
+      : (this.sessionRowsByAgent[normalized] ?? []);
+  }
+
   /** Newest visible session for an agent; the chip menu resumes here. */
   private latestAgentSessionRow(agentId: string): SessionsListResult["sessions"][number] | null {
     const normalized = normalizeAgentId(agentId);
-    const rows =
-      normalized === normalizeAgentId(this.sessionsAgentId ?? "")
-        ? (this.sessionsResult?.sessions ?? [])
-        : (this.sessionRowsByAgent[normalized] ?? []);
+    const rows = this.loadedSessionRowsForAgent(normalized);
     // Unprefixed keys belong to the system default agent. Keeping them for
     // another agent would resume the wrong conversation with the raw key.
     const visible = filterVisibleSessionRows(rows, {
@@ -500,7 +538,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
   protected knownSessionGroups(): string[] {
     const catalog = this.context?.sessions.state.groups ?? [];
     const catalogSet = new Set(catalog);
-    const discovered = (this.sessionsResult?.sessions ?? [])
+    const discovered = (this.allSessionsResult?.sessions ?? this.sessionsResult?.sessions ?? [])
       .map((row) => normalizeOptionalString(row.category))
       .filter((name): name is string => typeof name === "string" && !catalogSet.has(name))
       .toSorted((a, b) => a.localeCompare(b));
@@ -603,6 +641,139 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
     });
   }
 
+  /** Unified active threads across configured agents, with selected-agent fallback while loading. */
+  protected sidebarSessionRows(
+    navigationState: ReturnType<AppSidebarSessionNavigationElement["getSessionNavigationState"]>,
+  ): SidebarRecentSession[] {
+    const aggregateRows = this.allSessionsResult?.sessions;
+    if (!aggregateRows) {
+      return this.selectedAgentSessionRows(navigationState);
+    }
+
+    const defaultAgentId = resolveUiDefaultAgentId({
+      agentsList: this.context?.agents.state.agentsList,
+      hello: this.context?.gateway.snapshot.hello,
+    });
+    const filteredAgentId =
+      this.sidebarSessionAgentFilter === "all"
+        ? null
+        : normalizeAgentId(this.sidebarSessionAgentFilter);
+    const rows = filteredAgentId
+      ? aggregateRows.filter((row) =>
+          isSessionKeyTiedToAgent(row.key, filteredAgentId, defaultAgentId),
+        )
+      : aggregateRows;
+    const adopted = adoptedCatalogSessionKeys(this.sessionCatalogs);
+    const mainSessionKeys = new Set<string>();
+    const agentIds = new Set<string>(
+      this.sidebarSessionFilterAgents().map((agent) => normalizeAgentId(agent.id)),
+    );
+    agentIds.add(defaultAgentId);
+    for (const row of rows) {
+      const parsedAgentId = parseAgentSessionKey(row.key)?.agentId;
+      if (parsedAgentId) {
+        agentIds.add(normalizeAgentId(parsedAgentId));
+      }
+    }
+    if (filteredAgentId) {
+      agentIds.clear();
+      agentIds.add(filteredAgentId);
+    }
+    for (const agentId of agentIds) {
+      mainSessionKeys.add(this.selectedAgentMainSessionKey(agentId));
+    }
+    const isMainSession = (key: string) =>
+      [...mainSessionKeys].some((mainKey) => areUiSessionKeysEquivalent(key, mainKey));
+
+    const rootRows = filterVisibleSessionRows(rows, {
+      agentId: filteredAgentId ?? "",
+      defaultAgentId,
+      filterByAgent: false,
+      showCron: this.sessionsShowCron,
+    }).toSorted(this.compareSidebarSessionRows);
+    const scopedRootRows = rootRows.filter((row) => {
+      if (!isMainSession(row.key)) {
+        return true;
+      }
+      mainSessionKeys.add(row.key);
+      return false;
+    });
+    const lineageRoot = this.activeSessionLineageRoot;
+    if (
+      lineageRoot &&
+      !adopted.has(lineageRoot.key) &&
+      !lineageRoot.archived &&
+      !isMainSession(lineageRoot.key) &&
+      (!filteredAgentId ||
+        isSessionKeyTiedToAgent(lineageRoot.key, filteredAgentId, defaultAgentId)) &&
+      !scopedRootRows.some((row) => row.key === lineageRoot.key)
+    ) {
+      scopedRootRows.push(lineageRoot);
+    }
+
+    const scopedRootKeys = new Set(scopedRootRows.map((row) => row.key));
+    const promotedRows = [...rows, ...Object.values(this.childSessionRowsByParent).flat()].filter(
+      (row) => {
+        const parentKey = row.spawnedBy ?? row.parentSessionKey;
+        return (
+          parentKey != null &&
+          mainSessionKeys.has(parentKey) &&
+          !scopedRootKeys.has(row.key) &&
+          !row.archived &&
+          (this.sessionsShowCron || (row.kind !== "cron" && !isCronSessionKey(row.key)))
+        );
+      },
+    );
+    for (const row of promotedRows) {
+      if (!scopedRootKeys.has(row.key)) {
+        scopedRootKeys.add(row.key);
+        scopedRootRows.push(row);
+      }
+    }
+    const projected = projectSessionTree({
+      roots: scopedRootRows
+        .toSorted(this.compareSidebarSessionRows)
+        .filter((row) => !adopted.has(row.key)),
+      agentRows: rows,
+      childRowsByParent: this.childSessionRowsByParent,
+      loadingChildKeys: this.loadingChildSessionKeys,
+      knownSessionAttention: this.knownSessionAttention(),
+      toSidebarSession: navigationState.toSidebarSession,
+    });
+    const query = this.sidebarSessionSearch.trim().toLocaleLowerCase();
+    return query ? this.filterSidebarSessionTree(projected, query, defaultAgentId) : projected;
+  }
+
+  private filterSidebarSessionTree(
+    rows: readonly SidebarRecentSession[],
+    query: string,
+    defaultAgentId: string,
+  ): SidebarRecentSession[] {
+    const roster = this.sidebarSessionFilterAgents();
+    const filterRow = (row: SidebarRecentSession): SidebarRecentSession | null => {
+      const children = row.children
+        .map((child) => filterRow(child))
+        .filter((child): child is SidebarRecentSession => child !== null);
+      const agentId = normalizeAgentId(parseAgentSessionKey(row.key)?.agentId ?? defaultAgentId);
+      const agent = roster.find((candidate) => normalizeAgentId(candidate.id) === agentId);
+      const matches = [
+        row.key,
+        row.label,
+        row.subtitle,
+        row.channel,
+        agentId,
+        agent ? normalizeAgentLabel(agent) : undefined,
+      ].some((value) => value?.toLocaleLowerCase().includes(query));
+      if (!matches && children.length === 0) {
+        return null;
+      }
+      return children.length === row.children.length ? row : { ...row, children };
+    };
+    return rows
+      .map((row) => filterRow(row))
+      .filter((row): row is SidebarRecentSession => row !== null);
+  }
+
   /** Canonical main-session key for the selected (or given) agent. */
   protected selectedAgentMainSessionKey(agentId?: string): string {
     const host = {
@@ -624,10 +795,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
   protected mainSessionRow(agentId?: string): GatewaySessionRow | null {
     const normalized = normalizeAgentId(agentId ?? this.expandedAgentId());
     const mainKey = this.selectedAgentMainSessionKey(normalized);
-    const rows =
-      normalized === normalizeAgentId(this.sessionsAgentId ?? "")
-        ? (this.sessionsResult?.sessions ?? [])
-        : (this.sessionRowsByAgent[normalized] ?? []);
+    const rows = this.loadedSessionRowsForAgent(normalized);
     return rows.find((row) => areUiSessionKeysEquivalent(row.key, mainKey)) ?? null;
   }
 
@@ -686,7 +854,7 @@ export abstract class AppSidebarSessionNavigationElement extends AppSidebarSessi
   }
 
   protected agentUnreadCount(agentId: string): number {
-    const rows = this.sessionRowsByAgent[normalizeAgentId(agentId)] ?? [];
+    const rows = this.loadedSessionRowsForAgent(agentId);
     return rows.filter((row) => row.unread === true && row.archived !== true).length;
   }
 
