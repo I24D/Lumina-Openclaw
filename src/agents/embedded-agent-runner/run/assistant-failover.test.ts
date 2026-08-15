@@ -47,6 +47,7 @@ function makeParams(overrides: Partial<Params> = {}): Params {
     maybeMarkAuthProfileFailure: vi.fn(async () => {}),
     maybeEscalateRateLimitProfileFallback: vi.fn(),
     maybeRetrySameModelRateLimit: vi.fn(async () => false),
+    maybeRetrySameModelAuth: vi.fn(async () => false),
     maybeBackoffBeforeOverloadFailover: vi.fn(async () => {}),
     advanceAuthProfile: vi.fn(async () => false),
   };
@@ -139,6 +140,83 @@ describe("handleAssistantFailover", () => {
       expect(maybeRetrySameModelRateLimit).toHaveBeenCalledWith({});
       expect(maybeEscalateRateLimitProfileFallback).not.toHaveBeenCalled();
       expect(advanceAuthProfile).not.toHaveBeenCalled();
+    });
+
+    // Some hosted providers answer a fraction of otherwise-valid requests with
+    // a bare 401 (observed on Ollama Cloud at ~4%, interleaved with successes
+    // on the same process and key). Without an in-place retry each flake ends
+    // the turn with zero output instead of an answer.
+    it("retries the same model in place on a transient auth failure", async () => {
+      const maybeRetrySameModelAuth = vi.fn(async () => true);
+      const advanceAuthProfile = vi.fn(async () => true);
+
+      const outcome = await handleAssistantFailover(
+        makeParams({
+          initialDecision: { action: "rotate_profile", reason: "auth" },
+          failoverReason: "auth",
+          billingFailure: false,
+          authFailure: true,
+          lastAssistant: {
+            errorMessage: '401 {"error":"Unauthorized"}',
+          } as Params["lastAssistant"],
+          maybeRetrySameModelAuth,
+          advanceAuthProfile,
+        }),
+      );
+
+      expect(outcome.action).toBe("retry");
+      if (outcome.action !== "retry") {
+        return;
+      }
+      expect(outcome.retryKind).toBe("same_model_auth");
+      expect(maybeRetrySameModelAuth).toHaveBeenCalledTimes(1);
+      // The whole point is to avoid burning a profile rotation on a flake.
+      expect(advanceAuthProfile).not.toHaveBeenCalled();
+    });
+
+    it("rotates the profile once the same-model auth retry budget is spent", async () => {
+      const maybeRetrySameModelAuth = vi.fn(async () => false);
+      const advanceAuthProfile = vi.fn(async () => true);
+
+      const outcome = await handleAssistantFailover(
+        makeParams({
+          initialDecision: { action: "rotate_profile", reason: "auth" },
+          failoverReason: "auth",
+          billingFailure: false,
+          authFailure: true,
+          maybeRetrySameModelAuth,
+          advanceAuthProfile,
+        }),
+      );
+
+      expect(outcome.action).toBe("retry");
+      if (outcome.action !== "retry") {
+        return;
+      }
+      expect(outcome.retryKind).toBe("profile_rotation");
+      expect(maybeRetrySameModelAuth).toHaveBeenCalledTimes(1);
+      expect(advanceAuthProfile).toHaveBeenCalledTimes(1);
+    });
+
+    // 403 never clears on retry: a revoked or wrong-scope credential must fail
+    // fast rather than spend the budget meant for spurious 401s.
+    it("does not retry the same model on a permanent auth failure", async () => {
+      const maybeRetrySameModelAuth = vi.fn(async () => true);
+      const advanceAuthProfile = vi.fn(async () => true);
+
+      const outcome = await handleAssistantFailover(
+        makeParams({
+          initialDecision: { action: "rotate_profile", reason: "auth_permanent" },
+          failoverReason: "auth_permanent",
+          billingFailure: false,
+          authFailure: true,
+          maybeRetrySameModelAuth,
+          advanceAuthProfile,
+        }),
+      );
+
+      expect(maybeRetrySameModelAuth).not.toHaveBeenCalled();
+      expect(advanceAuthProfile).toHaveBeenCalledTimes(1);
     });
 
     it("honors disabled rate-limit profile rotations before same-model retry", async () => {

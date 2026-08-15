@@ -480,6 +480,7 @@ export async function runPreparedEmbeddedLoop(
         maybeEscalateRateLimitProfileFallback:
           failoverRetryController.maybeEscalateRateLimitProfileFallback,
         maybeRetrySameModelRateLimit: failoverRetryController.maybeRetrySameModelRateLimit,
+        maybeRetrySameModelAuth: failoverRetryController.maybeRetrySameModelAuth,
         maybeBackoffBeforeOverloadFailover:
           failoverRetryController.maybeBackoffBeforeOverloadFailover,
         advanceAttemptAuthProfile,
@@ -498,6 +499,9 @@ export async function runPreparedEmbeddedLoop(
       lastRetryFailoverReason = assistantFailureOutcome.lastRetryFailoverReason;
       if (!assistantFailureOutcome.preserveSameModelRateLimitRetryCount) {
         failoverRetryController.resetSameModelRateLimitRetries();
+      }
+      if (!assistantFailureOutcome.preserveSameModelAuthRetryCount) {
+        failoverRetryController.resetSameModelAuthRetries();
       }
       if (assistantFailureOutcome.action === "retry") {
         continue;

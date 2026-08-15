@@ -28,7 +28,11 @@ type AssistantFailoverOutcome =
       action: "retry";
       overloadProfileRotations: number;
       lastRetryFailoverReason: FailoverReason | null;
-      retryKind: "profile_rotation" | "same_model_idle_timeout" | "same_model_rate_limit";
+      retryKind:
+        | "profile_rotation"
+        | "same_model_idle_timeout"
+        | "same_model_rate_limit"
+        | "same_model_auth";
     }
   | {
       action: "throw";
@@ -108,6 +112,7 @@ export async function handleAssistantFailover(params: {
     logFallbackDecision: (decision: "fallback_model", extra?: { status?: number }) => void;
   }) => void;
   maybeRetrySameModelRateLimit: (retry?: ShortWindowRateLimitRetry) => Promise<boolean>;
+  maybeRetrySameModelAuth: () => Promise<boolean>;
   maybeBackoffBeforeOverloadFailover: (reason: FailoverReason | null) => Promise<void>;
   advanceAuthProfile: () => Promise<boolean>;
 }): Promise<AssistantFailoverOutcome> {
@@ -132,6 +137,17 @@ export async function handleAssistantFailover(params: {
     action: "retry",
     overloadProfileRotations,
     retryKind: "same_model_rate_limit",
+    lastRetryFailoverReason: mergeRetryFailoverReason({
+      previous: params.previousRetryFailoverReason,
+      failoverReason: params.failoverReason,
+      timedOut: params.timedOut || params.idleTimedOut,
+    }),
+  });
+
+  const sameModelAuthRetry = (): AssistantFailoverOutcome => ({
+    action: "retry",
+    overloadProfileRotations,
+    retryKind: "same_model_auth",
     lastRetryFailoverReason: mergeRetryFailoverReason({
       previous: params.previousRetryFailoverReason,
       failoverReason: params.failoverReason,
@@ -205,6 +221,15 @@ export async function handleAssistantFailover(params: {
         failoverModel: params.activeErrorContext.model,
         logFallbackDecision: params.logAssistantFailoverDecision,
       });
+    }
+
+    // A 401 is normally terminal, but some hosted providers answer a small
+    // fraction of otherwise-valid requests with a bare 401. Retrying the same
+    // model in place clears that flake without spending a profile rotation or
+    // model fallback. `auth_permanent` (403) is excluded: it never clears, and
+    // an invalid credential still surfaces once this bounded budget is spent.
+    if (params.failoverReason === "auth" && (await params.maybeRetrySameModelAuth())) {
+      return sameModelAuthRetry();
     }
 
     const rotated = await params.advanceAuthProfile();

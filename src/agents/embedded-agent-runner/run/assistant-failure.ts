@@ -38,6 +38,7 @@ type EmbeddedRunAssistantFailureOutcome = {
   sameModelIdleTimeoutRetries: number;
   lastRetryFailoverReason: FailoverReason | null;
   preserveSameModelRateLimitRetryCount: boolean;
+  preserveSameModelAuthRetryCount: boolean;
   assistantProfileFailureReason: AuthProfileFailureReason | null;
 };
 
@@ -92,6 +93,7 @@ export async function handleEmbeddedAssistantFailure(input: {
     typeof handleAssistantFailover
   >[0]["maybeEscalateRateLimitProfileFallback"];
   maybeRetrySameModelRateLimit: (retry?: { retryAfterSeconds?: number }) => Promise<boolean>;
+  maybeRetrySameModelAuth: () => Promise<boolean>;
   maybeBackoffBeforeOverloadFailover: (reason: FailoverReason | null) => Promise<void>;
   advanceAttemptAuthProfile: () => Promise<boolean>;
   traceAttempts: TraceAttempt[];
@@ -290,6 +292,7 @@ export async function handleEmbeddedAssistantFailure(input: {
     maybeMarkAuthProfileFailure: input.maybeMarkAuthProfileFailure,
     maybeEscalateRateLimitProfileFallback: input.maybeEscalateRateLimitProfileFallback,
     maybeRetrySameModelRateLimit: input.maybeRetrySameModelRateLimit,
+    maybeRetrySameModelAuth: input.maybeRetrySameModelAuth,
     maybeBackoffBeforeOverloadFailover: input.maybeBackoffBeforeOverloadFailover,
     advanceAuthProfile: input.advanceAttemptAuthProfile,
   });
@@ -297,9 +300,11 @@ export async function handleEmbeddedAssistantFailure(input: {
     const retryTraceResult =
       outcome.retryKind === "same_model_rate_limit"
         ? "same_model_rate_limit"
-        : outcome.retryKind === "same_model_idle_timeout" || assistantFailoverReason === "timeout"
-          ? "timeout"
-          : "rotate_profile";
+        : outcome.retryKind === "same_model_auth"
+          ? "same_model_auth"
+          : outcome.retryKind === "same_model_idle_timeout" || assistantFailoverReason === "timeout"
+            ? "timeout"
+            : "rotate_profile";
     input.traceAttempts.push({
       provider: input.activeErrorContext.provider,
       model: input.activeErrorContext.model,
@@ -317,6 +322,7 @@ export async function handleEmbeddedAssistantFailure(input: {
         (outcome.retryKind === "same_model_idle_timeout" ? 1 : 0),
       lastRetryFailoverReason: outcome.lastRetryFailoverReason,
       preserveSameModelRateLimitRetryCount: outcome.retryKind === "same_model_rate_limit",
+      preserveSameModelAuthRetryCount: outcome.retryKind === "same_model_auth",
       assistantProfileFailureReason,
     });
   }
@@ -368,6 +374,7 @@ function buildOutcome(
       override.sameModelIdleTimeoutRetries ?? input.sameModelIdleTimeoutRetries,
     lastRetryFailoverReason: override.lastRetryFailoverReason ?? input.previousRetryFailoverReason,
     preserveSameModelRateLimitRetryCount: override.preserveSameModelRateLimitRetryCount ?? false,
+    preserveSameModelAuthRetryCount: override.preserveSameModelAuthRetryCount ?? false,
     assistantProfileFailureReason: override.assistantProfileFailureReason,
   };
 }

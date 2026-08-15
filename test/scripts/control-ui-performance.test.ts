@@ -75,6 +75,26 @@ describe("Control UI performance budgets", () => {
     expect(formatControlUiPerformanceReport(metrics)).toContain("startup CSS: 1 request");
   });
 
+  it("keeps deferred document renderers out of the largest app JS budget", () => {
+    const { distDir, writeAsset } = createDistFixture();
+    fs.writeFileSync(
+      path.join(distDir, "index.html"),
+      '<script type="module" src="./assets/index-a.js"></script>\n' +
+        '<link rel="stylesheet" href="./assets/index-c.css">\n',
+    );
+    writeAsset("index-a.js", { rawBytes: 100, gzipBytes: 40, brotliBytes: 30 });
+    writeAsset("lazy-d.js", { rawBytes: 200, gzipBytes: 70, brotliBytes: 55 });
+    writeAsset("RTFJS.bundle-heavy.js", { rawBytes: 1_000, gzipBytes: 500, brotliBytes: 300 });
+    writeAsset("pdf.worker-heavy.js", { rawBytes: 900, gzipBytes: 450, brotliBytes: 280 });
+    writeAsset("index-c.css", { rawBytes: 50, gzipBytes: 15, brotliBytes: 12 });
+
+    const metrics = collectControlUiPerformanceMetrics(distDir);
+
+    expect(metrics.total.js).toMatchObject({ requests: 4, gzipBytes: 1060 });
+    expect(metrics.largest.js.file).toBe("assets/lazy-d.js");
+    expect(formatControlUiPerformanceReport(metrics)).toContain("largest budgeted JS");
+  });
+
   it("returns actionable violations and includes them in the report", () => {
     const { distDir, writeAsset } = createDistFixture();
     fs.writeFileSync(

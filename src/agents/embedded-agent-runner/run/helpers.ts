@@ -51,6 +51,29 @@ export const MAX_SAME_MODEL_RATE_LIMIT_RETRIES = 3;
 const SAME_MODEL_RATE_LIMIT_BACKOFF_STEP_MS = 10_000;
 const SAME_MODEL_RATE_LIMIT_MAX_BACKOFF_MS = 60_000;
 
+// Same-model in-place `auth` (401) retry. A 401 normally means a bad key and
+// stays terminal, but some hosted providers answer a small fraction of
+// otherwise-valid requests with a bare 401 — observed on Ollama Cloud, where
+// ~4% of calls fail this way while the surrounding calls on the same process
+// and key succeed seconds apart. Without a retry each flake ends the turn with
+// zero output ("The agent run failed before producing a reply").
+//
+// Deliberately narrow: only `auth` (401) is retried, never `auth_permanent`
+// (403). A genuinely invalid credential still surfaces after this small
+// bounded budget, costing a couple of fast requests rather than a wrong answer.
+export const MAX_SAME_MODEL_AUTH_RETRIES = 3;
+// Linear: retriesSoFar=0 -> 2s, 1 -> 4s, 2 -> 6s.
+//
+// Sized from measured behaviour, not guessed. Spurious 401s are independent
+// between turns (observed 3.8% base rate; 99 single failures vs 5 back-to-back
+// matches independence) but strongly correlated across immediate retries — a
+// sub-second retry hits the same bad edge node and fails again. Retries spaced
+// 400ms/800ms apart failed all three attempts every time, while the same
+// request succeeded ~5.7s after the last failure. Space the budget across that
+// recovery window instead of burning it inside one bad node's lifetime.
+const SAME_MODEL_AUTH_BACKOFF_STEP_MS = 2_000;
+const SAME_MODEL_AUTH_MAX_BACKOFF_MS = 8_000;
+
 export function resolveOverloadFailoverBackoffMs(): number {
   return DEFAULT_OVERLOAD_FAILOVER_BACKOFF_MS;
 }
@@ -86,6 +109,22 @@ export function resolveNextSameModelRateLimitRetryCount(params: {
   retriedSameModelRateLimit: boolean;
 }): number {
   return params.retriedSameModelRateLimit ? Math.max(0, params.retriesSoFar) + 1 : 0;
+}
+
+/**
+ * Backoff before the next same-model `auth` retry. Linear and deterministic
+ * (no jitter) so tests can assert exact values, mirroring the rate_limit path.
+ */
+export function resolveSameModelAuthRetryDelayMs(params: { retriesSoFar: number }): number {
+  const backoffDelayMs = SAME_MODEL_AUTH_BACKOFF_STEP_MS * (Math.max(0, params.retriesSoFar) + 1);
+  return Math.min(SAME_MODEL_AUTH_MAX_BACKOFF_MS, backoffDelayMs);
+}
+
+export function resolveNextSameModelAuthRetryCount(params: {
+  retriesSoFar: number;
+  retriedSameModelAuth: boolean;
+}): number {
+  return params.retriedSameModelAuth ? Math.max(0, params.retriesSoFar) + 1 : 0;
 }
 
 const ANTHROPIC_MAGIC_STRING_TRIGGER_REFUSAL = "ANTHROPIC_MAGIC_STRING_TRIGGER_REFUSAL";

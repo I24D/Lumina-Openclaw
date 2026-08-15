@@ -7,11 +7,14 @@ import { log } from "../logger.js";
 import { resolveAuthProfileFailureReason } from "./auth-profile-failure-policy.js";
 import type { PreparedEmbeddedRunInput } from "./execution-context.js";
 import {
+  MAX_SAME_MODEL_AUTH_RETRIES,
   MAX_SAME_MODEL_RATE_LIMIT_RETRIES,
+  resolveNextSameModelAuthRetryCount,
   resolveNextSameModelRateLimitRetryCount,
   resolveOverloadFailoverBackoffMs,
   resolveOverloadProfileRotationLimit,
   resolveRateLimitProfileRotationLimit,
+  resolveSameModelAuthRetryDelayMs,
   resolveSameModelRateLimitRetryDelayMs,
 } from "./helpers.js";
 import type { prepareEmbeddedRunRuntime } from "./runtime-preparation.js";
@@ -44,6 +47,7 @@ export function createEmbeddedRunFailoverRetryController(input: {
   const rateLimitProfileRotationLimit = resolveRateLimitProfileRotationLimit();
   let rateLimitProfileRotations = 0;
   let consecutiveSameModelRateLimitRetries = 0;
+  let consecutiveSameModelAuthRetries = 0;
 
   const sleepForRetry = async (delayMs: number) => {
     try {
@@ -67,10 +71,19 @@ export function createEmbeddedRunFailoverRetryController(input: {
     get consecutiveSameModelRateLimitRetries() {
       return consecutiveSameModelRateLimitRetries;
     },
+    get consecutiveSameModelAuthRetries() {
+      return consecutiveSameModelAuthRetries;
+    },
     resetSameModelRateLimitRetries: () => {
       consecutiveSameModelRateLimitRetries = resolveNextSameModelRateLimitRetryCount({
         retriesSoFar: consecutiveSameModelRateLimitRetries,
         retriedSameModelRateLimit: false,
+      });
+    },
+    resetSameModelAuthRetries: () => {
+      consecutiveSameModelAuthRetries = resolveNextSameModelAuthRetryCount({
+        retriesSoFar: consecutiveSameModelAuthRetries,
+        retriedSameModelAuth: false,
       });
     },
     maybeEscalateRateLimitProfileFallback: (paramsLocal: {
@@ -162,6 +175,23 @@ export function createEmbeddedRunFailoverRetryController(input: {
       consecutiveSameModelRateLimitRetries = resolveNextSameModelRateLimitRetryCount({
         retriesSoFar: consecutiveSameModelRateLimitRetries,
         retriedSameModelRateLimit: true,
+      });
+      return true;
+    },
+    maybeRetrySameModelAuth: async (): Promise<boolean> => {
+      if (consecutiveSameModelAuthRetries >= MAX_SAME_MODEL_AUTH_RETRIES) {
+        return false;
+      }
+      const delayMs = resolveSameModelAuthRetryDelayMs({
+        retriesSoFar: consecutiveSameModelAuthRetries,
+      });
+      log.warn(
+        `auth same-model retry ${consecutiveSameModelAuthRetries + 1}/${MAX_SAME_MODEL_AUTH_RETRIES} for ${sanitizeForLog(provider)}/${sanitizeForLog(modelId)}: delayMs=${delayMs}`,
+      );
+      await sleepForRetry(delayMs);
+      consecutiveSameModelAuthRetries = resolveNextSameModelAuthRetryCount({
+        retriesSoFar: consecutiveSameModelAuthRetries,
+        retriedSameModelAuth: true,
       });
       return true;
     },
