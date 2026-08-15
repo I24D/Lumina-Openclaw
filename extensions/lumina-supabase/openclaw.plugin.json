@@ -53,15 +53,15 @@
       },
       "adminEnabled": {
         "type": "boolean",
-        "default": true,
-        "description": "Register the Management API tools (DDL and project restore). The token they use is account-scoped."
+        "default": false,
+        "description": "Opt-in: register the Management API tools (DDL and project restore). The token they use is account-scoped. Enable explicitly when needed."
       }
     }
   },
   "uiHints": {
     "adminEnabled": {
       "label": "Enable admin tools",
-      "help": "Allows CREATE/ALTER/DROP and restoring a paused project. Uses SUPABASE_ACCESS_TOKEN, which reaches every project in the account."
+      "help": "Allows CREATE/ALTER/DROP and restoring a paused project. Uses SUPABASE_ACCESS_TOKEN, which reaches every project in the account. Off by default — enable explicitly."
     }
   }
 }

@@ -59,8 +59,9 @@ export default definePluginEntry({
     api.registerTool(createSupabaseMutateTool(deps));
 
     // Admin plane is opt-in: the token it needs is account-scoped, so it can
-    // reach every project in the account, not just this one.
-    if (cfg.adminEnabled !== false) {
+    // reach every project in the account, not just this one. Must be
+    // explicitly enabled in plugin config (adminEnabled: true).
+    if (cfg.adminEnabled === true) {
       const adminDeps = { envPath: deps.envPath };
       api.registerTool(createSupabaseAdminSqlTool(adminDeps));
       api.registerTool(createSupabaseAdminProjectTool(adminDeps));
@@ -72,7 +73,7 @@ export default definePluginEntry({
     api.logger.info(
       `[lumina-supabase] ready (schema=${deps.schema ?? "public"}, ` +
         `writes=${writesStatus}, ` +
-        `admin=${cfg.adminEnabled === false ? "off" : "on"}).`,
+        `admin=${cfg.adminEnabled === true ? "on" : "off"}).`,
     );
   },
 });

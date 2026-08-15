@@ -31,8 +31,112 @@ function errorResult(err: unknown) {
   return jsonResult({ ok: false, error: err instanceof Error ? err.message : String(err) });
 }
 
+/**
+ * Removes SQL comments while preserving string literals.
+ *
+ * Handles: -- line comments, block comments (with nesting),
+ * '...' strings, "..." identifiers, and $$ ... $$ dollar-quoted strings.
+ *
+ * Without this, a string like 'delete from users' inside a COMMENT or
+ * default expression could fool isDestructiveSql into thinking the
+ * statement is safe (or vice versa).
+ */
 function stripComments(sql: string): string {
-  return sql.replace(/--[^\n]*/gu, " ").replace(/\/\*[\s\S]*?\*\//gu, " ");
+  let out = "";
+  let i = 0;
+  const len = sql.length;
+
+  while (i < len) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    // Line comment: -- to end of line
+    if (ch === "-" && next === "-") {
+      while (i < len && sql[i] !== "\n") i++;
+      out += " ";
+      continue;
+    }
+
+    // Block comment (supports nesting per SQL standard)
+    if (ch === "/" && next === "*") {
+      let depth = 1;
+      i += 2;
+      while (i < len && depth > 0) {
+        if (sql[i] === "/" && sql[i + 1] === "*") {
+          depth++;
+          i += 2;
+        } else if (sql[i] === "*" && sql[i + 1] === "/") {
+          depth--;
+          i += 2;
+        } else i++;
+      }
+      out += " ";
+      continue;
+    }
+
+    // Dollar-quoted string: $$ ... $$ (PostgreSQL)
+    if (ch === "$" && next === "$") {
+      out += "$$";
+      i += 2;
+      while (i < len) {
+        if (sql[i] === "$" && sql[i + 1] === "$") {
+          out += "$$";
+          i += 2;
+          break;
+        }
+        out += sql[i];
+        i++;
+      }
+      continue;
+    }
+
+    // Single-quoted string: '...' (with '' escape)
+    if (ch === "'") {
+      out += "'";
+      i++;
+      while (i < len) {
+        if (sql[i] === "'") {
+          if (sql[i + 1] === "'") {
+            out += "''";
+            i += 2;
+            continue;
+          }
+          out += "'";
+          i++;
+          break;
+        }
+        out += sql[i];
+        i++;
+      }
+      continue;
+    }
+
+    // Double-quoted identifier: "..." (with "" escape)
+    if (ch === '"') {
+      out += '"';
+      i++;
+      while (i < len) {
+        if (sql[i] === '"') {
+          if (sql[i + 1] === '"') {
+            out += '""';
+            i += 2;
+            continue;
+          }
+          out += '"';
+          i++;
+          break;
+        }
+        out += sql[i];
+        i++;
+      }
+      continue;
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
 }
 
 /**
