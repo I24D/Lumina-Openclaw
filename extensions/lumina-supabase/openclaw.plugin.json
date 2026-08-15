@@ -1,0 +1,67 @@
+{
+  "id": "lumina-supabase",
+  "name": "Lumina Supabase",
+  "description": "Supabase tools for Lumina: read and write rows through PostgREST, plus DDL and project lifecycle through the Management API.",
+  "icon": "https://cdn.simpleicons.org/supabase",
+  "activation": {
+    "onStartup": false
+  },
+  "enabledByDefault": true,
+  "contracts": {
+    "tools": [
+      "lumina_supabase_status",
+      "lumina_supabase_schema",
+      "lumina_supabase_query",
+      "lumina_supabase_mutate",
+      "lumina_supabase_admin_sql",
+      "lumina_supabase_admin_project"
+    ]
+  },
+  "setup": {
+    "providers": [
+      {
+        "id": "lumina-supabase",
+        "authMethods": ["api-key"],
+        "envVars": ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ACCESS_TOKEN"]
+      }
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "envPath": {
+        "type": "string",
+        "default": "c:/I24D_WhatsApp/.env",
+        "description": "Absolute path to the .env shared with the rest of I24D."
+      },
+      "schema": {
+        "type": "string",
+        "default": "public",
+        "description": "PostgREST schema exposed to the data tools."
+      },
+      "maxRows": {
+        "type": "number",
+        "default": 100,
+        "minimum": 1,
+        "maximum": 500,
+        "description": "Hard cap on rows returned by lumina_supabase_query."
+      },
+      "allowWrites": {
+        "type": "boolean",
+        "description": "Enable lumina_supabase_mutate. Falls back to LUMINA_SUPABASE_ALLOW_WRITES when unset."
+      },
+      "adminEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Register the Management API tools (DDL and project restore). The token they use is account-scoped."
+      }
+    }
+  },
+  "uiHints": {
+    "adminEnabled": {
+      "label": "Enable admin tools",
+      "help": "Allows CREATE/ALTER/DROP and restoring a paused project. Uses SUPABASE_ACCESS_TOKEN, which reaches every project in the account."
+    }
+  }
+}

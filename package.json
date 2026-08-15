@@ -1026,6 +1026,7 @@
     "db:kysely:check": "node scripts/generate-kysely-types.mjs --verify",
     "db:kysely:gen": "node scripts/generate-kysely-types.mjs",
     "dev": "node scripts/run-node.mjs",
+    "lumina:health": "node scripts/lumina-dev-healthcheck.mjs",
     "dev:ui:mock": "node --import tsx scripts/control-ui-mock-dev.ts",
     "docs:bin": "node scripts/build-docs-list.mjs",
     "docs:check-i18n-glossary": "node scripts/check-docs-i18n-glossary.mjs",
