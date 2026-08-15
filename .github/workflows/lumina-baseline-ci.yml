@@ -1,0 +1,38 @@
+name: Lumina Baseline CI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: Typecheck baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check conflict markers
+        run: pnpm check:no-conflict-markers
+
+      - name: Typecheck core
+        run: pnpm tsgo:core
+
+      - name: Typecheck extensions
+        run: pnpm tsgo:extensions
