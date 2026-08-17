@@ -1,12 +1,9 @@
 name: Auto response
 
 on:
-  issues:
-    types: [opened, edited, labeled]
-  issue_comment:
-    types: [created]
-  pull_request_target: # zizmor: ignore[dangerous-triggers] maintainer-owned label automation; trusted base checkout only, no untrusted PR code execution
-    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+  # Lumina OpenClaw does not use the upstream Barnacle GitHub App secrets.
+  # Keep this workflow manual-only for upstream parity.
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -19,6 +16,7 @@ permissions: {}
 
 jobs:
   auto-response:
+    if: ${{ github.repository == 'openclaw/openclaw' }}
     permissions:
       contents: read
       issues: write
