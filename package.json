@@ -7,17 +7,25 @@
       "agent": 13
     }
   },
-  "description": "Multi-channel AI gateway with extensible messaging integrations",
-  "keywords": [],
-  "homepage": "https://github.com/openclaw/openclaw#readme",
+  "description": "Lumina OpenClaw: DAL NIJARUQ's OpenClaw-based local-first AI assistant gateway",
+  "keywords": [
+    "lumina",
+    "openclaw",
+    "ai-assistant",
+    "local-first",
+    "whatsapp",
+    "ollama-cloud",
+    "supabase"
+  ],
+  "homepage": "https://github.com/I24D/Lumina-Openclaw#readme",
   "bugs": {
-    "url": "https://github.com/openclaw/openclaw/issues"
+    "url": "https://github.com/I24D/Lumina-Openclaw/issues"
   },
   "license": "MIT",
-  "author": "",
+  "author": "DAL NIJARUQ",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/openclaw/openclaw.git"
+    "url": "git+https://github.com/I24D/Lumina-Openclaw.git"
   },
   "bin": {
     "openclaw": "openclaw.mjs"

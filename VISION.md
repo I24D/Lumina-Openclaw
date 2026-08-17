@@ -1,4 +1,19 @@
-## OpenClaw Vision
+## Lumina OpenClaw Vision
+
+Lumina OpenClaw is the DAL NIJARUQ-led evolution of OpenClaw.
+**DAL NIJARUQ is the principal creator and ongoing developer of Lumina OpenClaw.**
+
+The Lumina direction keeps the OpenClaw local-first gateway foundation, then hardens it for a persistent assistant that can operate through WhatsApp, Supabase-backed memory, conversation archives, diagnostics, QA workflows, and explicit model control.
+
+Lumina priorities:
+
+- Keep Ollama Cloud GLM 5.2 selected unless the operator explicitly changes model.
+- Close the memory loop from conversation to extracted facts, memory-wiki/Supabase storage, and agent recall.
+- Treat Supabase as the operational base for memory, evidence, SQL, and user data.
+- Improve observability with diagnostics, Prometheus/OpenTelemetry, QA lab, workboard, health checks, and session logs.
+- Keep upstream OpenClaw credits, license, and technical lineage visible while Lumina-specific development continues here.
+
+## Upstream OpenClaw Vision
 
 OpenClaw is the AI that actually does things.
 It runs on your devices, in your channels, with your rules.

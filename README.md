@@ -1,27 +1,36 @@
-# 🦞 OpenClaw — Personal AI Assistant
+# Lumina OpenClaw
 
 <p align="center">
     <picture>
-        <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-banner-light.png">
-        <img src="https://raw.githubusercontent.com/openclaw/openclaw/main/docs/assets/openclaw-banner-dark.png" alt="OpenClaw — EXFOLIATE! EXFOLIATE! Your personal AI assistant, running on your own devices.">
+        <source media="(prefers-color-scheme: light)" srcset="docs/assets/lumina-openclaw-banner-light.svg">
+        <img src="docs/assets/lumina-openclaw-banner-dark.svg" alt="Lumina OpenClaw - AI assistant gateway by DAL NIJARUQ">
     </picture>
 </p>
 
 <p align="center">
-  <a href="https://github.com/openclaw/openclaw/actions/workflows/ci.yml?branch=main"><img src="https://img.shields.io/github/actions/workflow/status/openclaw/openclaw/ci.yml?branch=main&style=for-the-badge" alt="CI status"></a>
-  <a href="https://github.com/openclaw/openclaw/releases"><img src="https://img.shields.io/github/v/release/openclaw/openclaw?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
-  <a href="https://discord.gg/clawd"><img src="https://img.shields.io/discord/1456350064065904867?label=Discord&logo=discord&logoColor=white&color=5865F2&style=for-the-badge" alt="Discord"></a>
+  <a href="https://github.com/I24D/Lumina-Openclaw/actions/workflows/lumina-baseline-ci.yml?branch=main"><img src="https://img.shields.io/github/actions/workflow/status/I24D/Lumina-Openclaw/lumina-baseline-ci.yml?branch=main&label=Lumina%20CI&style=for-the-badge" alt="Lumina baseline CI status"></a>
+  <a href="https://github.com/I24D/Lumina-Openclaw/releases"><img src="https://img.shields.io/github/v/release/I24D/Lumina-Openclaw?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
 </p>
 
-**OpenClaw** is a _personal AI assistant_ you run on your own devices.
-It answers you on the channels you already use. It can speak and listen on macOS/iOS/Android, and can render a live Canvas you control. The Gateway is just the control plane — the product is the assistant.
+**Lumina OpenClaw** is the DAL NIJARUQ-led evolution of OpenClaw: a local-first AI assistant gateway tuned for Lumina workflows, WhatsApp operations, persistent memory, observability, and disciplined model control.
+
+**DAL NIJARUQ is the principal creator and ongoing developer of Lumina OpenClaw.** This repository builds on OpenClaw and keeps the upstream MIT license, credits, and technical lineage intact.
+
+It answers you on the channels you already use. It can speak and listen on macOS/iOS/Android, and can render a live Canvas you control. The Gateway is just the control plane - the product is the assistant.
 
 If you want a personal, single-user assistant that feels local, fast, and always-on, this is it.
 
 Supported channels include: WhatsApp, Telegram, Slack, Discord, Google Chat, Signal, iMessage, IRC, Microsoft Teams, Matrix, Feishu, LINE, Mattermost, Nextcloud Talk, Nostr, Synology Chat, Tlon, Twitch, Zalo, Zalo Personal, WeChat, QQ, WebChat.
 
-[Website](https://openclaw.ai) · [Docs](https://docs.openclaw.ai) · [Vision](VISION.md) · [Third-party notices](THIRD_PARTY_NOTICES.md) · [DeepWiki](https://deepwiki.com/openclaw/openclaw) · [Getting Started](https://docs.openclaw.ai/start/getting-started) · [Updating](https://docs.openclaw.ai/install/updating) · [Showcase](https://docs.openclaw.ai/start/showcase) · [FAQ](https://docs.openclaw.ai/help/faq) · [Onboarding](https://docs.openclaw.ai/start/wizard) · [Nix](https://github.com/openclaw/nix-openclaw) · [Docker](https://docs.openclaw.ai/install/docker) · [Discord](https://discord.gg/clawd)
+[Lumina repo](https://github.com/I24D/Lumina-Openclaw) - [Lumina notes](docs/LUMINA_OPENCLAW.md) - [Vision](VISION.md) - [Third-party notices](THIRD_PARTY_NOTICES.md) - [Upstream OpenClaw docs](https://docs.openclaw.ai) - [Getting Started](https://docs.openclaw.ai/start/getting-started) - [Updating](https://docs.openclaw.ai/install/updating) - [Docker](https://docs.openclaw.ai/install/docker)
+
+Lumina focus:
+
+- Ollama Cloud GLM 5.2 should remain the selected model unless the operator explicitly changes it.
+- Supabase, memory-wiki, SQL, conversation archive, and health checks form the persistent operational base.
+- WhatsApp and local gateway flows are first-class Lumina surfaces.
+- Diagnostics, Prometheus/OpenTelemetry, QA lab, and workboard visibility are treated as core development concerns.
 
 New install? Start here: [Getting started](https://docs.openclaw.ai/start/getting-started)
 
@@ -228,8 +237,8 @@ root is not a supported source setup.
 For the dev loop:
 
 ```bash
-git clone https://github.com/openclaw/openclaw.git
-cd openclaw
+git clone https://github.com/I24D/Lumina-Openclaw.git
+cd Lumina-Openclaw
 
 pnpm install
 
@@ -285,12 +294,13 @@ Minimal `~/.openclaw/openclaw.json` (model + defaults):
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=openclaw/openclaw&type=date&legend=top-left)](https://www.star-history.com/#openclaw/openclaw&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=I24D/Lumina-Openclaw&type=date&legend=top-left)](https://www.star-history.com/#I24D/Lumina-Openclaw&type=date&legend=top-left)
 
-## Molty
+## Lineage and Credits
 
-OpenClaw was built for **Molty**, a space lobster AI assistant. 🦞
-by Peter Steinberger and the community.
+Lumina OpenClaw is created and continuously developed by **DAL NIJARUQ** as a Lumina-focused evolution of OpenClaw.
+
+OpenClaw was built for **Molty**, a space lobster AI assistant, by Peter Steinberger and the community. Lumina OpenClaw keeps the OpenClaw MIT license, upstream credits, and third-party notices intact while developing Lumina-specific improvements in this repository.
 
 - [openclaw.ai](https://openclaw.ai)
 - [soul.md](https://soul.md)
@@ -300,8 +310,8 @@ by Peter Steinberger and the community.
 ## Community
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, maintainers, and how to submit PRs.
-Use the [issue chooser](https://github.com/openclaw/openclaw/issues/new/choose) for bugs, docs bugs, and feature requests;
-ask setup/support questions in [Discord](https://discord.gg/clawd); and report vulnerabilities through [SECURITY.md](SECURITY.md).
+Use the [Lumina OpenClaw issue chooser](https://github.com/I24D/Lumina-Openclaw/issues/new/choose) for bugs, docs bugs, and feature requests;
+use the upstream [OpenClaw Discord](https://discord.gg/clawd) for upstream setup/support questions; and report vulnerabilities through [SECURITY.md](SECURITY.md).
 PRs should link the relevant issue when possible and follow the [PR template](.github/pull_request_template.md) with problem, impact, and evidence.
 AI/vibe-coded PRs welcome! 🤖
 
