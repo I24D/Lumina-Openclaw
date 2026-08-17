@@ -24,11 +24,35 @@ function parsePossiblyNoisyJsonObject(stdout: string): Record<string, unknown> {
 }
 
 /**
+ * Windows install roots for tailscale.exe, derived from the environment rather
+ * than hardcoded so localized or relocated Program Files still resolve.
+ *
+ * Windows does not put tailscale.exe on PATH by default, and a PATH edit never
+ * reaches already-running processes: a gateway started by Task Scheduler keeps
+ * the environment captured at service boot, so it never sees a later install.
+ */
+export function windowsTailscaleBinaryCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
+  if (process.platform !== "win32") {
+    return [];
+  }
+  const roots = [env.ProgramFiles, env["ProgramFiles(x86)"], "C:\\Program Files"];
+  const candidates = new Set<string>();
+  for (const root of roots) {
+    if (!root?.trim()) {
+      continue;
+    }
+    candidates.add(`${root.replace(/[\\/]+$/, "")}\\Tailscale\\tailscale.exe`);
+  }
+  return [...candidates];
+}
+
+/**
  * Locate Tailscale binary using multiple strategies:
  * 1. PATH lookup (via which command)
- * 2. Known macOS app path
- * 3. find /Applications for Tailscale.app
- * 4. locate database (if available)
+ * 2. Known Windows install paths (%ProgramFiles%\Tailscale)
+ * 3. Known macOS app path
+ * 4. find /Applications for Tailscale.app
+ * 5. locate database (if available)
  *
  * @returns Path to Tailscale binary or null if not found
  */
@@ -57,13 +81,20 @@ export async function findTailscaleBinary(): Promise<string | null> {
     // which failed, continue
   }
 
-  // Strategy 2: Known macOS app path
+  // Strategy 2: Known Windows install paths. `which` above only sees PATH.
+  for (const winPath of windowsTailscaleBinaryCandidates()) {
+    if (await checkBinary(winPath)) {
+      return winPath;
+    }
+  }
+
+  // Strategy 3: Known macOS app path
   const macAppPath = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
   if (await checkBinary(macAppPath)) {
     return macAppPath;
   }
 
-  // Strategy 3: find command in /Applications
+  // Strategy 4: find command in /Applications
   try {
     const { stdout } = await runExec(
       "find",
@@ -86,7 +117,7 @@ export async function findTailscaleBinary(): Promise<string | null> {
     // find failed, continue
   }
 
-  // Strategy 4: locate command
+  // Strategy 5: locate command
   try {
     const { stdout } = await runExec("locate", ["Tailscale.app"]);
     const candidates = stdout
@@ -109,11 +140,19 @@ export async function getTailnetHostname(exec: typeof runExec = runExec, detecte
   // Derive tailnet hostname (or IP fallback) from tailscale status JSON.
   const candidates = detectedBinary
     ? [detectedBinary]
-    : ["tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"];
+    : [
+        "tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        ...windowsTailscaleBinaryCandidates(),
+      ];
   let lastError: unknown;
 
   for (const candidate of candidates) {
-    if (candidate.startsWith("/") && !existsSync(candidate)) {
+    // Skip absolute candidates that are not installed. Windows paths are
+    // absolute too ("C:\..."), so match those as well as POSIX ones; a bare
+    // command name stays eligible for PATH resolution.
+    const isAbsoluteCandidate = candidate.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(candidate);
+    if (isAbsoluteCandidate && !existsSync(candidate)) {
       continue;
     }
     try {

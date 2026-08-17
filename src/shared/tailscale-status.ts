@@ -1,5 +1,6 @@
 // Tailscale status helpers parse and validate status payloads from Tailscale.
 import { z } from "zod";
+import { windowsTailscaleBinaryCandidates } from "../infra/tailscale.js";
 import { safeParseJsonWithSchema } from "../utils/zod-parse.js";
 
 export type TailscaleStatusCommandResult = {
@@ -12,9 +13,14 @@ export type TailscaleStatusCommandRunner = (
   opts: { timeoutMs: number },
 ) => Promise<TailscaleStatusCommandResult>;
 
+// Without the Windows candidates, resolveTailnetHostWithRunner() finds no host
+// on a gateway whose PATH predates the Tailscale install, and device pairing
+// reports "MagicDNS could not be resolved" even though Tailscale is installed,
+// running, and Serve is healthy.
 const TAILSCALE_STATUS_COMMAND_CANDIDATES = [
   "tailscale",
   "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+  ...windowsTailscaleBinaryCandidates(),
 ];
 
 const TailscaleStatusSchema = z.object({
