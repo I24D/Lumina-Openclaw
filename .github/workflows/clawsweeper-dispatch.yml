@@ -1,18 +1,9 @@
 name: ClawSweeper Dispatch
 
 on:
-  issues:
-    types: [opened, reopened, edited, labeled, unlabeled]
-  issue_comment:
-    types: [created, edited]
-  push:
-    branches: [main]
-  pull_request_target: # zizmor: ignore[dangerous-triggers] maintainer-owned external dispatch; no checkout or untrusted PR code execution
-    types: [opened, reopened, synchronize, ready_for_review, edited, labeled, unlabeled]
-  pull_request_review:
-    types: [submitted, edited, dismissed]
-  pull_request_review_comment:
-    types: [created, edited]
+  # Lumina OpenClaw does not dispatch to the upstream openclaw/clawsweeper repo.
+  # Keep this workflow available for manual upstream parity only.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -26,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       ${{
+        github.repository == 'openclaw/openclaw' &&
         (github.event_name != 'issue_comment' ||
           (github.actor != 'clawsweeper[bot]' && github.actor != 'openclaw-clawsweeper[bot]')) &&
         !(
