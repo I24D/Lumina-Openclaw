@@ -6,6 +6,16 @@ Lumina OpenClaw is the Lumina-focused evolution of OpenClaw.
 
 This repository keeps the upstream OpenClaw MIT license, third-party notices, and technical lineage visible while developing Lumina-specific improvements for a persistent, local-first assistant.
 
+## Lumina Project Family
+
+Lumina is one connected project expressed through three public repositories:
+
+1. **[Lumina OpenClaw](https://github.com/I24D/Lumina-Openclaw)** - the assistant gateway, memory, WhatsApp operations, diagnostics, and local runtime.
+2. **[Lumina Code](https://github.com/I24D/Lumina_Code)** - the coding/developer surface for Lumina workflows.
+3. **[Lumina Novela](https://github.com/I24D/Lumina-Novela)** - the narrative origin and story world behind Lumina.
+
+They are different parts of the same Lumina project by **DAL NIJARUQ**.
+
 ## Current Direction
 
 - Keep Ollama Cloud GLM 5.2 as the selected model unless the operator explicitly changes it.

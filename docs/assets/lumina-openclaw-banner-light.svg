@@ -7,11 +7,11 @@
       <stop offset="0.52" stop-color="#eef7f4"/>
       <stop offset="1" stop-color="#f8efe7"/>
     </linearGradient>
-    <linearGradient id="mark" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0" stop-color="#00a884"/>
-      <stop offset="0.55" stop-color="#3772ff"/>
-      <stop offset="1" stop-color="#ff8a4c"/>
-    </linearGradient>
+    <radialGradient id="mascotBody" cx="36%" cy="24%" r="78%">
+      <stop offset="0" stop-color="#ff5a58"/>
+      <stop offset="0.62" stop-color="#ef2f32"/>
+      <stop offset="1" stop-color="#c91f2a"/>
+    </radialGradient>
     <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
       <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#1f2937" flood-opacity="0.18"/>
     </filter>
@@ -22,17 +22,26 @@
     <path d="M1052 330 C1148 374 1278 356 1342 270" fill="none" stroke="#3772ff" stroke-width="6"/>
     <path d="M872 64 C816 140 818 260 888 342" fill="none" stroke="#ff8a4c" stroke-width="6"/>
   </g>
-  <g filter="url(#softShadow)" transform="translate(92 82)">
-    <rect x="0" y="0" width="244" height="244" rx="42" fill="#111827"/>
-    <path d="M122 36 L192 166 H146 L122 118 L98 166 H52 Z" fill="url(#mark)"/>
-    <circle cx="83" cy="188" r="14" fill="#00a884"/>
-    <circle cx="122" cy="188" r="14" fill="#3772ff"/>
-    <circle cx="161" cy="188" r="14" fill="#ff8a4c"/>
+  <g filter="url(#softShadow)" transform="translate(64 42)">
+    <ellipse cx="158" cy="330" rx="112" ry="18" fill="#94a3b8" opacity="0.22"/>
+    <path d="M104 83 C73 48 48 34 32 40" fill="none" stroke="#ff5a58" stroke-width="20" stroke-linecap="round"/>
+    <path d="M212 83 C243 48 268 34 284 40" fill="none" stroke="#ff5a58" stroke-width="20" stroke-linecap="round"/>
+    <circle cx="158" cy="188" r="128" fill="url(#mascotBody)"/>
+    <ellipse cx="54" cy="198" rx="46" ry="58" fill="#ef3337"/>
+    <ellipse cx="262" cy="198" rx="46" ry="58" fill="#ef3337"/>
+    <rect x="118" y="292" width="42" height="54" rx="5" fill="#d6222c"/>
+    <rect x="176" y="292" width="42" height="54" rx="5" fill="#d6222c"/>
+    <circle cx="116" cy="150" r="34" fill="#07111f"/>
+    <circle cx="200" cy="150" r="34" fill="#07111f"/>
+    <circle cx="116" cy="150" r="15" fill="#18d8c0"/>
+    <circle cx="200" cy="150" r="15" fill="#18d8c0"/>
+    <path d="M126 206 C136 244 180 244 190 206 Z" fill="#07111f"/>
+    <path d="M145 238 C154 251 173 251 181 238 C170 233 156 233 145 238 Z" fill="#ff6b6b"/>
   </g>
-  <g transform="translate(390 104)">
+  <g transform="translate(390 88)">
     <text x="0" y="62" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="74" font-weight="800" fill="#111827">Lumina OpenClaw</text>
     <text x="2" y="116" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="28" font-weight="600" fill="#2563eb">Local-first AI assistant gateway</text>
     <text x="2" y="172" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="32" font-weight="700" fill="#0f766e">Created and continuously developed by DAL NIJARUQ</text>
-    <text x="2" y="224" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="24" fill="#374151">Built on OpenClaw with Lumina memory, WhatsApp operations, diagnostics, and GLM 5.2 discipline.</text>
+    <text x="2" y="222" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="23" fill="#374151">Part of the same Lumina project: OpenClaw, Code, and Novela.</text>
   </g>
 </svg>

@@ -25,6 +25,16 @@ Supported channels include: WhatsApp, Telegram, Slack, Discord, Google Chat, Sig
 
 [Lumina repo](https://github.com/I24D/Lumina-Openclaw) - [Lumina notes](docs/LUMINA_OPENCLAW.md) - [Vision](VISION.md) - [Third-party notices](THIRD_PARTY_NOTICES.md) - [Upstream OpenClaw docs](https://docs.openclaw.ai) - [Getting Started](https://docs.openclaw.ai/start/getting-started) - [Updating](https://docs.openclaw.ai/install/updating) - [Docker](https://docs.openclaw.ai/install/docker)
 
+## Lumina Project Family
+
+Lumina is one connected project expressed through three public repositories:
+
+1. **[Lumina OpenClaw](https://github.com/I24D/Lumina-Openclaw)** - the assistant gateway, memory, WhatsApp operations, diagnostics, and local runtime.
+2. **[Lumina Code](https://github.com/I24D/Lumina_Code)** - the coding/developer surface for Lumina workflows.
+3. **[Lumina Novela](https://github.com/I24D/Lumina-Novela)** - the narrative origin and story world behind Lumina.
+
+They are different parts of the same Lumina project by **DAL NIJARUQ**.
+
 Lumina focus:
 
 - Ollama Cloud GLM 5.2 should remain the selected model unless the operator explicitly changes it.
