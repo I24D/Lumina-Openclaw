@@ -2006,7 +2006,8 @@
     "android:i18n:check": "node --import tsx scripts/android-app-i18n.ts check",
     "apple:i18n:check": "node --import tsx scripts/apple-app-i18n.ts check",
     "ui:install": "node scripts/ui.js install",
-    "verify": "node --import tsx scripts/verify.mts"
+    "verify": "node --import tsx scripts/verify.mts",
+    "lumina:publish": "node --import tsx scripts/lumina-publish-github.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.3.0",

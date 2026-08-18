@@ -64,6 +64,37 @@ Two upstream behaviours to expect when merging:
   surrounding functions still exist before accepting a clean-looking merge.
   This is what retired the 7.2 sidebar thread unification at the 8.1 graft.
 
+## Publishing to GitHub
+
+The local branch and `origin/main` deliberately carry different histories.
+
+Locally, `main` descends from `openclaw/openclaw` so upstream releases arrive
+through an ordinary merge. That ancestry cannot be pushed to this repository:
+GitHub rejects every pack containing it with `did not receive expected object
+e27e2d08…`, reproducibly, and it is not a local defect — `git fsck` is clean,
+and the failure survives delta-free packs built from an object closure verified
+complete. A normal-sized pack carrying only the tree is accepted.
+
+So publishing means committing the current tree on top of whatever `origin/main`
+already is:
+
+```bash
+pnpm lumina:publish
+```
+
+The script refuses to run on a dirty tree, skips when the published tree already
+matches, and otherwise pushes one commit whose tree is identical to local HEAD.
+Verify with:
+
+```bash
+git rev-parse origin/main^{tree} HEAD^{tree}   # the two hashes must match
+```
+
+The practical trade-off: clones of this repository get the code, not OpenClaw's
+80,057-commit history. For a public fork that is arguably the better default —
+a clone stays small. Full history lives in the working copy, which is where
+merging upstream actually happens.
+
 ## Attribution
 
 Lumina OpenClaw is created and continuously developed by **DAL NIJARUQ**.
