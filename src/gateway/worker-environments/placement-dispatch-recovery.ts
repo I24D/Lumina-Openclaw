@@ -1,8 +1,10 @@
+import { supportsWorkerExecutionContextLaunch } from "./admission.js";
+import { DEVICE_WORKER_PROVIDER_ID } from "./device-provider.js";
 import {
+  isCurrentActiveWorkerEnvironment,
   isUnavailableEnvironment,
   type WorkerActiveDispatchPlacement,
   type WorkerDispatchPlacement,
-  type WorkerDrainingDispatchPlacement,
   type WorkerFailedDispatchPlacement,
   type WorkerStartingDispatchPlacement,
 } from "./placement-dispatch-failure.js";
@@ -11,24 +13,6 @@ import {
   type PlacementRecoveryDeps,
 } from "./placement-dispatch-pending-results.js";
 import type { WorkerEnvironmentService } from "./service.js";
-
-function sameActiveEnvironment(
-  placement: WorkerActiveDispatchPlacement | WorkerDrainingDispatchPlacement,
-  environment: ReturnType<WorkerEnvironmentService["get"]>,
-): boolean {
-  return Boolean(
-    environment &&
-    environment.state === "attached" &&
-    placement.environmentId &&
-    environment.environmentId === placement.environmentId &&
-    placement.activeOwnerEpoch !== null &&
-    environment.ownerEpoch === placement.activeOwnerEpoch &&
-    placement.workerBundleHash &&
-    environment.bootstrapReceipt?.bundleHash === placement.workerBundleHash &&
-    environment.attachedSessionIds.length === 1 &&
-    environment.attachedSessionIds[0] === placement.sessionId,
-  );
-}
 
 function isStartingPlacement(
   placement: WorkerDispatchPlacement,
@@ -40,6 +24,42 @@ function isFailedPlacement(
   placement: WorkerDispatchPlacement,
 ): placement is WorkerFailedDispatchPlacement {
   return placement.state === "failed";
+}
+
+function workerDisappearanceError(
+  environment: ReturnType<WorkerEnvironmentService["get"]>,
+): Error | undefined {
+  if (!environment) {
+    return new Error("cloud worker disappeared: environment record missing");
+  }
+  if (
+    environment.state !== "destroyed" &&
+    environment.state !== "failed" &&
+    environment.state !== "orphaned"
+  ) {
+    return undefined;
+  }
+  return new Error(
+    `cloud worker disappeared: ${environment.error ?? `environment state ${environment.state}`}`,
+  );
+}
+
+function blockingWorkspaceJournalSessions(
+  placements: PlacementRecoveryDeps["placements"],
+): Set<string> {
+  const sessions = new Set<string>();
+  for (const owner of placements.listWorkspaceReconciliationOwners()) {
+    const placement = placements.get(owner.sessionId);
+    if (
+      (placement?.state === "active" || placement?.state === "draining") &&
+      placement.environmentId === owner.environmentId &&
+      placement.activeOwnerEpoch === owner.ownerEpoch &&
+      placement.generation === owner.placementGeneration
+    ) {
+      sessions.add(owner.sessionId);
+    }
+  }
+  return sessions;
 }
 
 export function createPlacementRecoveryActions(deps: PlacementRecoveryDeps) {
@@ -58,15 +78,16 @@ export function createPlacementRecoveryActions(deps: PlacementRecoveryDeps) {
     const environment = placement.environmentId
       ? environments.get(placement.environmentId)
       : undefined;
-    if (!environment || isUnavailableEnvironment(environment)) {
+    const disappearance = workerDisappearanceError(environment);
+    if (disappearance || (environment && isUnavailableEnvironment(environment))) {
       await failure.reclaimActive(
         placement,
         environment,
-        new Error("Active worker disappeared during restart reconciliation"),
+        disappearance ?? new Error(`Active worker environment is ${environment?.state}`),
       );
       return;
     }
-    if (!sameActiveEnvironment(placement, environment)) {
+    if (!environment || !isCurrentActiveWorkerEnvironment(placement, environment)) {
       await failure.reclaimActive(
         placement,
         environment,
@@ -75,10 +96,15 @@ export function createPlacementRecoveryActions(deps: PlacementRecoveryDeps) {
       return;
     }
     try {
-      await environments.startTunnel({
-        environmentId: environment.environmentId,
-        ownerEpoch: environment.ownerEpoch,
-      });
+      // Paired nodes are persistent runners, not one-shot SSH children. Their
+      // dormant lease remains authoritative while offline; validate and create
+      // the reconnect-scoped tunnel lazily when the next turn actually launches.
+      if (environment.providerId !== DEVICE_WORKER_PROVIDER_ID) {
+        await environments.startTunnel({
+          environmentId: environment.environmentId,
+          ownerEpoch: environment.ownerEpoch,
+        });
+      }
       placements.adoptActive({
         sessionId: placement.sessionId,
         expectedGeneration: placement.generation,
@@ -102,6 +128,7 @@ export function createPlacementRecoveryActions(deps: PlacementRecoveryDeps) {
       environment &&
       expectedBundle &&
       environment.bootstrapReceipt?.bundleHash === expectedBundle &&
+      supportsWorkerExecutionContextLaunch(environment.bootstrapReceipt) &&
       hasSyncedWorkspace;
     if (!canResume) {
       const error = new Error("Interrupted worker dispatch cannot safely resume");
@@ -136,6 +163,7 @@ export function createPlacementRecoveryActions(deps: PlacementRecoveryDeps) {
         sessionId: placement.sessionId,
         sessionKey: placement.sessionKey,
         agentId: placement.agentId,
+        executionMode: placement.executionMode,
         activate: () => {
           const activated = placements.transition({
             sessionId: placement.sessionId,
@@ -163,9 +191,7 @@ export function createPlacementRecoveryActions(deps: PlacementRecoveryDeps) {
   const reconcile = async (): Promise<void> => {
     await environments.reconcileOnce();
     const pendingResultOwners = await recoverPendingWorkspaceResults(deps, true);
-    const journalOwners = new Set(
-      placements.listWorkspaceReconciliationOwners().map((owner) => owner.sessionId),
-    );
+    const journalOwners = blockingWorkspaceJournalSessions(placements);
     for (const placement of placements.listForReconcile()) {
       if (journalOwners.has(placement.sessionId) || pendingResultOwners.has(placement.sessionId)) {
         continue;
@@ -203,10 +229,8 @@ export function createPlacementRecoveryActions(deps: PlacementRecoveryDeps) {
   // durable active ownership and retry teardown already fenced by a previous failure.
   const reconcileActive = async (environmentId?: string): Promise<void> => {
     await environments.reconcileOnce();
-    const pendingResultOwners = await recoverPendingWorkspaceResults(deps, false);
-    const journalOwners = new Set(
-      placements.listWorkspaceReconciliationOwners().map((owner) => owner.sessionId),
-    );
+    const pendingResultOwners = await recoverPendingWorkspaceResults(deps, false, environmentId);
+    const journalOwners = blockingWorkspaceJournalSessions(placements);
     for (const placement of placements.listForReconcile()) {
       if (journalOwners.has(placement.sessionId) || pendingResultOwners.has(placement.sessionId)) {
         continue;
@@ -222,15 +246,16 @@ export function createPlacementRecoveryActions(deps: PlacementRecoveryDeps) {
         continue;
       }
       const environment = environments.get(placement.environmentId);
-      if (!environment || isUnavailableEnvironment(environment)) {
+      const disappearance = workerDisappearanceError(environment);
+      if (disappearance || (environment && isUnavailableEnvironment(environment))) {
         await failure.reclaimActive(
           placement,
           environment,
-          new Error("Active worker disappeared during an admitted turn"),
+          disappearance ?? new Error(`Active worker environment is ${environment?.state}`),
         );
         continue;
       }
-      if (!sameActiveEnvironment(placement, environment)) {
+      if (!isCurrentActiveWorkerEnvironment(placement, environment)) {
         await failure.reclaimActive(
           placement,
           environment,

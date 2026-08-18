@@ -14,7 +14,7 @@ export const BOARD_SIZE_PRESETS = {
 } as const;
 
 export type BoardSize = keyof typeof BOARD_SIZE_PRESETS;
-export type BoardLayout = Pick<BoardSnapshot, "tabs" | "widgets">;
+type BoardLayout = Pick<BoardSnapshot, "tabs" | "widgets">;
 type BoardValidationErrorCode = "conflict" | "invalid_operation" | "not_found";
 
 export class BoardValidationError extends Error {
@@ -42,6 +42,10 @@ function cloneWidget(widget: BoardWidget): BoardWidget {
     tabId: widget.tabId,
     ...(widget.title !== undefined ? { title: widget.title } : {}),
     contentKind: widget.contentKind,
+    ...(widget.presentation !== undefined ? { presentation: widget.presentation } : {}),
+    ...(widget.heightMode !== undefined ? { heightMode: widget.heightMode } : {}),
+    ...(widget.pluginKind !== undefined ? { pluginKind: widget.pluginKind } : {}),
+    ...(widget.props !== undefined ? { props: structuredClone(widget.props) } : {}),
     sizeW: widget.sizeW,
     sizeH: widget.sizeH,
     position: widget.position,
@@ -252,6 +256,9 @@ function applyBoardOp(layout: BoardLayout, op: BoardOp): void {
       const widget = requireWidget(layout, op.name);
       widget.sizeW = clampInteger(op.sizeW, 1, 12);
       widget.sizeH = clampInteger(op.sizeH, 1, 20);
+      // A resize is always explicit user intent: legacy clients omit heightMode
+      // and must still pin, or the next content report undoes their resize.
+      widget.heightMode = op.heightMode ?? "fixed";
       return;
     }
     case "widget_remove": {

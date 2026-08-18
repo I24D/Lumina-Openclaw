@@ -12,51 +12,40 @@ import {
   ModelsConfigSchema,
   SecretInputSchema,
   SecretsConfigSchema,
+  SsrFPolicyConfigSchema,
+  TtsConfigSchema,
 } from "./zod-schema.core.js";
+import { DesktopConfigSchema } from "./zod-schema.desktop.js";
 import { GatewayConfigSchema } from "./zod-schema.gateway.js";
 import { HookMappingSchema, HooksGmailSchema, InternalHooksSchema } from "./zod-schema.hooks.js";
 import { BrowserSnapshotDefaultsSchema } from "./zod-schema.node-host.js";
 import { ProxyConfigSchema } from "./zod-schema.proxy.js";
 import {
   AccessGroupsSchema,
-  CommitmentsSchema,
   LoggingLevelSchema,
-  MarketplacesSchema,
   McpConfigSchema,
   MemorySchema,
   NodeHostSchema,
   PluginEntrySchema,
   SecuritySchema,
   SkillEntrySchema,
-  SystemAgentSchema,
   TalkSchema,
 } from "./zod-schema.root-support.js";
 import { sensitive } from "./zod-schema.sensitive.js";
 import { CommandsSchema, MessagesSchema, SessionSchema } from "./zod-schema.session.js";
+
+// OpenTelemetry instrument names start with an ASCII letter and allow only these characters.
+// The 128-character prefix cap leaves ample room within the dependency's 255-character name cap.
+const MetricNamePrefixSchema = z
+  .string()
+  .max(128)
+  .regex(/^(?:[A-Za-z][A-Za-z0-9_./-]*)?$/);
 
 export const OpenClawSchemaShape = {
   $schema: z.string().optional(),
   meta: z
     .strictObject({
       lastTouchedVersion: z.string().optional(),
-      // Accept any string unchanged (backwards-compatible) and coerce numeric Unix
-      // timestamps to ISO strings (agent file edits may write Date.now()).
-      lastTouchedAt: z
-        .union([
-          z.string(),
-          z
-            .number()
-            .transform((n, ctx) => {
-              const d = new Date(n);
-              if (Number.isNaN(d.getTime())) {
-                ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid timestamp" });
-                return z.NEVER;
-              }
-              return d.toISOString();
-            })
-            .pipe(z.string()),
-        ])
-        .optional(),
       migrations: z
         .strictObject({
           modelPolicyAllowlist: z.literal(true).optional(),
@@ -74,7 +63,7 @@ export const OpenClawSchemaShape = {
         .optional(),
       vars: z.record(z.string(), z.string()).optional(),
     })
-    .catchall(z.string())
+    .strict()
     .optional(),
   wizard: z
     .strictObject({
@@ -100,9 +89,10 @@ export const OpenClawSchemaShape = {
           tracesEndpoint: z.string().optional(),
           metricsEndpoint: z.string().optional(),
           logsEndpoint: z.string().optional(),
-          protocol: z.union([z.literal("http/protobuf"), z.literal("grpc")]).optional(),
+          protocol: z.literal("http/protobuf").optional(),
           headers: z.record(z.string(), z.string()).optional(),
           serviceName: z.string().optional(),
+          metricNamePrefix: MetricNamePrefixSchema.optional(),
           traces: z.boolean().optional(),
           metrics: z.boolean().optional(),
           logs: z.boolean().optional(),
@@ -111,37 +101,10 @@ export const OpenClawSchemaShape = {
             .optional(),
           sampleRate: z.number().min(0).max(1).optional(),
           flushIntervalMs: z.number().int().nonnegative().optional(),
-          captureContent: z
-            .union([
-              z.boolean(),
-              z.strictObject({
-                enabled: z.boolean().optional(),
-                inputMessages: z.boolean().optional(),
-                outputMessages: z.boolean().optional(),
-                toolInputs: z.boolean().optional(),
-                toolOutputs: z.boolean().optional(),
-                systemPrompt: z.boolean().optional(),
-                toolDefinitions: z.boolean().optional(),
-              }),
-            ])
-            .optional(),
+          captureContent: z.boolean().optional(),
         })
         .optional(),
-      cacheTrace: z
-        .strictObject({
-          enabled: z.boolean().optional(),
-          filePath: z.string().optional(),
-          includeMessages: z.boolean().optional(),
-          includePrompt: z.boolean().optional(),
-          includeSystem: z.boolean().optional(),
-        })
-        .optional(),
-    })
-    .optional(),
-  audit: z
-    .strictObject({
-      enabled: z.boolean().optional(),
-      messages: z.union([z.literal("off"), z.literal("direct"), z.literal("all")]).optional(),
+      cacheTrace: z.strictObject({ enabled: z.boolean().optional() }).optional(),
     })
     .optional(),
   logging: z
@@ -150,25 +113,17 @@ export const OpenClawSchemaShape = {
       file: z.string().optional(),
       maxFileBytes: z.number().int().positive().optional(),
       consoleLevel: LoggingLevelSchema.optional(),
-      consoleStyle: z
-        .union([z.literal("pretty"), z.literal("compact"), z.literal("json")])
-        .optional(),
-      redactSensitive: z.union([z.literal("off"), z.literal("tools")]).optional(),
+      consoleStyle: z.union([z.literal("pretty"), z.literal("json")]).optional(),
       redactPatterns: z.array(z.string()).optional(),
-    })
-    .optional(),
-  cli: z
-    .strictObject({
-      banner: z
+      audit: z
         .strictObject({
-          taglineMode: z
-            .union([z.literal("random"), z.literal("default"), z.literal("off")])
-            .optional(),
+          enabled: z.boolean().optional(),
+          executionIdentity: z.boolean().optional(),
+          messages: z.union([z.literal("off"), z.literal("direct"), z.literal("all")]).optional(),
         })
         .optional(),
     })
     .optional(),
-  systemAgent: SystemAgentSchema,
   update: z
     .strictObject({
       channel: z
@@ -193,20 +148,13 @@ export const OpenClawSchemaShape = {
       allowSystemProfileImport: z.boolean().optional(),
       evaluateEnabled: z.boolean().optional(),
       cdpUrl: z.string().optional(),
-      color: z.string().optional(),
       executablePath: z.string().optional(),
       headless: z.boolean().optional(),
       noSandbox: z.boolean().optional(),
       attachOnly: z.boolean().optional(),
       defaultProfile: z.string().optional(),
       snapshotDefaults: BrowserSnapshotDefaultsSchema,
-      ssrfPolicy: z
-        .strictObject({
-          dangerouslyAllowPrivateNetwork: z.boolean().optional(),
-          allowedHostnames: z.array(z.string()).optional(),
-          hostnameAllowlist: z.array(z.string()).optional(),
-        })
-        .optional(),
+      ssrfPolicy: SsrFPolicyConfigSchema.optional(),
       profiles: z
         .record(
           z.string().regex(/^[a-z0-9-]+$/, "Profile names must be alphanumeric with hyphens only"),
@@ -228,7 +176,6 @@ export const OpenClawSchemaShape = {
               headless: z.boolean().optional(),
               executablePath: z.string().optional(),
               attachOnly: z.boolean().optional(),
-              color: HexColorSchema,
             })
             .refine(
               (value) =>
@@ -255,6 +202,11 @@ export const OpenClawSchemaShape = {
           enabled: z.boolean().optional(),
         })
         .optional(),
+      extensionRelay: z
+        .strictObject({
+          allowLegacyAuth: z.boolean().optional(),
+        })
+        .optional(),
     })
     .optional(),
   ui: z
@@ -277,9 +229,6 @@ export const OpenClawSchemaShape = {
           themeMode: z
             .union([z.literal("light"), z.literal("dark"), z.literal("system")])
             .optional(),
-          textScale: z
-            .union([z.literal(90), z.literal(100), z.literal(110), z.literal(125), z.literal(140)])
-            .optional(),
           locale: z.string().max(20).optional(),
           chatShowThinking: z.boolean().optional(),
           chatShowToolCalls: z.boolean().optional(),
@@ -287,13 +236,11 @@ export const OpenClawSchemaShape = {
           chatSendShortcut: z.union([z.literal("enter"), z.literal("modifier-enter")]).optional(),
           chatFollowUpMode: z.union([z.literal("steer"), z.literal("queue")]).optional(),
           sidebarEntries: z.array(z.string()).optional(),
-          sidebarLiveActivity: z.boolean().optional(),
         })
         .optional(),
     })
     .optional(),
   secrets: SecretsConfigSchema,
-  marketplaces: MarketplacesSchema,
   auth: z
     .strictObject({
       profiles: z
@@ -349,9 +296,8 @@ export const OpenClawSchemaShape = {
   security: SecuritySchema,
   bindings: BindingsSchema,
   broadcast: BroadcastSchema,
-  media: z
+  attachments: z
     .strictObject({
-      preserveFilenames: z.boolean().optional(),
       ttlHours: z
         .number()
         .int()
@@ -361,19 +307,20 @@ export const OpenClawSchemaShape = {
     })
     .optional(),
   messages: MessagesSchema,
+  tts: TtsConfigSchema,
   commands: CommandsSchema,
   approvals: ApprovalsSchema,
   session: SessionSchema,
   cron: z
     .strictObject({
       enabled: z.boolean().optional(),
-      store: z.string().optional(),
       triggers: z
         .strictObject({
           enabled: z.boolean().optional(),
         })
         .optional(),
       webhookToken: SecretInputSchema.optional().register(sensitive),
+      webhookSsrfPolicy: SsrFPolicyConfigSchema.optional(),
       sessionRetention: z.union([z.string(), z.literal(false)]).optional(),
       failureAlert: z
         .strictObject({
@@ -383,14 +330,8 @@ export const OpenClawSchemaShape = {
           includeSkipped: z.boolean().optional(),
           mode: z.enum(["announce", "webhook"]).optional(),
           accountId: z.string().optional(),
-        })
-        .optional(),
-      failureDestination: z
-        .strictObject({
           channel: z.string().optional(),
           to: z.string().optional(),
-          accountId: z.string().optional(),
-          mode: z.enum(["announce", "webhook"]).optional(),
         })
         .optional(),
     })
@@ -428,7 +369,6 @@ export const OpenClawSchemaShape = {
         .optional(),
     })
     .optional(),
-  commitments: CommitmentsSchema,
   hooks: z
     .strictObject({
       enabled: z.boolean().optional(),
@@ -444,10 +384,27 @@ export const OpenClawSchemaShape = {
       gmail: HooksGmailSchema,
       internal: InternalHooksSchema,
     })
-    .optional(),
-  web: z
-    .strictObject({
-      enabled: z.boolean().optional(),
+    .superRefine((hooks, ctx) => {
+      const hasDefaultSessionKey = hooks.defaultSessionKey?.trim();
+      for (const [index, mapping] of (hooks.mappings ?? []).entries()) {
+        if (!mapping) {
+          continue;
+        }
+        if (
+          (mapping.action ?? "agent") === "agent" &&
+          mapping.sessionMode === "persistent" &&
+          !mapping.sessionKey?.trim() &&
+          !hasDefaultSessionKey &&
+          !mapping.transform
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["mappings", index, "sessionKey"],
+            message:
+              "persistent hook mappings require sessionKey, hooks.defaultSessionKey, or a transform",
+          });
+        }
+      }
     })
     .optional(),
   channels: ChannelsSchema,
@@ -455,7 +412,6 @@ export const OpenClawSchemaShape = {
     .strictObject({
       wideArea: z
         .strictObject({
-          enabled: z.boolean().optional(),
           domain: z.string().optional(),
         })
         .optional(),
@@ -469,6 +425,7 @@ export const OpenClawSchemaShape = {
   talk: TalkSchema.optional(),
   gateway: GatewayConfigSchema,
   cloudWorkers: CloudWorkersConfigSchema,
+  desktop: DesktopConfigSchema,
   memory: MemorySchema,
   mcp: McpConfigSchema,
   skills: z
@@ -479,7 +436,6 @@ export const OpenClawSchemaShape = {
           extraDirs: z.array(z.string()).optional(),
           allowSymlinkTargets: z.array(z.string()).optional(),
           watch: z.boolean().optional(),
-          watchDebounceMs: z.number().int().min(0).optional(),
         })
         .optional(),
       install: z
@@ -504,7 +460,7 @@ export const OpenClawSchemaShape = {
         .strictObject({
           autonomous: z
             .strictObject({
-              enabled: z.boolean().optional(),
+              mode: z.union([z.literal("off"), z.literal("propose"), z.literal("auto")]).optional(),
             })
             .optional(),
           approvalPolicy: z.union([z.literal("pending"), z.literal("auto")]).optional(),
@@ -533,7 +489,6 @@ export const OpenClawSchemaShape = {
         })
         .optional(),
       entries: z.record(z.string(), PluginEntrySchema).optional(),
-      bundledDiscovery: z.enum(["compat", "allowlist"]).optional(),
     })
     .optional(),
   surfaces: z

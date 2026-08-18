@@ -1,5 +1,6 @@
 // One-shot main job tests cover disabling cron jobs after a single run.
 import { describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import {
   HEARTBEAT_SKIP_CRON_IN_PROGRESS,
   HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT,
@@ -16,7 +17,6 @@ import type { CronEvent } from "./service.js";
 import { CronService } from "./service.js";
 import {
   createCronStoreHarness,
-  createDeferred,
   createNoopLogger,
   installCronTestHooks,
 } from "./service.test-harness.js";
@@ -428,7 +428,7 @@ describe("CronService", () => {
       return now;
     };
 
-    const heartbeatStarted = createDeferred<void>();
+    const heartbeatStarted = createDeferred();
     let resolveHeartbeat: ((res: HeartbeatRunResult) => void) | null = null;
     const runHeartbeatOnce = vi.fn(async () => {
       heartbeatStarted.resolve();
@@ -461,6 +461,38 @@ describe("CronService", () => {
     await runPromise;
 
     await stopCronAndCleanup(cron, store);
+  });
+
+  it("removes a queued main-session event when an immediate heartbeat fails", async () => {
+    const runHeartbeatOnce = vi.fn(async () => {
+      throw new Error("heartbeat failed");
+    });
+    const { store, cron, enqueueSystemEvent, requestHeartbeat } = await createCronHarness({
+      runHeartbeatOnce,
+      useRemovableSystemEventQueue: true,
+      withEvents: false,
+    });
+
+    try {
+      const job = await addWakeModeNowMainSystemEventJob(cron, {
+        name: "failed immediate heartbeat",
+      });
+
+      await cron.run(job.id, "force");
+
+      expect(runHeartbeatOnce).toHaveBeenCalledOnce();
+      expect(requestHeartbeat).not.toHaveBeenCalled();
+      const sessionKeys = getPostedSystemEventSessionKeys(enqueueSystemEvent);
+      expect(sessionKeys).toHaveLength(1);
+      expectNoQueuedEvents(sessionKeys);
+      const updated = (await cron.list({ includeDisabled: true })).find(
+        (candidate) => candidate.id === job.id,
+      );
+      expect(updated?.state.lastRunStatus).toBe("error");
+      expect(updated?.state.lastError).toContain("heartbeat failed");
+    } finally {
+      await stopCronAndCleanup(cron, store);
+    }
   });
 
   it("rejects sessionTarget main for non-default agents at creation time", async () => {
@@ -658,8 +690,7 @@ describe("CronService", () => {
   it("retries one-shot lifecycle claim conflicts instead of disabling the job (#106875)", async () => {
     const runIsolatedAgentJob = vi.fn(async () => ({
       status: "error" as const,
-      error:
-        'CronSessionLifecycleClaimError: Session "agent:main:cron:job-1" changed while starting work. Retry.',
+      error: 'Session "agent:main:cron:job-1" changed while starting work. Retry.',
     }));
     const { store, cron, events } = await createIsolatedAnnounceHarness(runIsolatedAgentJob);
     const job = await runIsolatedAnnounceJobAndWait({
@@ -682,8 +713,7 @@ describe("CronService", () => {
   it("does not retry a lifecycle claim conflict after agent execution starts (#108428)", async () => {
     const runIsolatedAgentJob = vi.fn(async () => ({
       status: "error" as const,
-      error:
-        'CronSessionLifecycleClaimError: Session "agent:main:cron:job-1" changed while starting work. Retry.',
+      error: 'Session "agent:main:cron:job-1" changed while starting work. Retry.',
       executionStarted: true,
     }));
     const { store, cron, events } = await createIsolatedAnnounceHarness(runIsolatedAgentJob);

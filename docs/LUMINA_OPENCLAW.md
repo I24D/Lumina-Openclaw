@@ -30,6 +30,40 @@ They are different parts of the same Lumina project by **DAL NIJARUQ**.
 - Local development should use `pnpm install`, `pnpm lumina:health`, and focused tests before publishing runtime changes.
 - OpenClaw upstream documentation remains useful for core concepts, channels, gateway behavior, and security posture.
 
+## Staying Current With Upstream OpenClaw
+
+This repository tracks `openclaw/openclaw` as a real git ancestor, so upstream
+releases arrive through an ordinary pull:
+
+```bash
+git remote add upstream https://github.com/openclaw/openclaw.git   # once
+git fetch upstream
+git merge upstream/main
+pnpm install
+```
+
+Conflicts can only appear in the files Lumina actually modifies. Everything
+else fast-forwards untouched. The Lumina-owned surface is:
+
+| Area | Files |
+| --- | --- |
+| Transient-401 retry | `src/agents/embedded-agent-runner/run/{helpers,failover-retry-controller,assistant-failover,assistant-failure}.ts`, `run-loop.ts`, `types.ts` |
+| Windows Tailscale discovery | `src/infra/tailscale.ts`, `src/shared/tailscale-status.ts` |
+| WhatsApp outbound safety | `extensions/whatsapp/src/outbound-safety.ts`, `send.ts`, `auto-reply/monitor/inbound-dispatch.ts`, `on-message.ts` |
+| Supabase extension | `extensions/lumina-supabase/**` (upstream has no such path) |
+| Branding and docs | `README.md`, `VISION.md`, `docs/LUMINA_OPENCLAW.md`, `docs/assets/lumina-openclaw-banner-*.svg`, `package.json` |
+| CI and scripts | `.github/workflows/lumina-baseline-ci.yml`, fork guards on inherited workflows, `scripts/lumina-dev-healthcheck.mjs` |
+
+Two upstream behaviours to expect when merging:
+
+- `pnpm-lock.yaml` is generated. Resolve it by taking upstream's file and
+  running `pnpm install`; the `extensions/lumina-supabase` workspace entry is
+  regenerated automatically from the `extensions/*` glob.
+- When upstream rewrites a subsystem Lumina has patched, a textual merge will
+  produce code that compiles against APIs that no longer exist. Check that the
+  surrounding functions still exist before accepting a clean-looking merge.
+  This is what retired the 7.2 sidebar thread unification at the 8.1 graft.
+
 ## Attribution
 
 Lumina OpenClaw is created and continuously developed by **DAL NIJARUQ**.

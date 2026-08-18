@@ -32,8 +32,13 @@ export function isPidAlive(pid: number): boolean {
   }
   try {
     process.kill(pid, 0);
-  } catch {
-    return false;
+  } catch (err) {
+    // EPERM means the PID exists but we cannot signal it. Treat that as a
+    // successful existence probe, then still apply the Linux zombie check.
+    // Keep parity with isPidDefinitelyDead (EPERM is not "definitely dead").
+    if ((err as NodeJS.ErrnoException).code !== "EPERM") {
+      return false;
+    }
   }
   if (isZombieProcess(pid)) {
     return false;
@@ -99,10 +104,32 @@ export function getProcessStartTime(pid: number): number | null {
   }
 }
 
+// Windows exposes neither procfs nor ps(1), so no per-pid start time is
+// readable there. Node does expose this process's own uptime, which covers the
+// one case that must never fail: proving our own identity when claiming a
+// durable fence. Cache it -- Date.now() and process.uptime() each drift by a
+// millisecond between calls, and a fence that reads a different value on every
+// call would look like a different process to itself.
+let selfProcessStartTimeSeconds: number | null = null;
+
+function getSelfProcessStartTime(): number {
+  selfProcessStartTimeSeconds ??= Math.floor((Date.now() - process.uptime() * 1000) / 1000);
+  return selfProcessStartTimeSeconds;
+}
+
 /** Read a cross-platform process identity for filesystem lock ownership. */
 export function getFileLockProcessStartTime(pid: number): number | null {
   if (!isValidPid(pid)) {
     return null;
   }
-  return process.platform === "darwin" ? getDarwinProcessStartTime(pid) : getProcessStartTime(pid);
+  if (process.platform === "darwin") {
+    return getDarwinProcessStartTime(pid);
+  }
+  if (process.platform === "linux") {
+    return getProcessStartTime(pid);
+  }
+  // Anything else (Windows) can still identify itself. Other pids stay null,
+  // which callers already read as "cannot prove this owner is stale" -- the
+  // conservative answer, and exactly what Windows returned before.
+  return pid === process.pid ? getSelfProcessStartTime() : null;
 }

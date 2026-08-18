@@ -4,8 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import type { webhook } from "@line/bot-sdk";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
-import { getSessionBindingService } from "openclaw/plugin-sdk/conversation-runtime";
-import { testing as sessionBindingTesting } from "openclaw/plugin-sdk/conversation-runtime";
+import {
+  getSessionBindingService,
+  testing as sessionBindingTesting,
+} from "openclaw/plugin-sdk/conversation-runtime";
 import {
   createTestRegistry,
   setActivePluginRegistry,
@@ -206,8 +208,10 @@ describe("buildLineMessageContext", () => {
     expect(context?.ctxPayload.RawBody).toBe("");
     expect(context?.ctxPayload.CommandBody).toBe("");
     expect(context?.ctxPayload.BodyForAgent).toBe("[line attachment unavailable]");
-    expect(context?.ctxPayload.MediaPath).toBeUndefined();
-    expect(context?.ctxPayload.MediaType).toBe("image");
+    expect(context?.ctxPayload.media?.[0]).toMatchObject({
+      path: undefined,
+      kind: "image",
+    });
   });
 
   it("keeps materialized media-only text empty and projects structured media facts", async () => {
@@ -230,8 +234,11 @@ describe("buildLineMessageContext", () => {
     expect(context?.ctxPayload.RawBody).toBe("");
     expect(context?.ctxPayload.CommandBody).toBe("");
     expect(context?.ctxPayload.BodyForAgent).toBe("");
-    expect(context?.ctxPayload.MediaPath).toBe("/tmp/line-image.png");
-    expect(context?.ctxPayload.MediaType).toBe("image/png");
+    expect(context?.ctxPayload.media?.[0]).toMatchObject({
+      path: "/tmp/line-image.png",
+      contentType: "image/png",
+      kind: "image",
+    });
   });
 
   it("routes group postback replies to the group id", async () => {

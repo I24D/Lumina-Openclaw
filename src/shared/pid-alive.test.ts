@@ -42,6 +42,45 @@ describe("isPidAlive", () => {
     expect(isPidAlive(Number.POSITIVE_INFINITY)).toBe(false);
   });
 
+  it("returns true when process probing reports EPERM", () => {
+    const error = Object.assign(new Error("permission denied"), { code: "EPERM" });
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      throw error;
+    });
+    mockProcReads({
+      "/proc/42/status": "Name:\tnode\nState:\tS (sleeping)\nPid:\t42\n",
+    });
+
+    expect(isPidAlive(42)).toBe(true);
+    expect(process["kill"]).toHaveBeenCalledWith(42, 0);
+  });
+
+  it("returns false for Linux zombies even when probing reports EPERM", async () => {
+    const error = Object.assign(new Error("permission denied"), { code: "EPERM" });
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      throw error;
+    });
+    mockProcReads({
+      "/proc/42/status": "Name:\tnode\nUmask:\t0022\nState:\tZ (zombie)\nTgid:\t42\nPid:\t42\n",
+    });
+
+    await withMockedPlatform("linux", async () => {
+      expect(isPidAlive(42)).toBe(false);
+    });
+
+    expect(process["kill"]).toHaveBeenCalledWith(42, 0);
+  });
+
+  it("returns false when process probing reports ESRCH", () => {
+    const error = Object.assign(new Error("missing process"), { code: "ESRCH" });
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      throw error;
+    });
+
+    expect(isPidAlive(42)).toBe(false);
+    expect(process["kill"]).toHaveBeenCalledWith(42, 0);
+  });
+
   it("returns false for zombie processes on Linux", async () => {
     const zombiePid = process.pid;
 
@@ -184,10 +223,18 @@ describe("process start times", () => {
     });
   });
 
-  it("returns null on unsupported platforms", () => {
+  it("identifies only the current process where no per-pid source exists", () => {
     return withMockedPlatform("win32", async () => {
+      // The procfs reader stays Linux-only.
       expect(getProcessStartTime(process.pid)).toBeNull();
-      expect(getFileLockProcessStartTime(process.pid)).toBeNull();
+      // Windows exposes no per-pid start time, but a durable fence still has to
+      // prove *this* process's identity, so self resolves -- and stays stable,
+      // or a fence would read a different owner on every call.
+      const self = getFileLockProcessStartTime(process.pid);
+      expect(typeof self).toBe("number");
+      expect(getFileLockProcessStartTime(process.pid)).toBe(self);
+      // Other pids stay unknown, which callers read as "cannot prove stale".
+      expect(getFileLockProcessStartTime(process.pid + 1)).toBeNull();
     });
   });
 

@@ -1,7 +1,7 @@
 import type {
   ApplicationInitialUserMessage,
   ApplicationInitialUserMessageHandoff,
-} from "../../app/context.ts";
+} from "../../app/initial-user-message-handoff.ts";
 import type { ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import { areUiSessionKeysEquivalent } from "../../lib/sessions/session-key.ts";
 import {
@@ -9,13 +9,10 @@ import {
   releaseChatAttachmentPayloads,
 } from "./attachment-payload-store.ts";
 import {
-  markLocalRecoveryItem,
-  markVolatileQueuedMessage,
+  keepVolatileQueuedMessage,
   readChatQueueForScope,
   type ChatQueueScopedSessionHost,
-  writeChatQueueForScope,
 } from "./chat-queue.ts";
-import { messageDisplaySignature } from "./history-merge.ts";
 import { buildUserChatMessageContentBlocks } from "./user-message-content.ts";
 
 const INITIAL_TURN_HANDOFF_TTL_MS = 60_000;
@@ -52,19 +49,39 @@ export function prepareInitialUserMessageHandoff(
   sessionKey: string,
   item: Pick<ChatQueueItem, "attachments" | "createdAt" | "text">,
   owner: object,
+  identity: { runId?: string; messageSeq?: number } = {},
 ): void {
+  const runId = identity.runId?.trim();
+  if (!runId) {
+    return;
+  }
   const durableAttachments = item.attachments?.map((attachment) => {
     const dataUrl = getChatAttachmentDataUrl(attachment);
     return dataUrl ? { ...attachment, dataUrl, previewUrl: dataUrl } : attachment;
   });
+  const messageSequence =
+    typeof identity.messageSeq === "number" &&
+    Number.isSafeInteger(identity.messageSeq) &&
+    identity.messageSeq > 0
+      ? identity.messageSeq
+      : undefined;
   const message: ApplicationInitialUserMessage = {
     role: "user",
     content: buildUserChatMessageContentBlocks(item.text, durableAttachments),
     timestamp: item.createdAt,
+    __openclaw: {
+      idempotencyKey: `${runId}:user`,
+      ...(messageSequence === undefined ? {} : { seq: messageSequence }),
+    },
   };
-  // Keep the projection until terminal history owns it so active first turns
-  // survive later pane/history resets.
-  handoff.prepare({ message, owner, sessionKey });
+  // This bounded process-local handoff owns the original inline bytes until
+  // the pane projection adopts the matching authoritative row.
+  handoff.prepare({
+    message,
+    owner,
+    sessionKey,
+    pendingRunId: runId,
+  });
 }
 
 function consumeInitialTurnHandoff(sessionKey: string): ChatQueueItem | null {
@@ -86,52 +103,7 @@ export function admitInitialTurnHandoff(
   }
   const queue = readChatQueueForScope(host, sessionKey, item.agentId);
   if (!queue.some((entry) => entry.id === item.id)) {
-    writeChatQueueForScope(host, sessionKey, [...queue, item], item.agentId);
+    keepVolatileQueuedMessage(host, sessionKey, item, item.agentId, { retryable: true });
   }
-  markLocalRecoveryItem(host, item.id);
-  markVolatileQueuedMessage(host, item.id);
   return true;
-}
-
-export function admitInitialUserMessageHandoff(
-  handoff: ApplicationInitialUserMessageHandoff,
-  host: { chatMessages: unknown[]; hello?: object | null },
-  sessionKey: string,
-): boolean {
-  const message = handoff.read(sessionKey, host.hello ?? null);
-  if (!message) {
-    return false;
-  }
-  const signature = messageDisplaySignature(message);
-  const matchingMessage = host.chatMessages.find(
-    (candidate) => signature && messageDisplaySignature(candidate) === signature,
-  );
-  if (matchingMessage) {
-    return false;
-  }
-  host.chatMessages = [message, ...host.chatMessages];
-  return true;
-}
-
-/** Keeps the accepted prompt projected until authoritative history owns it. */
-export function reconcileInitialUserMessageHandoff(
-  handoff: ApplicationInitialUserMessageHandoff,
-  host: { chatMessages: unknown[]; hello?: object | null },
-  sessionKey: string,
-  authoritativeMessages: unknown[],
-  runActive: boolean,
-): boolean {
-  const message = handoff.read(sessionKey, host.hello ?? null);
-  if (!message) {
-    return false;
-  }
-  const signature = messageDisplaySignature(message);
-  const historyOwnsMessage = authoritativeMessages.some(
-    (candidate) => signature && messageDisplaySignature(candidate) === signature,
-  );
-  if (historyOwnsMessage && !runActive) {
-    handoff.clear(sessionKey);
-    return false;
-  }
-  return admitInitialUserMessageHandoff(handoff, host, sessionKey);
 }
