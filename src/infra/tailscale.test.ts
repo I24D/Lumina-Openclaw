@@ -13,6 +13,8 @@ const {
   readTailscaleWhoisIdentity,
   claimTailscaleRoute,
   hasTailscaleFunnelRouteForPort,
+  releaseStaleTailscaleListener,
+  staleTailscaleListenerPort,
 } = tailscale;
 const tailscaleBin = "tailscale";
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -255,6 +257,31 @@ describe("tailscale helpers", () => {
       await expect(claimPromise).rejects.toThrow("Funnel is not enabled on your tailnet.");
     },
   );
+
+  it("reads the stale listener port out of a route claim failure", () => {
+    expect(
+      staleTailscaleListenerPort({
+        stderr: "sending serve config: updating config: listener already exists for port 443",
+      }),
+    ).toBe(443);
+    expect(staleTailscaleListenerPort(new Error("listener already exists for port 8443"))).toBe(
+      8443,
+    );
+  });
+
+  it.each([
+    { label: "an unrelated failure", err: new Error("Funnel is not enabled on your tailnet.") },
+    { label: "an out-of-range port", err: new Error("listener already exists for port 70000") },
+    { label: "an empty failure", err: {} },
+  ])("does not treat $label as a stale listener", ({ err }) => {
+    expect(staleTailscaleListenerPort(err)).toBeNull();
+  });
+
+  it("releases a stale listener for the mode and port being claimed", async () => {
+    const exec = vi.fn().mockResolvedValue({ stdout: "" });
+    await releaseStaleTailscaleListener("serve", 443, exec);
+    expectExecCall(exec, 1, tailscaleBin, ["serve", "--https=443", "off"], { timeoutMs: 10_000 });
+  });
 
   it("hasTailscaleFunnelRouteForPort accepts noisy JSON status output", async () => {
     const exec = vi.fn().mockResolvedValue({

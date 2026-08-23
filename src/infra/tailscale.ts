@@ -26,6 +26,7 @@ const TAILSCALE_STATUS_ATTEMPTS = 3;
 const TAILSCALE_STATUS_RETRY_DELAY_MS = 500;
 const TAILSCALE_ROUTE_START_TIMEOUT_MS = 15_000;
 const TAILSCALE_ROUTE_STOP_TIMEOUT_MS = 4_000;
+const TAILSCALE_LISTENER_RELEASE_TIMEOUT_MS = 10_000;
 
 function parsePossiblyNoisyJsonObject(stdout: string): Record<string, unknown> {
   const trimmed = stdout.trim();
@@ -427,20 +428,45 @@ async function startTailscaleRouteOwner(argv: string[]): Promise<TailscaleRouteC
 export async function claimTailscaleRoute(
   mode: "serve" | "funnel",
   target: number | string,
+  options: { onStaleListenerReclaimed?: (listenerPort: number) => void } = {},
 ): Promise<TailscaleRouteClaim> {
   const tailscaleBin = await getTailscaleBinary();
   const args = [mode, "--yes", "--bg=false", `${target}`];
+  const claimRoute = async (): Promise<TailscaleRouteClaim> => {
+    try {
+      return await startTailscaleRouteOwner([tailscaleBin, ...args]);
+    } catch (error) {
+      if (!isPermissionDeniedError(error)) {
+        throw error;
+      }
+      try {
+        return await startTailscaleRouteOwner(["sudo", "-n", tailscaleBin, ...args]);
+      } catch {
+        throw error;
+      }
+    }
+  };
+
   try {
-    return await startTailscaleRouteOwner([tailscaleBin, ...args]);
+    return await claimRoute();
   } catch (error) {
-    if (!isPermissionDeniedError(error)) {
+    // A Gateway that dies without running its cleanup (SIGKILL, crash, power loss)
+    // leaves this foreground route behind: tailscaled keeps serving the listener, so
+    // every later boot fails here and the Gateway never opens its port. No shutdown
+    // hook can cover a SIGKILL, so recovery has to happen on the way up: drop the
+    // leftover listener for the port this claim is about to own anyway, then retry
+    // exactly once. Unrelated failures still surface untouched.
+    const listenerPort = staleTailscaleListenerPort(error);
+    if (listenerPort === null) {
       throw error;
     }
     try {
-      return await startTailscaleRouteOwner(["sudo", "-n", tailscaleBin, ...args]);
+      await releaseStaleTailscaleListener(mode, listenerPort);
     } catch {
       throw error;
     }
+    options.onStaleListenerReclaimed?.(listenerPort);
+    return await claimRoute();
   }
 }
 
@@ -516,6 +542,34 @@ function isPermissionDeniedError(err: unknown): boolean {
     combined.includes("requires sudo") ||
     combined.includes("need sudo")
   );
+}
+
+// tailscaled reports this when a listener for the tailnet-facing port is still
+// registered, which is how an abandoned foreground route announces itself.
+const STALE_TAILSCALE_LISTENER_PATTERN = /listener already exists for port\s+(\d{1,5})/i;
+
+/** Tailnet-facing port a leftover listener still holds, or null when unrelated. */
+export function staleTailscaleListenerPort(err: unknown): number | null {
+  const { stdout, stderr, message } = extractExecErrorText(err);
+  for (const text of [stderr, stdout, message]) {
+    const port = Number(STALE_TAILSCALE_LISTENER_PATTERN.exec(text)?.[1]);
+    if (Number.isInteger(port) && port > 0 && port <= 65535) {
+      return port;
+    }
+  }
+  return null;
+}
+
+/** Drop a leftover listener so a fresh foreground claim can take the port. */
+export async function releaseStaleTailscaleListener(
+  mode: "serve" | "funnel",
+  listenerPort: number,
+  exec: typeof runExec = runExec,
+): Promise<void> {
+  const tailscaleBin = await getTailscaleBinary();
+  await exec(tailscaleBin, [mode, `--https=${listenerPort}`, "off"], {
+    timeoutMs: TAILSCALE_LISTENER_RELEASE_TIMEOUT_MS,
+  });
 }
 
 export async function hasTailscaleFunnelRouteForPort(

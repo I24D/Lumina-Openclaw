@@ -45,14 +45,15 @@ pnpm install
 Conflicts can only appear in the files Lumina actually modifies. Everything
 else fast-forwards untouched. The Lumina-owned surface is:
 
-| Area | Files |
-| --- | --- |
-| Transient-401 retry | `src/agents/embedded-agent-runner/run/{helpers,failover-retry-controller,assistant-failover,assistant-failure}.ts`, `run-loop.ts`, `types.ts` |
-| Windows Tailscale discovery | `src/infra/tailscale.ts`, `src/shared/tailscale-status.ts` |
-| WhatsApp outbound safety | `extensions/whatsapp/src/outbound-safety.ts`, `send.ts`, `auto-reply/monitor/inbound-dispatch.ts`, `on-message.ts` |
-| Supabase extension | `extensions/lumina-supabase/**` (upstream has no such path) |
-| Branding and docs | `README.md`, `VISION.md`, `docs/LUMINA_OPENCLAW.md`, `docs/assets/lumina-openclaw-banner-*.svg`, `package.json` |
-| CI and scripts | `.github/workflows/lumina-baseline-ci.yml`, fork guards on inherited workflows, `scripts/lumina-dev-healthcheck.mjs` |
+| Area                                                   | Files                                                                                                                                         |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transient-401 retry                                    | `src/agents/embedded-agent-runner/run/{helpers,failover-retry-controller,assistant-failover,assistant-failure}.ts`, `run-loop.ts`, `types.ts` |
+| Tailscale: Windows discovery + stale-listener recovery | `src/infra/tailscale.ts`, `src/shared/tailscale-status.ts`, `src/gateway/server-tailscale.ts`                                                 |
+| Windows cron process identity                          | `src/shared/pid-alive.ts`                                                                                                                     |
+| WhatsApp outbound safety                               | `extensions/whatsapp/src/outbound-safety.ts`, `send.ts`, `auto-reply/monitor/inbound-dispatch.ts`, `on-message.ts`                            |
+| Supabase extension                                     | `extensions/lumina-supabase/**` (upstream has no such path)                                                                                   |
+| Branding and docs                                      | `README.md`, `VISION.md`, `docs/LUMINA_OPENCLAW.md`, `docs/assets/lumina-openclaw-banner-*.svg`, `package.json`                               |
+| CI and scripts                                         | `.github/workflows/lumina-baseline-ci.yml`, fork guards on inherited workflows, `scripts/lumina-dev-healthcheck.mjs`                          |
 
 Two upstream behaviours to expect when merging:
 

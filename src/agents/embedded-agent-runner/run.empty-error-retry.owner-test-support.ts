@@ -75,6 +75,7 @@ function makeInput(
     previousRetryFailoverReason: null,
     maybeMarkAuthProfileFailure: vi.fn(async () => {}),
     maybeRetrySameModelRateLimit: vi.fn(async () => false),
+    maybeRetrySameModelAuth: vi.fn(async () => false),
     maybeBackoffBeforeOverloadFailover: vi.fn(async () => {}),
     advanceAuthProfile: vi.fn(async () => false),
     advanceRateLimitAuthProfile: vi.fn(async () => false),

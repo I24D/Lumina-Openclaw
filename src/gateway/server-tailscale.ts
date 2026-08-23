@@ -51,7 +51,12 @@ export async function startGatewayTailscaleExposure(params: {
 
   let claim: Awaited<ReturnType<typeof claimTailscaleRoute>> | undefined;
   try {
-    claim = await claimTailscaleRoute(params.tailscaleMode, backendTarget);
+    claim = await claimTailscaleRoute(params.tailscaleMode, backendTarget, {
+      onStaleListenerReclaimed: (listenerPort) =>
+        params.logTailscale.warn(
+          `reclaimed port ${listenerPort} from a leftover ${params.tailscaleMode} listener; a previous Gateway exited without releasing its route`,
+        ),
+    });
     const host = await (
       params.tailscaleMode === "serve" ? getTailnetHostnameAfterServe() : getTailnetHostname()
     ).catch(() => null);
