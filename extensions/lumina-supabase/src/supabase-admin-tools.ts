@@ -52,7 +52,9 @@ function stripComments(sql: string): string {
 
     // Line comment: -- to end of line
     if (ch === "-" && next === "-") {
-      while (i < len && sql[i] !== "\n") i++;
+      while (i < len && sql[i] !== "\n") {
+        i++;
+      }
       out += " ";
       continue;
     }
@@ -68,7 +70,9 @@ function stripComments(sql: string): string {
         } else if (sql[i] === "*" && sql[i + 1] === "/") {
           depth--;
           i += 2;
-        } else i++;
+        } else {
+          i++;
+        }
       }
       out += " ";
       continue;
@@ -151,7 +155,9 @@ export function isDestructiveSql(sql: string): boolean {
     .map((part) => part.trim())
     .filter((part) => part.length > 0)
     .some((statement) => {
-      if (ALWAYS_DESTRUCTIVE_RE.test(statement) || ALTER_DROP_RE.test(statement)) return true;
+      if (ALWAYS_DESTRUCTIVE_RE.test(statement) || ALTER_DROP_RE.test(statement)) {
+        return true;
+      }
       return ROW_WRITE_RE.test(statement) && !/\bwhere\b/iu.test(statement);
     });
 }
@@ -185,7 +191,9 @@ export function createSupabaseAdminSqlTool(deps: AdminDeps) {
     execute: async (_toolCallId: string, rawParams: Record<string, unknown>) => {
       try {
         const sql = typeof rawParams.sql === "string" ? rawParams.sql.trim() : "";
-        if (!sql) return jsonResult({ ok: false, error: "sql is required" });
+        if (!sql) {
+          return jsonResult({ ok: false, error: "sql is required" });
+        }
 
         const confirm = rawParams.confirm === true;
         if (isDestructiveSql(sql) && !confirm) {
@@ -204,11 +212,11 @@ export function createSupabaseAdminSqlTool(deps: AdminDeps) {
           `/v1/projects/${cfg.projectRef}/database/query`,
           { method: "POST", body: JSON.stringify({ query: sql }), timeoutMs: 120_000 },
         );
-        const parsed = await readSupabaseJson<unknown>(response);
+        const parsed = await readSupabaseJson(response);
         if (!parsed.ok) {
           return jsonResult({ ok: false, status: parsed.status, error: parsed.error });
         }
-        const rows = Array.isArray(parsed.data) ? parsed.data : [];
+        const rows: unknown[] = Array.isArray(parsed.data) ? parsed.data : [];
         return jsonResult({
           ok: true,
           projectRef: cfg.projectRef,
@@ -268,23 +276,24 @@ export function createSupabaseAdminProjectTool(deps: AdminDeps) {
           method: "GET",
           timeoutMs: 30_000,
         });
-        const parsed = await readSupabaseJson<{
+        const parsed = await readSupabaseJson(response);
+        if (!parsed.ok) {
+          return jsonResult({ ok: false, status: parsed.status, error: parsed.error });
+        }
+        const project = parsed.data as {
           name?: string;
           status?: string;
           region?: string;
           database?: { host?: string; version?: string };
-        }>(response);
-        if (!parsed.ok) {
-          return jsonResult({ ok: false, status: parsed.status, error: parsed.error });
-        }
+        };
         return jsonResult({
           ok: true,
           projectRef: cfg.projectRef,
-          name: parsed.data.name,
-          status: parsed.data.status,
-          region: parsed.data.region,
-          databaseHost: parsed.data.database?.host,
-          postgresVersion: parsed.data.database?.version,
+          name: project.name,
+          status: project.status,
+          region: project.region,
+          databaseHost: project.database?.host,
+          postgresVersion: project.database?.version,
           restoreRequested: rawParams.restore === true,
         });
       } catch (err) {

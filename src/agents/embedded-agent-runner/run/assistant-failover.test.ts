@@ -196,7 +196,7 @@ describe("handleAssistantFailover", () => {
       const maybeRetrySameModelAuth = vi.fn(async () => true);
       const advanceAuthProfile = vi.fn(async () => true);
 
-      const outcome = await handleAssistantFailover(
+      await handleAssistantFailover(
         makeParams({
           initialDecision: { action: "rotate_profile", reason: "auth_permanent" },
           failoverReason: "auth_permanent",

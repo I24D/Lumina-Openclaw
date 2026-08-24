@@ -50,7 +50,9 @@ function validateSelect(select: string): string {
 }
 
 function serializeScalar(value: unknown): string {
-  if (value === null) return "null";
+  if (value === null) {
+    return "null";
+  }
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
@@ -64,7 +66,9 @@ function serializeFilter(filter: {
   value?: unknown;
 }): [string, string] {
   const column = filter.column?.trim();
-  if (!column) throw new Error("each filter needs a column");
+  if (!column) {
+    throw new Error("each filter needs a column");
+  }
   assertSupabaseIdentifier(column, "filter column");
   const op = (filter.op ?? "eq") as (typeof FILTER_OPS)[number];
   if (!FILTER_OPS.includes(op)) {
@@ -149,18 +153,20 @@ export function createSupabaseSchemaTool(deps: ToolDeps) {
           acceptOpenApi: true,
           timeoutMs: 20_000,
         });
-        const parsed = await readSupabaseJson<{
+        const parsed = await readSupabaseJson(response);
+        if (!parsed.ok) {
+          return jsonResult({ ok: false, status: parsed.status, error: parsed.error });
+        }
+        const schema = parsed.data as {
           paths?: Record<string, unknown>;
           definitions?: Record<string, { properties?: Record<string, unknown> }>;
-        }>(response);
-        if (!parsed.ok)
-          return jsonResult({ ok: false, status: parsed.status, error: parsed.error });
+        };
 
         const only = typeof rawParams.table === "string" ? rawParams.table.trim() : undefined;
-        const names = Object.keys(parsed.data.paths ?? {})
+        const names = Object.keys(schema.paths ?? {})
           .filter((p) => p !== "/")
           .map((p) => p.replace(/^\//u, ""));
-        const definitions = parsed.data.definitions ?? {};
+        const definitions = schema.definitions ?? {};
         const tables = names
           .filter((n) => !n.startsWith("rpc/"))
           .filter((n) => !only || n === only)
@@ -217,8 +223,9 @@ export function createSupabaseQueryTool(deps: ToolDeps) {
 
         if (typeof rawParams.order === "string" && rawParams.order.trim()) {
           const order = rawParams.order.trim();
-          if (!ORDER_RE.test(order))
+          if (!ORDER_RE.test(order)) {
             throw new Error("order must look like column.asc or column.desc");
+          }
           params.set("order", order);
         }
 
@@ -233,11 +240,12 @@ export function createSupabaseQueryTool(deps: ToolDeps) {
           method: "GET",
           timeoutMs: 30_000,
         });
-        const parsed = await readSupabaseJson<unknown[]>(response);
-        if (!parsed.ok)
+        const parsed = await readSupabaseJson(response);
+        if (!parsed.ok) {
           return jsonResult({ ok: false, status: parsed.status, error: parsed.error });
+        }
 
-        const rows = Array.isArray(parsed.data) ? parsed.data : [];
+        const rows: unknown[] = Array.isArray(parsed.data) ? parsed.data : [];
         return jsonResult({ ok: true, table, rowCount: rows.length, limit, rows });
       } catch (err) {
         return errorResult(err);
@@ -308,7 +316,9 @@ export function createSupabaseMutateTool(deps: ToolDeps) {
 
         if (action === "insert" || action === "upsert") {
           const rows = Array.isArray(rawParams.rows) ? rawParams.rows : [];
-          if (rows.length === 0) throw new Error("rows is required for insert/upsert");
+          if (rows.length === 0) {
+            throw new Error("rows is required for insert/upsert");
+          }
           body = JSON.stringify(rows);
           if (action === "upsert") {
             headers.set("prefer", "return=representation,resolution=merge-duplicates");
@@ -329,11 +339,12 @@ export function createSupabaseMutateTool(deps: ToolDeps) {
           `/rest/v1/${table}${suffix ? `?${suffix}` : ""}`,
           { method, body, headers, timeoutMs: 30_000 },
         );
-        const parsed = await readSupabaseJson<unknown[]>(response);
-        if (!parsed.ok)
+        const parsed = await readSupabaseJson(response);
+        if (!parsed.ok) {
           return jsonResult({ ok: false, status: parsed.status, error: parsed.error });
+        }
 
-        const rows = Array.isArray(parsed.data) ? parsed.data : [];
+        const rows: unknown[] = Array.isArray(parsed.data) ? parsed.data : [];
         return jsonResult({
           ok: true,
           table,

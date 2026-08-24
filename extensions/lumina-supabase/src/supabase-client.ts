@@ -56,15 +56,21 @@ let envCache: { path: string; values: Record<string, string> } | null = null;
 
 /** Parses the shared .env once and memoises it per path. */
 function loadEnvFile(envPath: string): Record<string, string> {
-  if (envCache?.path === envPath) return envCache.values;
+  if (envCache?.path === envPath) {
+    return envCache.values;
+  }
   const values: Record<string, string> = {};
   try {
     const raw = readFileSync(envPath, "utf8");
     for (const line of raw.split(/\r?\n/u)) {
       const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
+      if (!trimmed || trimmed.startsWith("#")) {
+        continue;
+      }
       const eq = trimmed.indexOf("=");
-      if (eq <= 0) continue;
+      if (eq <= 0) {
+        continue;
+      }
       const key = trimmed.slice(0, eq).trim();
       let value = trimmed.slice(eq + 1).trim();
       if (
@@ -85,7 +91,9 @@ function loadEnvFile(envPath: string): Record<string, string> {
 /** process.env wins over the .env file so a shell override always applies. */
 export function getEnvVar(name: string, opts: EnvOptions = {}): string | undefined {
   const fromProcess = process.env[name];
-  if (fromProcess !== undefined && fromProcess.length > 0) return fromProcess;
+  if (fromProcess !== undefined && fromProcess.length > 0) {
+    return fromProcess;
+  }
   const value = loadEnvFile(opts.envPath ?? DEFAULT_ENV_PATH)[name];
   return value && value.length > 0 ? value : undefined;
 }
@@ -101,7 +109,9 @@ function normalizeUrl(value: string): string {
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined || value.trim() === "") return fallback;
+  if (value === undefined || value.trim() === "") {
+    return fallback;
+  }
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
@@ -112,7 +122,9 @@ function parseMaxRows(value: number | string | undefined): number {
       : typeof value === "string" && value.trim()
         ? Number(value.trim())
         : DEFAULT_MAX_ROWS;
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MAX_ROWS;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_MAX_ROWS;
+  }
   return Math.min(Math.trunc(parsed), HARD_MAX_ROWS);
 }
 
@@ -129,7 +141,9 @@ export function getSupabaseProjectRef(url: string): string | null {
 /** Resolves data-plane config (PostgREST). */
 export function resolveSupabaseConfig(options: SupabaseConfigOptions = {}): SupabaseConfig {
   const url = getEnvVar("SUPABASE_URL", options);
-  if (!url) throw new Error("Missing SUPABASE_URL in c:/I24D_WhatsApp/.env");
+  if (!url) {
+    throw new Error("Missing SUPABASE_URL in c:/I24D_WhatsApp/.env");
+  }
 
   const candidates: Array<[SupabaseKeySource, string | undefined]> = [
     ["SUPABASE_SERVICE_ROLE_KEY", getEnvVar("SUPABASE_SERVICE_ROLE_KEY", options)],
@@ -137,7 +151,9 @@ export function resolveSupabaseConfig(options: SupabaseConfigOptions = {}): Supa
     ["SUPABASE_KEY", getEnvVar("SUPABASE_KEY", options)],
   ];
   const selected = candidates.find(([, value]) => typeof value === "string" && value.length > 0);
-  if (!selected?.[1]) throw new Error("Missing Supabase API key in c:/I24D_WhatsApp/.env");
+  if (!selected?.[1]) {
+    throw new Error("Missing Supabase API key in c:/I24D_WhatsApp/.env");
+  }
 
   const schema =
     options.schema ??
@@ -237,9 +253,14 @@ export async function supabaseAdminFetch(
   }
 }
 
-export async function readSupabaseJson<T>(
+/**
+ * Reads a Supabase REST response body. `data` stays `unknown`: the payload is
+ * whatever PostgREST returned, so each caller asserts the shape it expects at
+ * its own site rather than having this reader hand back an unchecked cast.
+ */
+export async function readSupabaseJson(
   response: Response,
-): Promise<{ ok: true; data: T } | { ok: false; error: string; status: number }> {
+): Promise<{ ok: true; data: unknown } | { ok: false; error: string; status: number }> {
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     return {
@@ -249,7 +270,7 @@ export async function readSupabaseJson<T>(
     };
   }
   try {
-    return { ok: true, data: (await response.json()) as T };
+    return { ok: true, data: await response.json() };
   } catch (err) {
     return {
       ok: false,

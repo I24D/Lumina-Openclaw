@@ -1593,7 +1593,7 @@
     "db:kysely:check": "node --import tsx scripts/generate-kysely-types.mts --verify",
     "db:kysely:gen": "node --import tsx scripts/generate-kysely-types.mts",
     "dev": "node scripts/run-node.mjs",
-    "lumina:health": "node scripts/lumina-dev-healthcheck.mjs",
+    "lumina:health": "node --import tsx scripts/lumina-dev-healthcheck.mts",
     "dev:ui:mock": "node --import tsx scripts/control-ui-mock-dev.ts",
     "docs:check-config-examples": "node scripts/check-docs-config-examples.mjs",
     "docs:check-i18n-glossary": "node --import tsx scripts/check-docs-i18n-glossary.mts",

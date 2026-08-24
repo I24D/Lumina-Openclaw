@@ -517,12 +517,7 @@ export async function runPreparedEmbeddedLoop(
       overloadProfileRotations = assistantFailureOutcome.overloadProfileRotations;
       sameModelIdleTimeoutRetries = assistantFailureOutcome.sameModelIdleTimeoutRetries;
       lastRetryFailoverReason = assistantFailureOutcome.lastRetryFailoverReason;
-      if (!assistantFailureOutcome.preserveSameModelRateLimitRetryCount) {
-        failoverRetryController.resetSameModelRateLimitRetries();
-      }
-      if (!assistantFailureOutcome.preserveSameModelAuthRetryCount) {
-        failoverRetryController.resetSameModelAuthRetries();
-      }
+      failoverRetryController.resetSameModelRetriesFor(assistantFailureOutcome);
       if (assistantFailureOutcome.action === "retry") {
         continue;
       }

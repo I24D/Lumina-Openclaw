@@ -53,7 +53,7 @@ else fast-forwards untouched. The Lumina-owned surface is:
 | WhatsApp outbound safety                               | `extensions/whatsapp/src/outbound-safety.ts`, `send.ts`, `auto-reply/monitor/inbound-dispatch.ts`, `on-message.ts`                            |
 | Supabase extension                                     | `extensions/lumina-supabase/**` (upstream has no such path)                                                                                   |
 | Branding and docs                                      | `README.md`, `VISION.md`, `docs/LUMINA_OPENCLAW.md`, `docs/assets/lumina-openclaw-banner-*.svg`, `package.json`                               |
-| CI and scripts                                         | `.github/workflows/lumina-baseline-ci.yml`, fork guards on inherited workflows, `scripts/lumina-dev-healthcheck.mjs`                          |
+| CI and scripts                                         | `.github/workflows/lumina-baseline-ci.yml`, fork guards on inherited workflows, `scripts/lumina-dev-healthcheck.mts`                          |
 
 Two upstream behaviours to expect when merging:
 

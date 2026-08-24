@@ -156,17 +156,28 @@ export function createEmbeddedRunFailoverRetryController(input: {
     get consecutiveSameModelAuthRetries() {
       return consecutiveSameModelAuthRetries;
     },
-    resetSameModelRateLimitRetries: () => {
-      consecutiveSameModelRateLimitRetries = resolveNextSameModelRateLimitRetryCount({
-        retriesSoFar: consecutiveSameModelRateLimitRetries,
-        retriedSameModelRateLimit: false,
-      });
-    },
-    resetSameModelAuthRetries: () => {
-      consecutiveSameModelAuthRetries = resolveNextSameModelAuthRetryCount({
-        retriesSoFar: consecutiveSameModelAuthRetries,
-        retriedSameModelAuth: false,
-      });
+    /**
+     * Clear whichever same-model retry budgets this outcome does not preserve.
+     * Both counters are only ever reset together, right after a failure outcome
+     * is resolved, so the controller that owns them applies the outcome instead
+     * of the run loop reaching in for each counter separately.
+     */
+    resetSameModelRetriesFor: (outcome: {
+      preserveSameModelRateLimitRetryCount: boolean;
+      preserveSameModelAuthRetryCount: boolean;
+    }) => {
+      if (!outcome.preserveSameModelRateLimitRetryCount) {
+        consecutiveSameModelRateLimitRetries = resolveNextSameModelRateLimitRetryCount({
+          retriesSoFar: consecutiveSameModelRateLimitRetries,
+          retriedSameModelRateLimit: false,
+        });
+      }
+      if (!outcome.preserveSameModelAuthRetryCount) {
+        consecutiveSameModelAuthRetries = resolveNextSameModelAuthRetryCount({
+          retriesSoFar: consecutiveSameModelAuthRetries,
+          retriedSameModelAuth: false,
+        });
+      }
     },
     advanceAuthProfile: input.advanceAuthProfile,
     advanceRateLimitAuthProfile: async (context: RateLimitAuthProfileContext): Promise<boolean> => {

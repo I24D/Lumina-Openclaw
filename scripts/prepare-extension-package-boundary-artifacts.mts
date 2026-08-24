@@ -22,6 +22,7 @@ import {
   isLocalCheckEnabled,
   resolveRepoToolBinPath,
 } from "./lib/local-check-runtime.mts";
+import { createManagedCommandInvocation } from "./lib/managed-child-process.mts";
 import { parsePositiveInt } from "./lib/numeric-options.mjs";
 import {
   listPluginSdkDeclarationOutputs,
@@ -236,11 +237,20 @@ export function resolvePluginSdkTypeInputs(rootDir = repoRoot) {
   }
   const tsgoPath = resolveRepoToolBinPath("tsgo");
   ensureRepoToolNodeModulesLink(tsgoPath);
-  const result = spawnSync(
-    tsgoPath,
-    ["-p", "tsconfig.plugin-sdk.dts.json", "--listFilesOnly", "--noEmit"],
-    { cwd: rootDir, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
-  );
+  // node_modules/.bin/tsgo is an extensionless shell script, which Windows cannot
+  // execute directly: spawning it raw fails with ENOENT. The managed invocation
+  // routes through cmd.exe, which resolves tsgo.CMD via PATHEXT.
+  const tsgo = createManagedCommandInvocation({
+    bin: tsgoPath,
+    args: ["-p", "tsconfig.plugin-sdk.dts.json", "--listFilesOnly", "--noEmit"],
+  });
+  const result = spawnSync(tsgo.command, tsgo.args, {
+    cwd: rootDir,
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+    shell: tsgo.shell,
+    windowsVerbatimArguments: tsgo.windowsVerbatimArguments,
+  });
   if (result.status !== 0 || result.error) {
     throw new Error(`Failed to derive plugin SDK type inputs: ${result.stderr || result.error}`);
   }

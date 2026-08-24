@@ -7,6 +7,7 @@ import {
   ensureRepoToolNodeModulesLink,
   resolveRepoToolBinPath,
 } from "./lib/local-check-runtime.mts";
+import { createManagedCommandInvocation } from "./lib/managed-child-process.mts";
 
 function run(command: string, args: string[], options: SpawnSyncOptions) {
   const result = spawnSync(command, args, options);
@@ -14,6 +15,20 @@ function run(command: string, args: string[], options: SpawnSyncOptions) {
     throw result.error;
   }
   return result.status ?? 1;
+}
+
+/**
+ * Run a node_modules/.bin entry. Those are extensionless shell scripts that
+ * Windows cannot execute directly, so spawning one raw fails with ENOENT; the
+ * managed invocation routes it through cmd.exe, which applies PATHEXT.
+ */
+function runRepoTool(bin: string, args: string[], options: SpawnSyncOptions) {
+  const invocation = createManagedCommandInvocation({ bin, args, env: options.env });
+  return run(invocation.command, invocation.args, {
+    ...options,
+    shell: invocation.shell,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+  });
 }
 
 const oxlintPath = resolveRepoToolBinPath("oxlint");
@@ -46,7 +61,7 @@ if (uiI18nStatus !== 0) {
   } else {
     // Control UI CSS hygiene: plain stylesheets plus css`` templates in Lit
     // components. oxlint cannot see inside tagged CSS templates.
-    process.exitCode = run(
+    process.exitCode = runRepoTool(
       resolveRepoToolBinPath("stylelint"),
       [
         "--config",
