@@ -49,6 +49,8 @@ export function resolveRealtimeVoiceProviderCapabilities(params: {
   cfg?: OpenClawConfig;
   /** Effective per-session model after request overrides. */
   model?: string;
+  /** Owner whose agent dir holds the auth profiles; required on multi-agent configs. */
+  agentId?: string;
   surface?: "browser-session" | "gateway-relay" | "bridge";
 }): InternalRealtimeVoiceProviderCapabilities | undefined {
   if (params.surface === "browser-session") {
@@ -85,6 +87,7 @@ export function isRealtimeVoiceProviderConfigured(params: {
   return params.provider.isConfigured({
     cfg: params.cfg,
     providerConfig: params.providerConfig,
+    ...(params.agentId ? { agentId: params.agentId } : {}),
   });
 }
 

@@ -184,6 +184,8 @@ export type RealtimeVoiceProviderResolveConfigContext = {
 export type RealtimeVoiceProviderConfiguredContext = {
   cfg?: OpenClawConfig;
   providerConfig: RealtimeVoiceProviderConfig;
+  /** Owner whose agent dir holds the auth profiles; required on multi-agent configs. */
+  agentId?: string;
 };
 
 export type RealtimeVoiceAgentConsultRunner = (params: {

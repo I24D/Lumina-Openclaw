@@ -45,6 +45,7 @@ type InternalRealtimeVoiceProviderApi = {
     providerConfig: RealtimeVoiceProviderConfig;
     /** Effective per-session model after request overrides. */
     model?: string;
+    agentId?: string;
   }) => InternalRealtimeVoiceProviderCapabilities;
   isGatewayRelayConfigured?: (ctx: {
     cfg?: OpenClawConfig;
@@ -99,12 +100,14 @@ export function resolveInternalRealtimeVoiceBrowserSessionCapabilities(params: {
   cfg?: OpenClawConfig;
   providerConfig: RealtimeVoiceProviderConfig;
   model?: string;
+  agentId?: string;
 }): InternalRealtimeVoiceProviderCapabilities | undefined {
   return readInternalRealtimeVoiceProviderApi(params.provider)?.resolveBrowserSessionCapabilities?.(
     {
       cfg: params.cfg,
       providerConfig: params.providerConfig,
       model: params.model,
+      agentId: params.agentId,
     },
   );
 }

@@ -180,6 +180,21 @@ describe("OpenAI realtime voice provider routing", () => {
     });
   });
 
+  it("scopes the api_key probe to the caller's agent dir", () => {
+    // Without agentDir the probe falls back to the default agent, which throws
+    // AgentSelectionRequiredError on multi-agent configs and aborts Talk startup.
+    const provider = buildOpenAIRealtimeVoiceProvider();
+    const cfg = { agents: { defaults: {} } } as never;
+
+    expect(provider.isConfigured({ cfg, providerConfig: {}, agentId: "voice-agent" })).toBe(false);
+    expect(isProviderAuthProfileConfiguredMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentDir: expect.stringContaining("voice-agent"),
+        profileTypes: ["api_key"],
+      }),
+    );
+  });
+
   it("routes gpt-live Platform sessions through the native quicksilver broker", async () => {
     const { broker, createBrowserSession } = createQuicksilverBrowserBrokerFixture();
     const provider = buildOpenAIRealtimeVoiceProvider({

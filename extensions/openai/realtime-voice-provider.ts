@@ -94,6 +94,7 @@ type OpenAIInternalRealtimeVoiceProviderApi = {
     cfg?: RealtimeVoiceBrowserSessionCreateRequest["cfg"];
     providerConfig: RealtimeVoiceProviderConfig;
     model?: string;
+    agentId?: string;
   }) => OpenAIInternalRealtimeVoiceCapabilities;
   isGatewayRelayConfigured?: (ctx: {
     cfg?: RealtimeVoiceBrowserSessionCreateRequest["cfg"];
@@ -187,6 +188,7 @@ async function createOpenAIRealtimeBrowserSession(
     const auth = await requireOpenAIRealtimePlatformAuth({
       configuredApiKey: config.apiKey,
       cfg: req.cfg,
+      agentId: req.agentId,
     });
     const voice = normalizeOpenAIRealtimeVoice(req.voice) ?? config.voice ?? "alloy";
     const sessionConfig = buildOpenAIRealtimeGaSessionPolicy({
@@ -268,12 +270,14 @@ async function createOpenAIRealtimeBrowserSession(
   const auth = await resolveOpenAIRealtimePlatformAuth({
     configuredApiKey: config.apiKey,
     cfg: req.cfg,
+    agentId: req.agentId,
   });
   if (auth.status === "missing") {
     if (
       hasOpenAIRealtimePlatformAuthInput({
         configuredApiKey: config.apiKey,
         cfg: req.cfg,
+        agentId: req.agentId,
       })
     ) {
       throw new Error(OPENAI_REALTIME_PLATFORM_AUTH_REQUIRED);
@@ -334,7 +338,7 @@ export function buildOpenAIRealtimeVoiceProvider(options?: {
     autoSelectOrder: 10,
     capabilities: OPENAI_REALTIME_CAPABILITIES,
     resolveConfig: ({ rawConfig }) => normalizeProviderConfig(rawConfig),
-    isConfigured: ({ cfg, providerConfig }) => {
+    isConfigured: ({ cfg, providerConfig, agentId }) => {
       const config = normalizeProviderConfig(providerConfig);
       if (config.azureEndpoint || config.azureDeployment) {
         return hasOpenAIRealtimeApiKeyInput(config.apiKey);
@@ -343,6 +347,7 @@ export function buildOpenAIRealtimeVoiceProvider(options?: {
         hasOpenAIRealtimePlatformAuthInput({
           configuredApiKey: config.apiKey,
           cfg,
+          agentId,
         })
       ) {
         return true;
@@ -384,6 +389,7 @@ export function buildOpenAIRealtimeVoiceProvider(options?: {
               await requireOpenAIRealtimePlatformAuth({
                 configuredApiKey: config.apiKey,
                 cfg: req.cfg,
+                agentId: req.agentId,
               })
             ).value,
           }),
@@ -429,6 +435,7 @@ export function buildOpenAIRealtimeVoiceProvider(options?: {
           (hasOpenAIRealtimePlatformAuthInput({
             configuredApiKey: config.apiKey,
             cfg,
+            agentId,
           }) ||
             hasOpenAIChatGptSubscriptionAuthInput({ cfg, agentId }))
         );
@@ -437,12 +444,13 @@ export function buildOpenAIRealtimeVoiceProvider(options?: {
         hasOpenAIRealtimePlatformAuthInput({
           configuredApiKey: config.apiKey,
           cfg,
+          agentId,
         }) ||
         (options?.quicksilverBrowserSessionBroker !== undefined &&
           hasOpenAIChatGptSubscriptionAuthInput({ cfg, agentId }))
       );
     },
-    resolveBrowserSessionCapabilities: ({ cfg, providerConfig, model }) => {
+    resolveBrowserSessionCapabilities: ({ cfg, providerConfig, model, agentId }) => {
       const config = normalizeProviderConfig(providerConfig);
       if (isSupportedOpenAIGptLiveModel(model ?? config.model)) {
         return {
@@ -453,7 +461,7 @@ export function buildOpenAIRealtimeVoiceProvider(options?: {
       return {
         ...OPENAI_REALTIME_CAPABILITIES,
         ...(options?.quicksilverBrowserSessionBroker !== undefined &&
-        hasOpenAIRealtimePlatformAuthInput({ configuredApiKey: config.apiKey, cfg })
+        hasOpenAIRealtimePlatformAuthInput({ configuredApiKey: config.apiKey, cfg, agentId })
           ? { supportsGatewayControl: true }
           : {}),
       };
@@ -471,6 +479,7 @@ export function buildOpenAIRealtimeVoiceProvider(options?: {
         (hasOpenAIRealtimePlatformAuthInput({
           configuredApiKey: config.apiKey,
           cfg,
+          agentId,
         }) ||
           hasOpenAIChatGptSubscriptionAuthInput({ cfg, agentId }))
       );
