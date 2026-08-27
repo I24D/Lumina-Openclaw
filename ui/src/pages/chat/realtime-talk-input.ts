@@ -289,3 +289,38 @@ export async function openRealtimeTalkCamera(
     throw new Error(t("chat.composer.cameraAccessFailed"), { cause: error });
   }
 }
+
+export async function openRealtimeTalkScreen(
+  options: { signal?: AbortSignal } = {},
+): Promise<MediaStream> {
+  const devices = globalThis.navigator?.mediaDevices;
+  if (!devices?.getDisplayMedia) {
+    throw new Error(t("chat.composer.screenShareUnavailable"));
+  }
+  try {
+    const screen = await awaitRealtimeTalkMediaRequest(
+      () =>
+        devices.getDisplayMedia({
+          video: true,
+          audio: false,
+        }),
+      options.signal,
+    );
+    if (options.signal?.aborted) {
+      screen.getTracks().forEach((track) => track.stop());
+      throw realtimeTalkAbortReason(options.signal);
+    }
+    return screen;
+  } catch (error) {
+    if (options.signal?.aborted) {
+      throw realtimeTalkAbortReason(options.signal);
+    }
+    if (error instanceof DOMException && error.name === "NotAllowedError") {
+      throw new Error(t("chat.composer.screenSharePermissionBlocked"), { cause: error });
+    }
+    if (error instanceof DOMException && error.name === "NotFoundError") {
+      throw new Error(t("chat.composer.screenShareUnavailable"), { cause: error });
+    }
+    throw new Error(t("chat.composer.screenShareAccessFailed"), { cause: error });
+  }
+}

@@ -19,7 +19,11 @@ import {
   GoogleLiveToolOwner,
   type GoogleLiveFunctionCall,
 } from "./realtime-talk-google-live-tools.ts";
-import { openRealtimeTalkCamera, openRealtimeTalkInput } from "./realtime-talk-input.ts";
+import {
+  openRealtimeTalkCamera,
+  openRealtimeTalkInput,
+  openRealtimeTalkScreen,
+} from "./realtime-talk-input.ts";
 import {
   type RealtimeTalkJsonPcmWebSocketSessionResult,
   createRealtimeTalkEventEmitter,
@@ -88,8 +92,10 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
   private closed = false;
   private mediaSetupController: AbortController | null = null;
   private readonly camera: RealtimeTalkCameraController;
+  private readonly screen: RealtimeTalkCameraController;
   private readonly lifecycle = new GoogleLiveConnectionLifecycle();
   private cameraPublished = false;
+  private screenPublished = false;
   private videoFramesActive = false;
   private hasSentVideoFrame = false;
   private videoFrameTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
@@ -113,7 +119,9 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
         }
       },
       isDescribeViewActive: () =>
-        this.videoFramesActive && this.hasSentVideoFrame && this.camera.hasUsableTrack(),
+        this.videoFramesActive &&
+        this.hasSentVideoFrame &&
+        this.activeVisionSource().hasUsableTrack(),
       sendResult: (callId, name, result) => this.sendToolResult(callId, name, result),
       sendControlSpeechMessage: (message) => this.sendControlSpeechMessage(message),
       stopOutputForSuppressedControl: (result) => this.stopOutputForSuppressedControl(result),
@@ -137,10 +145,42 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
       },
       onAcquired: () => {
         if (this.lifecycle.isActive) {
+          this.stopVideoFrames();
           this.startVideoFrames();
         }
       },
-      onReleased: () => this.stopVideoFrames(),
+      onReleased: () => {
+        this.stopVideoFrames();
+        this.startVideoFrames();
+      },
+    });
+    this.screen = new RealtimeTalkCameraController({
+      acquire: (_deviceId, signal) => openRealtimeTalkScreen({ signal }),
+      getDeviceId: () => undefined,
+      setDeviceId: () => undefined,
+      isClosed: () => this.closed,
+      onStream: (stream) => {
+        if (stream) {
+          if (!this.lifecycle.isActive) {
+            return;
+          }
+          this.screenPublished = true;
+          this.ctx.callbacks.onScreenStream?.(stream);
+        } else if (this.screenPublished) {
+          this.screenPublished = false;
+          this.ctx.callbacks.onScreenStream?.(null);
+        }
+      },
+      onAcquired: () => {
+        if (this.lifecycle.isActive) {
+          this.stopVideoFrames();
+          this.startVideoFrames();
+        }
+      },
+      onReleased: () => {
+        this.stopVideoFrames();
+        this.startVideoFrames();
+      },
     });
   }
 
@@ -154,6 +194,7 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
     const wsUrl = buildGoogleLiveUrl(this.session);
     this.closed = false;
     this.cameraPublished = false;
+    this.screenPublished = false;
     this.mediaSetupController?.abort();
     const mediaSetupController = new AbortController();
     this.mediaSetupController = mediaSetupController;
@@ -232,6 +273,11 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
         this.ctx.callbacks.onVideoStream?.(this.camera.stream);
       }
       this.assertActivationCurrent();
+      if (this.screen.stream && !this.screenPublished) {
+        this.screenPublished = true;
+        this.ctx.callbacks.onScreenStream?.(this.screen.stream);
+      }
+      this.assertActivationCurrent();
       this.startVideoFrames();
     } catch (error) {
       try {
@@ -251,6 +297,10 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
 
   async setVideoEnabled(enabled: boolean): Promise<void> {
     await this.camera.setEnabled(enabled);
+  }
+
+  async setScreenShareEnabled(enabled: boolean): Promise<void> {
+    await this.screen.setEnabled(enabled);
   }
 
   async switchCamera(videoDeviceId: string | undefined): Promise<void> {
@@ -292,6 +342,7 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
       () => inputMeter?.stop(),
       ...(media?.getTracks() ?? []).map((track) => () => track.stop()),
       () => this.camera.release(),
+      () => this.screen.release(),
       () => this.stopOutput(),
       () => {
         void inputContext?.close();
@@ -534,8 +585,12 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
     this.ctx.callbacks.onStatus?.("error", message);
   }
 
+  private activeVisionSource(): RealtimeTalkCameraController {
+    return this.screen.hasLiveTrack() ? this.screen : this.camera;
+  }
+
   private startVideoFrames(): void {
-    if (!this.camera.video || this.videoFramesActive || this.closed) {
+    if (!this.activeVisionSource().video || this.videoFramesActive || this.closed) {
       return;
     }
     this.videoFramesActive = true;
@@ -553,17 +608,18 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
   }
 
   private async sendVideoFrame(): Promise<void> {
-    if (!this.camera.hasLiveTrack()) {
+    const source = this.activeVisionSource();
+    if (!source.hasLiveTrack()) {
       this.stopVideoFrames();
       return;
     }
-    if (!this.camera.hasUsableTrack()) {
+    if (!source.hasUsableTrack()) {
       this.scheduleVideoFrame(GOOGLE_LIVE_VIDEO_FRAME_INTERVAL_MS);
       return;
     }
     try {
       const frame = await captureRealtimeTalkVideoFrame(
-        this.camera.video,
+        source.video,
         GOOGLE_LIVE_VIDEO_MESSAGE_MAX_BYTES,
         googleLiveVideoMessage,
       );

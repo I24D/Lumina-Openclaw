@@ -790,6 +790,10 @@ describe("chat pane connection lifecycle", () => {
     state.realtimeTalkVideoCapable = true;
     state.realtimeTalkVideoPending = true;
     state.realtimeTalkCameraError = true;
+    state.realtimeTalkScreenStream = {} as MediaStream;
+    state.realtimeTalkScreenCapable = true;
+    state.realtimeTalkScreenPending = true;
+    state.realtimeTalkScreenError = true;
 
     pane.applyGatewaySnapshot({
       ...pane.context.gateway.snapshot,
@@ -808,6 +812,10 @@ describe("chat pane connection lifecycle", () => {
     expect(state.realtimeTalkVideoCapable).toBe(false);
     expect(state.realtimeTalkVideoPending).toBe(false);
     expect(state.realtimeTalkCameraError).toBe(false);
+    expect(state.realtimeTalkScreenStream).toBeNull();
+    expect(state.realtimeTalkScreenCapable).toBe(false);
+    expect(state.realtimeTalkScreenPending).toBe(false);
+    expect(state.realtimeTalkScreenError).toBe(false);
   });
 
   it("advances session ownership once per same-client connection transition", async () => {

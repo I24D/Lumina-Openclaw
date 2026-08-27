@@ -4,7 +4,11 @@ import { REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME } from "../../../../src/talk/des
 import { formatUiError } from "../../lib/format-error.ts";
 import { RealtimeTalkMediaStreamMeter } from "./realtime-talk-audio.ts";
 import { RealtimeTalkCameraController } from "./realtime-talk-camera-controller.ts";
-import { openRealtimeTalkCamera, openRealtimeTalkInput } from "./realtime-talk-input.ts";
+import {
+  openRealtimeTalkCamera,
+  openRealtimeTalkInput,
+  openRealtimeTalkScreen,
+} from "./realtime-talk-input.ts";
 import {
   type RealtimeTalkWebRtcSdpSessionResult,
   REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
@@ -58,6 +62,7 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
   private readonly offerExchange = new RealtimeTalkWebRtcOfferExchange();
   private mediaSetupController: AbortController | null = null;
   private readonly camera: RealtimeTalkCameraController;
+  private readonly screen: RealtimeTalkCameraController;
   private readonly consultAbortControllers = new Set<AbortController>();
   private readonly emitTalkEvent: ReturnType<typeof createRealtimeTalkEventEmitter>;
   private starting = false;
@@ -74,6 +79,13 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
       setDeviceId: (deviceId) => (this.ctx.videoDeviceId = deviceId),
       isClosed: () => this.closed,
       onStream: (stream) => this.ctx.callbacks.onVideoStream?.(stream),
+    });
+    this.screen = new RealtimeTalkCameraController({
+      acquire: (_deviceId, signal) => openRealtimeTalkScreen({ signal }),
+      getDeviceId: () => undefined,
+      setDeviceId: () => undefined,
+      isClosed: () => this.closed,
+      onStream: (stream) => this.ctx.callbacks.onScreenStream?.(stream),
     });
   }
 
@@ -213,6 +225,10 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
     await this.camera.setEnabled(enabled);
   }
 
+  async setScreenShareEnabled(enabled: boolean): Promise<void> {
+    await this.screen.setEnabled(enabled);
+  }
+
   async switchCamera(videoDeviceId: string | undefined): Promise<void> {
     await this.camera.switchDevice(videoDeviceId);
   }
@@ -271,6 +287,7 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
     this.media?.getTracks().forEach((track) => track.stop());
     this.media = null;
     this.camera.release();
+    this.screen.release();
     this.inputMeter?.stop();
     this.inputMeter = null;
     this.audio?.remove();
@@ -618,20 +635,24 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
       itemId,
       payload: { name: REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME },
     });
-    if (!this.camera.hasLiveTrack()) {
-      this.submitToolResult(callId, { ok: false, error: "camera is off" });
+    const source = this.screen.hasLiveTrack() ? this.screen : this.camera;
+    if (!source.hasLiveTrack()) {
+      this.submitToolResult(callId, { ok: false, error: "vision source is off" });
       this.emitTalkEvent({
         type: "tool.error",
         callId,
         itemId,
         final: true,
-        payload: { name: REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME, message: "camera is off" },
+        payload: {
+          name: REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME,
+          message: "vision source is off",
+        },
       });
       return;
     }
     try {
       const frame = await captureRealtimeTalkVideoFrame(
-        this.camera.video,
+        source.video,
         realtimeTalkDataChannelMaxMessageSize(this.peer),
         realtimeTalkImageEvent,
       );

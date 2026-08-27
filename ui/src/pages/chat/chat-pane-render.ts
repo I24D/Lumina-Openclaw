@@ -439,6 +439,10 @@ export class ChatPane extends ChatPaneBrowserAnnotationRender {
       realtimeTalkVideoCapable: state.realtimeTalkVideoCapable,
       realtimeTalkVideoPending: state.realtimeTalkVideoPending,
       realtimeTalkCameraError: state.realtimeTalkCameraError,
+      realtimeTalkScreenStream: state.realtimeTalkScreenStream,
+      realtimeTalkScreenCapable: state.realtimeTalkScreenCapable,
+      realtimeTalkScreenPending: state.realtimeTalkScreenPending,
+      realtimeTalkScreenError: state.realtimeTalkScreenError,
       connected: state.connected,
       offline: gatewaySnapshot.offlineStable,
       gatewayClient: state.client,
@@ -625,6 +629,7 @@ export class ChatPane extends ChatPaneBrowserAnnotationRender {
         openDetachedTalkWindow();
       },
       onToggleRealtimeCamera: () => void state.toggleRealtimeTalkCamera(),
+      onToggleRealtimeScreenShare: () => void state.toggleRealtimeTalkScreenShare(),
       onSwitchRealtimeCamera: () => void state.switchRealtimeTalkCamera(),
       onDismissError: () => {
         dismissChatError(state as never);

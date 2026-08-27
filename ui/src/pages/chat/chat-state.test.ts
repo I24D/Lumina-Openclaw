@@ -1184,6 +1184,10 @@ describe("ChatStateController render lifecycle", () => {
     state.realtimeTalkVideoCapable = true;
     state.realtimeTalkVideoPending = true;
     state.realtimeTalkCameraError = true;
+    state.realtimeTalkScreenStream = {} as MediaStream;
+    state.realtimeTalkScreenCapable = true;
+    state.realtimeTalkScreenPending = true;
+    state.realtimeTalkScreenError = true;
     controller.attach(state);
 
     controller.hostDisconnected();
@@ -1199,6 +1203,10 @@ describe("ChatStateController render lifecycle", () => {
     expect(state.realtimeTalkVideoCapable).toBe(false);
     expect(state.realtimeTalkVideoPending).toBe(false);
     expect(state.realtimeTalkCameraError).toBe(false);
+    expect(state.realtimeTalkScreenStream).toBeNull();
+    expect(state.realtimeTalkScreenCapable).toBe(false);
+    expect(state.realtimeTalkScreenPending).toBe(false);
+    expect(state.realtimeTalkScreenError).toBe(false);
   });
 
   it("aborts attachment reads when a chat pane disconnects", () => {

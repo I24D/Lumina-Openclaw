@@ -159,6 +159,10 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     realtimeTalkVideoCapable?: boolean;
     realtimeTalkVideoPending?: boolean;
     realtimeTalkCameraError?: boolean;
+    realtimeTalkScreenStream?: MediaStream | null;
+    realtimeTalkScreenCapable?: boolean;
+    realtimeTalkScreenPending?: boolean;
+    realtimeTalkScreenError?: boolean;
     connected: boolean;
     offline?: boolean;
     gatewayClient?: GatewayBrowserClient | null;
@@ -234,6 +238,7 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     onOpenSessionCheckpoints?: () => void | Promise<void>;
     onToggleRealtimeTalk?: () => void;
     onToggleRealtimeCamera?: () => void;
+    onToggleRealtimeScreenShare?: () => void;
     onSwitchRealtimeCamera?: () => void;
     onDismissError?: () => void;
     onDismissRealtimeTalkError?: () => void;
@@ -514,15 +519,43 @@ export function renderChat(props: ChatProps) {
     const latestUserEntry = latestRealtimeTalkEntry(talkEntries, "user");
     const talkStatus = talkWindowStatusLabel(props.realtimeTalkActive, props.realtimeTalkStatus);
     const cameraEnabled = Boolean(props.realtimeTalkVideoStream);
+    const screenEnabled = Boolean(props.realtimeTalkScreenStream);
     const cameraDisabled =
       !props.realtimeTalkVideoCapable ||
       props.realtimeTalkVideoPending ||
+      props.realtimeTalkStatus === "connecting" ||
+      props.realtimeTalkStatus === "error";
+    const screenDisabled =
+      !props.realtimeTalkScreenCapable ||
+      props.realtimeTalkScreenPending ||
       props.realtimeTalkStatus === "connecting" ||
       props.realtimeTalkStatus === "error";
     const cameraFacingMode = props.realtimeTalkVideoStream
       ?.getVideoTracks?.()[0]
       ?.getSettings?.().facingMode;
     const mirrorCameraPreview = cameraFacingMode !== "environment";
+    let talkDarkBackground = false;
+    try {
+      talkDarkBackground =
+        globalThis.localStorage?.getItem("openclaw:talk-window:dark-background") === "1";
+    } catch {
+      talkDarkBackground = false;
+    }
+    const toggleTalkWindowBackground = (event: Event) => {
+      const section = (event.currentTarget as HTMLElement | null)?.closest(".chat--talk-window");
+      const enabled = !(
+        section instanceof HTMLElement && section.classList.contains("chat--talk-window-dark")
+      );
+      section?.classList.toggle("chat--talk-window-dark", enabled);
+      try {
+        globalThis.localStorage?.setItem(
+          "openclaw:talk-window:dark-background",
+          enabled ? "1" : "0",
+        );
+      } catch {
+        // Theme preference is cosmetic and must not break Talk controls.
+      }
+    };
     const closeTalkWindow = () => {
       if (props.realtimeTalkActive) {
         props.onToggleRealtimeTalk?.();
@@ -534,7 +567,7 @@ export function renderChat(props: ChatProps) {
         ${ref((element) => {
           chatSection = element instanceof HTMLElement ? element : null;
         })}
-        class="card chat chat--talk-window"
+        class=${`card chat chat--talk-window ${talkDarkBackground ? "chat--talk-window-dark" : ""}`}
         @drop=${attachmentDropHandlers.onDrop}
         @dragenter=${attachmentDropHandlers.onDragenter}
         @dragleave=${attachmentDropHandlers.onDragleave}
@@ -572,20 +605,32 @@ export function renderChat(props: ChatProps) {
                     ></span>`
                   : nothing}
               </p>
-              <div class="agent-chat__talk-surface-actions" aria-hidden="true">
-                <span>${props.assistantName}</span>
-              </div>
             </section>
-            <div
-              class="agent-chat__talk-orb"
-              data-status=${props.realtimeTalkStatus ?? "idle"}
-              aria-hidden="true"
-            >
-              <span></span>
-            </div>
+            ${props.realtimeTalkScreenStream
+              ? html`
+                  <div
+                    class="agent-chat__talk-vision-preview agent-chat__talk-vision-preview--screen"
+                  >
+                    <video
+                      autoplay
+                      .muted=${true}
+                      playsinline
+                      aria-label=${t("chat.composer.screenSharePreview")}
+                      ${ref((element) => {
+                        if (element instanceof HTMLVideoElement) {
+                          element.srcObject = props.realtimeTalkScreenStream ?? null;
+                        }
+                      })}
+                    ></video>
+                    <span>${t("chat.composer.screenSharing")}</span>
+                  </div>
+                `
+              : nothing}
             ${props.realtimeTalkVideoStream
               ? html`
-                  <div class="agent-chat__talk-camera-preview">
+                  <div
+                    class="agent-chat__talk-vision-preview agent-chat__talk-vision-preview--camera"
+                  >
                     <video
                       class=${mirrorCameraPreview ? "agent-chat__video-preview-mirrored" : nothing}
                       autoplay
@@ -641,9 +686,15 @@ export function renderChat(props: ChatProps) {
                 <button
                   type="button"
                   class="agent-chat__talk-action"
-                  aria-label=${t("chat.composer.talkWindowShareScreen")}
-                  title=${t("chat.composer.talkWindowShareScreenUnavailable")}
-                  disabled
+                  aria-label=${screenEnabled
+                    ? t("chat.composer.stopSharingScreen")
+                    : t("chat.composer.talkWindowShareScreen")}
+                  aria-pressed=${screenEnabled ? "true" : "false"}
+                  title=${screenDisabled && !props.realtimeTalkScreenCapable
+                    ? t("chat.composer.talkWindowShareScreenUnavailable")
+                    : nothing}
+                  ?disabled=${screenDisabled}
+                  @click=${props.onToggleRealtimeScreenShare}
                 >
                   ${icons.monitor}
                 </button>
@@ -662,6 +713,14 @@ export function renderChat(props: ChatProps) {
                 >
                   ${cameraEnabled ? icons.cameraOff : icons.camera}
                 </button>
+                <button
+                  type="button"
+                  class="agent-chat__talk-action"
+                  aria-label=${t("chat.composer.toggleTalkBackground")}
+                  @click=${toggleTalkWindowBackground}
+                >
+                  ${icons.moon}
+                </button>
               </div>
               <div class="agent-chat__talk-input-pill" aria-live="polite">
                 ${latestUserEntry?.text.trim() || t("chat.composer.talkWindowQuestionPlaceholder")}
@@ -669,7 +728,7 @@ export function renderChat(props: ChatProps) {
               <div class="agent-chat__talk-action-group agent-chat__talk-action-group--end">
                 <button
                   type="button"
-                  class="agent-chat__talk-action"
+                  class="agent-chat__talk-action agent-chat__talk-action--danger"
                   aria-label=${props.realtimeTalkActive
                     ? t("chat.composer.stopVoiceInput")
                     : t("chat.composer.startVoiceInput")}

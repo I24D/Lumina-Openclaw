@@ -2274,7 +2274,7 @@ describe("chat loading skeleton", () => {
     );
     expect(answer.textContent?.replace(/\s+/g, " ").trim()).toContain("Checking");
     expect(question.textContent?.replace(/\s+/g, " ").trim()).toContain("Second request");
-    expect(container.querySelector(".agent-chat__talk-orb")).not.toBeNull();
+    expect(container.querySelector(".agent-chat__talk-orb")).toBeNull();
     expect(container.querySelector('[aria-label="Share screen"]')).not.toBeNull();
     expect(container.querySelector('[aria-label="Stop voice input"]')).not.toBeNull();
     expect(container.querySelector('[aria-label="Close Start Talk"]')).not.toBeNull();

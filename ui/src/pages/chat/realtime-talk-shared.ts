@@ -23,6 +23,9 @@ export type RealtimeTalkCallbacks = {
   onTalkEvent?: (event: RealtimeTalkEvent) => void;
   onVideoStream?: (stream: MediaStream | null) => void;
   onVideoError?: (error: unknown) => void;
+  onScreenCapability?: (capable: boolean) => void;
+  onScreenStream?: (stream: MediaStream | null) => void;
+  onScreenError?: (error: unknown) => void;
 };
 
 export type RealtimeTalkEventInput<TPayload = unknown> = {
@@ -112,6 +115,7 @@ export type RealtimeTalkTransport = {
   activate?: () => void;
   stop(options?: { emitClosed?: boolean }): void;
   setVideoEnabled?: (enabled: boolean) => Promise<void>;
+  setScreenShareEnabled?: (enabled: boolean) => Promise<void>;
   switchCamera?: (videoDeviceId: string | undefined) => Promise<void>;
 };
 

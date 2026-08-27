@@ -99,6 +99,29 @@ describe("chat realtime actions", () => {
     expect(loadSettings().talkCameraAutoEnable).toBe(false);
   });
 
+  it("enables screen sharing only after a screen-capable voice session starts", async () => {
+    const state = createState();
+    const setScreenShareEnabled = vi
+      .spyOn(RealtimeTalkSession.prototype, "setScreenShareEnabled")
+      .mockResolvedValue(undefined);
+
+    await state.toggleRealtimeTalk();
+    const session = inspectSession(state);
+    const stream = {} as MediaStream;
+    session.callbacks.onScreenCapability?.(true);
+    await state.toggleRealtimeTalkScreenShare();
+    session.callbacks.onScreenStream?.(stream);
+
+    expect(setScreenShareEnabled).toHaveBeenCalledWith(true);
+    expect(state.realtimeTalkScreenStream).toBe(stream);
+    expect(state.realtimeTalkScreenError).toBe(false);
+
+    await state.toggleRealtimeTalkScreenShare();
+    expect(setScreenShareEnabled).toHaveBeenLastCalledWith(false);
+    session.callbacks.onScreenStream?.(null);
+    expect(state.realtimeTalkScreenStream).toBeNull();
+  });
+
   it("auto-enables camera once after the session reaches listening", async () => {
     saveSettings({ ...loadSettings(), talkCameraAutoEnable: true });
     const state = createState();

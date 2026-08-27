@@ -217,13 +217,94 @@ describe("OpenAI Realtime Video Talk", () => {
         item: {
           type: "function_call_output",
           call_id: "call-camera-off",
-          output: JSON.stringify({ ok: false, error: "camera is off" }),
+          output: JSON.stringify({ ok: false, error: "vision source is off" }),
         },
       }),
     );
     expect(onStatus).not.toHaveBeenCalledWith("error", expect.anything());
 
     transport.stop();
+    expect(audioStop).toHaveBeenCalledOnce();
+  });
+
+  it("captures the shared screen as the preferred describe_view source", async () => {
+    const audioStop = vi.fn();
+    const screenStop = vi.fn();
+    const audioTrack = { stop: audioStop } as unknown as MediaStreamTrack;
+    const screenTrack = Object.assign(new EventTarget(), {
+      stop: screenStop,
+      readyState: "live",
+      enabled: true,
+      muted: false,
+    }) as unknown as MediaStreamTrack;
+    const audio = {
+      getAudioTracks: () => [audioTrack],
+      getTracks: () => [audioTrack],
+    } as unknown as MediaStream;
+    const screen = {
+      getVideoTracks: () => [screenTrack],
+      getTracks: () => [screenTrack],
+    } as unknown as MediaStream;
+    const getUserMedia = vi.fn().mockResolvedValueOnce(audio);
+    const getDisplayMedia = vi.fn().mockResolvedValueOnce(screen);
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia, getDisplayMedia } });
+
+    const originalCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tagName: string) => {
+      const element = originalCreateElement(tagName);
+      if (element instanceof HTMLVideoElement) {
+        Object.defineProperties(element, {
+          readyState: { configurable: true, value: HTMLMediaElement.HAVE_CURRENT_DATA },
+          videoWidth: { configurable: true, value: 1440 },
+          videoHeight: { configurable: true, value: 900 },
+        });
+        vi.spyOn(element, "play").mockResolvedValue(undefined);
+      }
+      return element;
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn(),
+    } as never);
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+      "data:image/jpeg;base64,screen-frame",
+    );
+    const onScreenStream = vi.fn();
+    const transport = new WebRtcSdpRealtimeTalkTransport(
+      {
+        provider: "openai",
+        transport: "webrtc",
+        clientSecret: "test-client-secret",
+      },
+      {
+        client: {} as never,
+        sessionKey: "main",
+        callbacks: { onScreenStream },
+      },
+    );
+
+    await transport.start();
+    await transport.setScreenShareEnabled(true);
+    dispatchDescribeViewToolCall(FakePeerConnection.instance, {
+      itemId: "item-screen",
+      callId: "call-screen",
+    });
+    await vi.waitFor(() =>
+      expect(sentRealtimeEvents()).toContainEqual({
+        type: "conversation.item.create",
+        item: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_image", image_url: "data:image/jpeg;base64,screen-frame" }],
+        },
+      }),
+    );
+
+    expect(getUserMedia).toHaveBeenCalledOnce();
+    expect(getDisplayMedia).toHaveBeenCalledWith({ video: true, audio: false });
+    expect(onScreenStream).toHaveBeenCalledWith(screen);
+
+    transport.stop();
+    expect(screenStop).toHaveBeenCalledOnce();
     expect(audioStop).toHaveBeenCalledOnce();
   });
 

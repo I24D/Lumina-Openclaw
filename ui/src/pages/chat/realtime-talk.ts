@@ -251,6 +251,11 @@ export class RealtimeTalkSession {
         this.callbacks.onVideoCapability?.(
           providerVideoCapable && typeof nextTransport.setVideoEnabled === "function",
         );
+        this.callbacks.onScreenCapability?.(
+          providerVideoCapable &&
+            typeof nextTransport.setScreenShareEnabled === "function" &&
+            typeof navigator.mediaDevices?.getDisplayMedia === "function",
+        );
         startResult = await nextTransport.start();
       } catch (error) {
         if (this.pendingTransport === nextTransport) {
@@ -441,6 +446,7 @@ export class RealtimeTalkSession {
     this.videoEnabled = false;
     activeRealtimeTalkSessions.delete(this);
     this.callbacks.onStatus?.("idle");
+    this.callbacks.onScreenCapability?.(false);
     this.stopPendingTransport();
     const detached = this.detachVoiceSession();
     this.transport?.stop();
@@ -572,6 +578,7 @@ export class RealtimeTalkSession {
     this.transport = null;
     console.warn(VOICE_TRANSCRIPT_QUEUE_POLICY.overflowMessage);
     this.callbacks.onStatus?.("error", VOICE_TRANSCRIPT_QUEUE_POLICY.overflowMessage);
+    this.callbacks.onScreenCapability?.(false);
     if (detached) {
       this.closeLogicalVoiceSession(detached);
     }
@@ -724,6 +731,14 @@ export class RealtimeTalkSession {
       this.videoEnabled = false;
       activeRealtimeTalkSessions.delete(this);
     }
+  }
+
+  async setScreenShareEnabled(enabled: boolean): Promise<void> {
+    const transport = this.transport;
+    if (this.closed || !transport?.setScreenShareEnabled) {
+      throw new Error("Screen sharing is unavailable for this realtime session");
+    }
+    await transport.setScreenShareEnabled(enabled);
   }
 
   async switchCamera(videoDeviceId: string | undefined): Promise<void> {
