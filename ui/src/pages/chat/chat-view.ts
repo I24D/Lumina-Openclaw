@@ -46,6 +46,7 @@ import { isChatRunWorking, renderChatComposer } from "./components/chat-composer
 import { isImageLightboxEvent, openInlineChatImage } from "./components/chat-image-lightbox.ts";
 import type { ArtifactDownloadResolver } from "./components/chat-message-media.ts";
 import { renderChatPullRequests } from "./components/chat-pull-requests.ts";
+import { renderRealtimeTalkConversation } from "./components/chat-realtime-controls.ts";
 import { renderChatSessionSuggestions } from "./components/chat-session-suggestions.ts";
 import type { SidebarContent, SidebarFullMessageLoader } from "./components/chat-sidebar.ts";
 import { renderChatSwarmProgress } from "./components/chat-swarm-progress.ts";
@@ -245,6 +246,7 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     onForkMessage?: (entryId: string) => Promise<void> | void;
     backgroundTasks?: BackgroundTasksProps;
     header?: TemplateResult | typeof nothing;
+    talkWindow?: boolean;
     sessionSuggestions?: readonly SessionSuggestion[];
     sessionSuggestionRole?: SessionSharingRole;
     sessionSuggestionBusyIds?: ReadonlySet<string>;
@@ -475,6 +477,64 @@ export function renderChat(props: ChatProps) {
         </button>
       `
     : nothing;
+  const realtimeTalkConversation = props.talkWindow
+    ? renderRealtimeTalkConversation({
+        assistantName: props.assistantName,
+        userName: props.userName,
+        realtimeTalkActive: props.realtimeTalkActive,
+        realtimeTalkStatus: props.realtimeTalkStatus,
+        realtimeTalkConversation: props.realtimeTalkConversation,
+      })
+    : nothing;
+
+  if (props.talkWindow) {
+    return html`
+      <section
+        ${ref((element) => {
+          chatSection = element instanceof HTMLElement ? element : null;
+        })}
+        class="card chat chat--talk-window"
+        @drop=${attachmentDropHandlers.onDrop}
+        @dragenter=${attachmentDropHandlers.onDragenter}
+        @dragleave=${attachmentDropHandlers.onDragleave}
+        @dragover=${attachmentDropHandlers.onDragover}
+      >
+        <div class="agent-chat__talk-window">
+          <header class="agent-chat__talk-window-header">
+            <div>
+              <div class="agent-chat__talk-window-title">${t("chat.composer.talkWindowTitle")}</div>
+              <div class="agent-chat__talk-window-subtitle">${props.assistantName}</div>
+            </div>
+            <div
+              class="agent-chat__talk-window-state"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              ${props.realtimeTalkActive
+                ? props.realtimeTalkStatus === "thinking"
+                  ? t("chat.composer.talkWindowThinking")
+                  : props.realtimeTalkStatus === "error"
+                    ? t("chat.composer.talkConversationError")
+                    : t("chat.composer.talkWindowListening")
+                : t("chat.composer.talkWindowReady")}
+            </div>
+          </header>
+          <main class="agent-chat__talk-window-stage">
+            <div
+              class="agent-chat__talk-orb"
+              data-status=${props.realtimeTalkStatus ?? "idle"}
+              aria-hidden="true"
+            >
+              <span></span>
+            </div>
+            <div class="agent-chat__talk-window-conversation">${realtimeTalkConversation}</div>
+          </main>
+          <footer class="agent-chat__talk-window-footer">${chatColumnFooter}</footer>
+        </div>
+      </section>
+    `;
+  }
 
   return html`
     <section

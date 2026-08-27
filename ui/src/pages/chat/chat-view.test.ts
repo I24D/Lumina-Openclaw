@@ -2240,7 +2240,7 @@ describe("chat loading skeleton", () => {
     };
   }
 
-  it("renders realtime Talk transcript as ordered voice turns", () => {
+  it("keeps realtime Talk transcript out of the written chat by default", () => {
     const container = renderChatView({
       realtimeTalkActive: true,
       realtimeTalkConversation: [
@@ -2250,7 +2250,25 @@ describe("chat loading skeleton", () => {
       ],
     });
 
-    const turns = [...container.querySelectorAll(".agent-chat__voice-turn")];
+    expect(container.querySelector(".agent-chat__voice-panel")).toBeNull();
+    expect(container.querySelector(".agent-chat__voice-turn")).toBeNull();
+    expect(container.querySelector(".agent-chat__welcome")).not.toBeNull();
+  });
+
+  it("renders realtime Talk transcript in the dedicated Talk window", () => {
+    const container = renderChatView({
+      talkWindow: true,
+      realtimeTalkActive: true,
+      realtimeTalkConversation: [
+        { id: "u1", role: "user", text: "Turn off the lights", isStreaming: false },
+        { id: "a1", role: "assistant", text: "Checking", isStreaming: true },
+        { id: "u2", role: "user", text: "Second request", isStreaming: false },
+      ],
+    });
+
+    const turns = [
+      ...container.querySelectorAll(".agent-chat__talk-window .agent-chat__voice-turn"),
+    ];
     expect(turns.map((turn) => turn.getAttribute("data-role"))).toEqual([
       "user",
       "assistant",
@@ -2261,9 +2279,28 @@ describe("chat loading skeleton", () => {
       "Val Checking",
       "You Second request",
     ]);
-    expect(container.querySelector(".chat-thread-inner .agent-chat__voice-turns")).not.toBeNull();
-    expect(container.querySelector(".agent-chat__input .agent-chat__voice-turns")).toBeNull();
+    expect(
+      container.querySelector(".agent-chat__talk-window .agent-chat__voice-panel"),
+    ).not.toBeNull();
+    expect(container.querySelector(".chat-thread-inner .agent-chat__voice-turns")).toBeNull();
     expect(container.querySelector(".agent-chat__welcome")).toBeNull();
+  });
+
+  it("keeps an active realtime Talk shell in the dedicated Talk window before speech starts", () => {
+    const container = renderChatView({
+      talkWindow: true,
+      realtimeTalkActive: true,
+      realtimeTalkStatus: "listening",
+    });
+
+    const panel = requireElement(
+      container,
+      ".agent-chat__talk-window .agent-chat__voice-panel",
+      "voice panel",
+    );
+    expect(panel.textContent?.replace(/\s+/g, " ").trim()).toContain("Talk conversation");
+    expect(panel.textContent?.replace(/\s+/g, " ").trim()).toContain("Listening...");
+    expect(container.querySelector(".chat-thread-inner .agent-chat__voice-turns")).toBeNull();
   });
 
   it.each([

@@ -44,7 +44,6 @@ import {
   type StreamGroupOptions,
   type StreamGroupPart,
 } from "./chat-message.ts";
-import { renderRealtimeTalkConversation } from "./chat-realtime-controls.ts";
 import {
   closeTranscriptSearch,
   getTranscriptState,
@@ -283,8 +282,7 @@ export function projectChatTranscript(
       },
     );
   };
-  const hasRealtimeTalkConversation = (props.realtimeTalkConversation?.length ?? 0) > 0;
-  const isEmpty = chatItems.length === 0 && !props.loading && !hasRealtimeTalkConversation;
+  const isEmpty = chatItems.length === 0 && !props.loading;
   transcript.setContentReady(!props.loading);
   // 1:1 sessions drop the avatar gutter entirely; group threads keep avatars
   // as the always-visible identity marker. The canonical session kind decides;
@@ -580,14 +578,6 @@ export function projectChatTranscript(
     key: item.key,
     item,
   }));
-  const realtimeConversation = renderRealtimeTalkConversation(props);
-  if (realtimeConversation !== nothing) {
-    transcriptRows.push({
-      kind: "content",
-      key: "realtime-talk",
-      content: realtimeConversation,
-    });
-  }
   if (turnRecap !== null && turnRecapOwnerKey === null && !isEmpty && !showLoadingSkeleton) {
     transcriptRows.push({
       kind: "content",

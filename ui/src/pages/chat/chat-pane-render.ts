@@ -21,6 +21,10 @@ import {
   projectSessionObserverDigest,
   resolveChatPaneObserverRunId,
 } from "../../lib/observer-digest.ts";
+import {
+  reserveExternalWindowForDeferredNavigation,
+  resolveSafeExternalUrl,
+} from "../../lib/open-external-url.ts";
 import { buildAgentMainSessionKey } from "../../lib/sessions/session-key.ts";
 import { clearChatHistory } from "./chat-history.ts";
 import { resolveChatMessageAccess } from "./chat-message-access.ts";
@@ -80,12 +84,84 @@ import { resolveActiveRunOutputTokens, resolveChatProjectionRunId } from "./tool
 import { configureToolTitleFetcher } from "./tool-titles.ts";
 import { workspaceResultConflictFromPlacement } from "./workspace-conflict.ts";
 
+function currentBrowserUrl(): URL | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    return new URL(window.location.href);
+  } catch {
+    return null;
+  }
+}
+
+function isDetachedTalkWindow(): boolean {
+  return currentBrowserUrl()?.searchParams.get("talk") === "1";
+}
+
+function shouldAutostartDetachedTalk(): boolean {
+  return currentBrowserUrl()?.searchParams.get("autostart") === "1";
+}
+
+function openDetachedTalkWindow(): boolean {
+  const url = currentBrowserUrl();
+  if (!url || typeof window === "undefined") {
+    return false;
+  }
+  url.searchParams.set("talk", "1");
+  url.searchParams.set("autostart", "1");
+  const safeUrl = resolveSafeExternalUrl(url.toString(), window.location.href);
+  if (!safeUrl) {
+    return false;
+  }
+  const opened = reserveExternalWindowForDeferredNavigation();
+  if (opened) {
+    opened.location.href = safeUrl;
+    opened.focus();
+    return true;
+  }
+  window.location.assign(safeUrl);
+  return true;
+}
+
 export class ChatPane extends ChatPaneBrowserAnnotationRender {
+  private detachedTalkAutostartKey: string | null = null;
+
+  private syncDetachedTalkAutostart(talkWindow: boolean): void {
+    const state = this.state;
+    if (!talkWindow || !shouldAutostartDetachedTalk()) {
+      this.detachedTalkAutostartKey = null;
+      return;
+    }
+    if (!state || !state.connected || state.realtimeTalkSession || state.realtimeTalkActive) {
+      return;
+    }
+    const key = state.sessionKey;
+    if (this.detachedTalkAutostartKey === key) {
+      return;
+    }
+    this.detachedTalkAutostartKey = key;
+    queueMicrotask(() => {
+      if (
+        this.state !== state ||
+        !isDetachedTalkWindow() ||
+        !state.connected ||
+        state.realtimeTalkSession ||
+        state.realtimeTalkActive
+      ) {
+        return;
+      }
+      void state.toggleRealtimeTalk();
+    });
+  }
+
   override render() {
     const state = this.state;
     if (!state) {
       return html`<main class="app-shell app-shell--booting" aria-busy="true"></main>`;
     }
+    const talkWindow = isDetachedTalkWindow();
+    this.syncDetachedTalkAutostart(talkWindow);
     void this.ensureTaskSuggestionCloudProfiles();
     const selectedSession = selectedChatSessionRow(state);
     const selectedSessionId = selectedSession?.sessionId?.trim() || undefined;
@@ -439,6 +515,7 @@ export class ChatPane extends ChatPaneBrowserAnnotationRender {
             onModelSetup: () => this.context.navigate("model-setup"),
           }),
       backgroundTasks: catalogKey ? undefined : backgroundTasks,
+      talkWindow,
       taskSuggestions: this.taskSuggestions,
       pullRequests: this.sessionPullRequests.filter(
         (pullRequest) => !this.dismissedSessionPullRequestIds.has(chatPullRequestId(pullRequest)),
@@ -540,7 +617,13 @@ export class ChatPane extends ChatPaneBrowserAnnotationRender {
           search: `?session=${encodeURIComponent(state.sessionKey)}${status}`,
         });
       },
-      onToggleRealtimeTalk: () => void state.toggleRealtimeTalk(),
+      onToggleRealtimeTalk: () => {
+        if (talkWindow || state.realtimeTalkActive) {
+          void state.toggleRealtimeTalk();
+          return;
+        }
+        openDetachedTalkWindow();
+      },
       onToggleRealtimeCamera: () => void state.toggleRealtimeTalkCamera(),
       onSwitchRealtimeCamera: () => void state.switchRealtimeTalkCamera(),
       onDismissError: () => {

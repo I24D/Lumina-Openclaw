@@ -3110,11 +3110,58 @@ button.chat-pr__diff {
   }
 }
 
+.agent-chat__voice-panel {
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  width: calc(100% - 2 * var(--chat-thread-gutter) - 2 * clamp(6px, 1vw, 12px));
+  max-width: var(--chat-thread-max-width);
+  max-height: min(34vh, 280px);
+  margin: 8px auto 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--card) 92%, var(--bg));
+  box-shadow: var(--shadow-sm);
+}
+
+.agent-chat__voice-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.agent-chat__voice-panel-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-chat__voice-panel-status {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-chat__voice-turns {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 0 4px 8px;
+  max-height: calc(min(34vh, 280px) - 43px);
+  padding: 10px 12px 12px;
+  overflow-y: auto;
   background: transparent;
 }
 
@@ -3170,6 +3217,180 @@ button.chat-pr__diff {
   border-radius: 999px;
   background: var(--accent);
   opacity: 0.7;
+}
+
+.agent-chat__voice-empty {
+  padding: 8px 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.chat--talk-window {
+  min-height: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 52% 34%, color-mix(in srgb, #7d8cff 18%, transparent), transparent 22%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 96%, #ffffff), var(--bg));
+}
+
+.agent-chat__talk-window {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: min(100dvh, 100%);
+  color: var(--text);
+}
+
+.agent-chat__talk-window-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: max(16px, env(safe-area-inset-top)) clamp(16px, 4vw, 34px) 10px;
+}
+
+.agent-chat__talk-window-title {
+  color: var(--text-strong);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.agent-chat__talk-window-subtitle,
+.agent-chat__talk-window-state {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.agent-chat__talk-window-state {
+  max-width: 42vw;
+  overflow: hidden;
+  padding-top: 2px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-chat__talk-window-stage {
+  display: grid;
+  grid-template-rows: minmax(180px, 38vh) minmax(0, 1fr);
+  min-height: 0;
+  padding: 0 clamp(14px, 4vw, 42px);
+}
+
+.agent-chat__talk-orb {
+  position: relative;
+  align-self: center;
+  justify-self: center;
+  width: clamp(132px, 28vw, 230px);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 54% 38%, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.18) 34%, transparent 54%),
+    radial-gradient(circle at 34% 64%, rgba(180, 218, 255, 0.82), transparent 48%),
+    linear-gradient(145deg, #6b73ff 0%, #9aa8ff 48%, #e7ecff 100%);
+  box-shadow:
+    0 34px 80px rgba(55, 76, 155, 0.2),
+    inset 0 -18px 34px rgba(255, 255, 255, 0.32),
+    inset 0 16px 32px rgba(56, 68, 170, 0.2);
+}
+
+.agent-chat__talk-orb::after {
+  position: absolute;
+  inset: -14%;
+  border-radius: inherit;
+  background: radial-gradient(circle, rgba(99, 116, 255, 0.18), transparent 62%);
+  content: "";
+  opacity: 0;
+  transform: scale(0.92);
+}
+
+.agent-chat__talk-orb[data-status="listening"]::after,
+.agent-chat__talk-orb[data-status="thinking"]::after,
+.agent-chat__talk-orb[data-status="connecting"]::after {
+  animation: agent-chat-talk-orb-pulse 1.9s ease-in-out infinite;
+  opacity: 1;
+}
+
+.agent-chat__talk-orb[data-status="thinking"] {
+  background:
+    radial-gradient(circle at 56% 36%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.14) 34%, transparent 54%),
+    radial-gradient(circle at 35% 66%, rgba(137, 224, 202, 0.8), transparent 48%),
+    linear-gradient(145deg, #5668ff 0%, #71c8b8 58%, #e8fff9 100%);
+}
+
+.agent-chat__talk-orb[data-status="error"] {
+  background:
+    radial-gradient(circle at 54% 38%, rgba(255, 255, 255, 0.86), transparent 50%),
+    linear-gradient(145deg, #e45858 0%, #ffa76c 58%, #fff2df 100%);
+}
+
+@keyframes agent-chat-talk-orb-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.08);
+  }
+}
+
+.agent-chat__talk-window-conversation {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agent-chat__talk-window .agent-chat__voice-panel {
+  width: min(100%, 860px);
+  max-height: none;
+  margin: 0 auto;
+  border-color: color-mix(in srgb, var(--border) 72%, transparent);
+  background: color-mix(in srgb, var(--card) 78%, transparent);
+  box-shadow: none;
+}
+
+.agent-chat__talk-window .agent-chat__voice-turns {
+  max-height: min(30vh, 280px);
+}
+
+.agent-chat__talk-window-footer {
+  padding: 12px clamp(12px, 4vw, 34px) max(14px, env(safe-area-inset-bottom));
+}
+
+.agent-chat__talk-window-footer .agent-chat__input {
+  width: min(100%, 780px);
+  margin: 0 auto;
+}
+
+.agent-chat__talk-window-footer .agent-chat__composer-shell {
+  border-radius: 999px;
+}
+
+.agent-chat__talk-window-footer .agent-chat__composer-footer {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .agent-chat__talk-window-stage {
+    grid-template-rows: minmax(220px, 45vh) minmax(0, 1fr);
+  }
+
+  .agent-chat__talk-window .agent-chat__voice-panel-header {
+    display: none;
+  }
+
+  .agent-chat__talk-window .agent-chat__voice-panel {
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .agent-chat__talk-window .agent-chat__voice-turns {
+    max-height: 26vh;
+    padding-inline: 0;
+  }
 }
 
 .agent-chat__run-status {
