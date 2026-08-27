@@ -68,6 +68,36 @@
   overflow: hidden;
 }
 
+.shell--talk-window {
+  --shell-nav-width: 0px;
+  --shell-topbar-height: 0px;
+  grid-template-columns: 0 minmax(0, 1fr);
+  grid-template-rows: 0 1fr;
+  background: #fbfbf9;
+}
+
+.shell--talk-window .topbar,
+.shell--talk-window .shell-nav,
+.shell--talk-window .sidebar-resizer,
+.shell--talk-window .shell-chrome-controls,
+.shell--talk-window .sidebar-update-card--floating,
+.shell--talk-window openclaw-terminal-panel,
+.shell--talk-window openclaw-browser-panel,
+.shell--talk-window openclaw-desktop-panel,
+.shell--talk-window openclaw-custodian-panel {
+  display: none !important;
+}
+
+.shell--talk-window .content--chat {
+  grid-area: content;
+  padding: 0;
+  background: #fbfbf9;
+}
+
+.shell--talk-window .content--chat > openclaw-router-outlet {
+  min-height: 100dvh;
+}
+
 /* Collapsing hides the sidebar entirely; shell chrome and Cmd+B bring it back.
    Keep --shell-nav-width in sync for fixed-position consumers (e.g. the
    docked terminal panel). */

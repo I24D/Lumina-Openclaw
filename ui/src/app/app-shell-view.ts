@@ -273,6 +273,9 @@ export function renderApplicationShell(host: ShellViewHost) {
   const custodianPanelAvailable =
     gatewayConnected && isGatewayMethodAdvertised(gatewaySnapshot, "openclaw.chat") === true;
   const activeRoute = host.routeState.routeId ?? "chat";
+  const talkWindowRoute =
+    activeRoute === "chat" &&
+    new URLSearchParams(host.routeState.location?.search ?? "").get("talk") === "1";
   // Chat has an offline outbox, New Session keeps a local draft, and Appearance
   // persists local preference intent for replay. Their server actions are
   // independently gated; other pages cannot submit useful disconnected work.
@@ -469,13 +472,13 @@ export function renderApplicationShell(host: ShellViewHost) {
         ></openclaw-command-palette>`
       : nothing}
     <div
-      class="shell ${chatLikeRoute ? "shell--chat" : ""} ${navCollapsed
-        ? "shell--nav-collapsed"
-        : ""} ${mobileNavLayout ? "shell--mobile-nav" : ""} ${mergedChatChrome
-        ? "shell--merged-chat-chrome"
-        : ""} ${navDrawerOpen ? "shell--nav-drawer-open" : ""} ${onboarding
-        ? "shell--onboarding"
-        : ""} ${settingsTakeover ? "shell--settings" : ""}"
+      class="shell ${chatLikeRoute ? "shell--chat" : ""} ${talkWindowRoute
+        ? "shell--talk-window"
+        : ""} ${navCollapsed ? "shell--nav-collapsed" : ""} ${mobileNavLayout
+        ? "shell--mobile-nav"
+        : ""} ${mergedChatChrome ? "shell--merged-chat-chrome" : ""} ${navDrawerOpen
+        ? "shell--nav-drawer-open"
+        : ""} ${onboarding ? "shell--onboarding" : ""} ${settingsTakeover ? "shell--settings" : ""}"
       style=${`--shell-nav-expanded-width: ${navigationSnapshot.navWidth}px`}
       @theme-change=${(event: CustomEvent<ThemeModeChangeDetail>) => host.handleThemeChange(event)}
     >

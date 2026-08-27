@@ -2266,22 +2266,19 @@ describe("chat loading skeleton", () => {
       ],
     });
 
-    const turns = [
-      ...container.querySelectorAll(".agent-chat__talk-window .agent-chat__voice-turn"),
-    ];
-    expect(turns.map((turn) => turn.getAttribute("data-role"))).toEqual([
-      "user",
-      "assistant",
-      "user",
-    ]);
-    expect(turns.map((turn) => turn.textContent?.replace(/\s+/g, " ").trim())).toEqual([
-      "You Turn off the lights",
-      "Val Checking",
-      "You Second request",
-    ]);
-    expect(
-      container.querySelector(".agent-chat__talk-window .agent-chat__voice-panel"),
-    ).not.toBeNull();
+    const answer = requireElement(container, ".agent-chat__talk-surface--answer", "talk answer");
+    const question = requireElement(
+      container,
+      ".agent-chat__talk-surface--question",
+      "talk question",
+    );
+    expect(answer.textContent?.replace(/\s+/g, " ").trim()).toContain("Checking");
+    expect(question.textContent?.replace(/\s+/g, " ").trim()).toContain("Second request");
+    expect(container.querySelector(".agent-chat__talk-orb")).not.toBeNull();
+    expect(container.querySelector('[aria-label="Share screen"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Stop voice input"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Close Start Talk"]')).not.toBeNull();
+    expect(container.querySelector(".agent-chat__voice-panel")).toBeNull();
     expect(container.querySelector(".chat-thread-inner .agent-chat__voice-turns")).toBeNull();
     expect(container.querySelector(".agent-chat__welcome")).toBeNull();
   });
@@ -2293,13 +2290,11 @@ describe("chat loading skeleton", () => {
       realtimeTalkStatus: "listening",
     });
 
-    const panel = requireElement(
-      container,
-      ".agent-chat__talk-window .agent-chat__voice-panel",
-      "voice panel",
+    const answer = requireElement(container, ".agent-chat__talk-surface--answer", "talk answer");
+    expect(answer.textContent?.replace(/\s+/g, " ").trim()).toContain("I am listening.");
+    expect(container.querySelector(".agent-chat__talk-window-state")?.textContent).toContain(
+      "Listening...",
     );
-    expect(panel.textContent?.replace(/\s+/g, " ").trim()).toContain("Talk conversation");
-    expect(panel.textContent?.replace(/\s+/g, " ").trim()).toContain("Listening...");
     expect(container.querySelector(".chat-thread-inner .agent-chat__voice-turns")).toBeNull();
   });
 

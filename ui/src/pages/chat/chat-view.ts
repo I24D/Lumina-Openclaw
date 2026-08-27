@@ -46,7 +46,6 @@ import { isChatRunWorking, renderChatComposer } from "./components/chat-composer
 import { isImageLightboxEvent, openInlineChatImage } from "./components/chat-image-lightbox.ts";
 import type { ArtifactDownloadResolver } from "./components/chat-message-media.ts";
 import { renderChatPullRequests } from "./components/chat-pull-requests.ts";
-import { renderRealtimeTalkConversation } from "./components/chat-realtime-controls.ts";
 import { renderChatSessionSuggestions } from "./components/chat-session-suggestions.ts";
 import type { SidebarContent, SidebarFullMessageLoader } from "./components/chat-sidebar.ts";
 import { renderChatSwarmProgress } from "./components/chat-swarm-progress.ts";
@@ -74,6 +73,38 @@ type ChatReplyTarget = {
   senderLabel?: string | null;
   sourceMessageId?: string | null;
 };
+
+function latestRealtimeTalkEntry(
+  entries: readonly RealtimeTalkConversationEntry[] | undefined,
+  role: RealtimeTalkConversationEntry["role"],
+) {
+  for (let index = (entries?.length ?? 0) - 1; index >= 0; index -= 1) {
+    const entry = entries?.[index];
+    if (entry?.role === role && entry.text.trim()) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+function talkWindowStatusLabel(
+  active: boolean | undefined,
+  status: RealtimeTalkStatus | undefined,
+) {
+  if (!active) {
+    return t("chat.composer.talkWindowReady");
+  }
+  if (status === "thinking") {
+    return t("chat.composer.talkWindowThinking");
+  }
+  if (status === "error") {
+    return t("chat.composer.talkConversationError");
+  }
+  if (status === "connecting") {
+    return t("chat.voice.connecting");
+  }
+  return t("chat.composer.talkWindowListening");
+}
 export type ChatProps = ChatTaskSuggestionTrayProps &
   ChatCloudStartupNoticeProps & {
     transcript: ChatTranscriptController;
@@ -477,17 +508,27 @@ export function renderChat(props: ChatProps) {
         </button>
       `
     : nothing;
-  const realtimeTalkConversation = props.talkWindow
-    ? renderRealtimeTalkConversation({
-        assistantName: props.assistantName,
-        userName: props.userName,
-        realtimeTalkActive: props.realtimeTalkActive,
-        realtimeTalkStatus: props.realtimeTalkStatus,
-        realtimeTalkConversation: props.realtimeTalkConversation,
-      })
-    : nothing;
-
   if (props.talkWindow) {
+    const talkEntries = props.realtimeTalkConversation ?? [];
+    const latestAssistantEntry = latestRealtimeTalkEntry(talkEntries, "assistant");
+    const latestUserEntry = latestRealtimeTalkEntry(talkEntries, "user");
+    const talkStatus = talkWindowStatusLabel(props.realtimeTalkActive, props.realtimeTalkStatus);
+    const cameraEnabled = Boolean(props.realtimeTalkVideoStream);
+    const cameraDisabled =
+      !props.realtimeTalkVideoCapable ||
+      props.realtimeTalkVideoPending ||
+      props.realtimeTalkStatus === "connecting" ||
+      props.realtimeTalkStatus === "error";
+    const cameraFacingMode = props.realtimeTalkVideoStream
+      ?.getVideoTracks?.()[0]
+      ?.getSettings?.().facingMode;
+    const mirrorCameraPreview = cameraFacingMode !== "environment";
+    const closeTalkWindow = () => {
+      if (props.realtimeTalkActive) {
+        props.onToggleRealtimeTalk?.();
+      }
+      window.setTimeout(() => window.close(), 0);
+    };
     return html`
       <section
         ${ref((element) => {
@@ -501,7 +542,7 @@ export function renderChat(props: ChatProps) {
       >
         <div class="agent-chat__talk-window">
           <header class="agent-chat__talk-window-header">
-            <div>
+            <div class="agent-chat__talk-window-heading">
               <div class="agent-chat__talk-window-title">${t("chat.composer.talkWindowTitle")}</div>
               <div class="agent-chat__talk-window-subtitle">${props.assistantName}</div>
             </div>
@@ -511,16 +552,30 @@ export function renderChat(props: ChatProps) {
               aria-live="polite"
               aria-atomic="true"
             >
-              ${props.realtimeTalkActive
-                ? props.realtimeTalkStatus === "thinking"
-                  ? t("chat.composer.talkWindowThinking")
-                  : props.realtimeTalkStatus === "error"
-                    ? t("chat.composer.talkConversationError")
-                    : t("chat.composer.talkWindowListening")
-                : t("chat.composer.talkWindowReady")}
+              ${talkStatus}
             </div>
           </header>
           <main class="agent-chat__talk-window-stage">
+            <section
+              class="agent-chat__talk-surface agent-chat__talk-surface--answer"
+              aria-label=${t("chat.composer.talkWindowAnswer")}
+            >
+              <p>
+                ${latestAssistantEntry?.text.trim() ||
+                (props.realtimeTalkStatus === "thinking"
+                  ? t("chat.composer.talkWindowThinking")
+                  : t("chat.composer.talkWindowAnswerPlaceholder"))}
+                ${latestAssistantEntry?.isStreaming
+                  ? html`<span
+                      class="agent-chat__voice-turn-stream"
+                      aria-label=${t("chat.composer.stillListening")}
+                    ></span>`
+                  : nothing}
+              </p>
+              <div class="agent-chat__talk-surface-actions" aria-hidden="true">
+                <span>${props.assistantName}</span>
+              </div>
+            </section>
             <div
               class="agent-chat__talk-orb"
               data-status=${props.realtimeTalkStatus ?? "idle"}
@@ -528,9 +583,112 @@ export function renderChat(props: ChatProps) {
             >
               <span></span>
             </div>
-            <div class="agent-chat__talk-window-conversation">${realtimeTalkConversation}</div>
+            ${props.realtimeTalkVideoStream
+              ? html`
+                  <div class="agent-chat__talk-camera-preview">
+                    <video
+                      class=${mirrorCameraPreview ? "agent-chat__video-preview-mirrored" : nothing}
+                      autoplay
+                      .muted=${true}
+                      playsinline
+                      aria-label=${t("chat.composer.cameraPreview")}
+                      ${ref((element) => {
+                        if (element instanceof HTMLVideoElement) {
+                          element.srcObject = props.realtimeTalkVideoStream ?? null;
+                        }
+                      })}
+                    ></video>
+                    ${props.realtimeTalkCameraDevices &&
+                    props.realtimeTalkCameraDevices.length >= 2 &&
+                    props.onSwitchRealtimeCamera
+                      ? html`
+                          <button
+                            type="button"
+                            class="agent-chat__talk-camera-switch"
+                            aria-label=${t("chat.composer.switchCamera")}
+                            ?disabled=${props.realtimeTalkVideoPending}
+                            @click=${props.onSwitchRealtimeCamera}
+                          >
+                            ${icons.switchCamera}
+                          </button>
+                        `
+                      : nothing}
+                  </div>
+                `
+              : nothing}
+            <section
+              class="agent-chat__talk-surface agent-chat__talk-surface--question"
+              aria-label=${t("chat.composer.talkWindowQuestion")}
+            >
+              <p>
+                ${latestUserEntry?.text.trim() || t("chat.composer.talkWindowQuestionPlaceholder")}
+                ${latestUserEntry?.isStreaming
+                  ? html`<span
+                      class="agent-chat__voice-turn-stream"
+                      aria-label=${t("chat.composer.stillListening")}
+                    ></span>`
+                  : nothing}
+              </p>
+            </section>
           </main>
-          <footer class="agent-chat__talk-window-footer">${chatColumnFooter}</footer>
+          <footer class="agent-chat__talk-window-footer">
+            <div
+              class="agent-chat__talk-dock"
+              role="toolbar"
+              aria-label=${t("chat.composer.talkWindowControls")}
+            >
+              <div class="agent-chat__talk-action-group">
+                <button
+                  type="button"
+                  class="agent-chat__talk-action"
+                  aria-label=${t("chat.composer.talkWindowShareScreen")}
+                  title=${t("chat.composer.talkWindowShareScreenUnavailable")}
+                  disabled
+                >
+                  ${icons.monitor}
+                </button>
+                <button
+                  type="button"
+                  class="agent-chat__talk-action"
+                  aria-label=${cameraEnabled
+                    ? t("chat.composer.turnCameraOff")
+                    : t("chat.composer.turnCameraOn")}
+                  aria-pressed=${cameraEnabled ? "true" : "false"}
+                  title=${cameraDisabled && !props.realtimeTalkVideoCapable
+                    ? t("chat.composer.talkWindowCameraUnavailable")
+                    : nothing}
+                  ?disabled=${cameraDisabled}
+                  @click=${props.onToggleRealtimeCamera}
+                >
+                  ${cameraEnabled ? icons.cameraOff : icons.camera}
+                </button>
+              </div>
+              <div class="agent-chat__talk-input-pill" aria-live="polite">
+                ${latestUserEntry?.text.trim() || t("chat.composer.talkWindowQuestionPlaceholder")}
+              </div>
+              <div class="agent-chat__talk-action-group agent-chat__talk-action-group--end">
+                <button
+                  type="button"
+                  class="agent-chat__talk-action"
+                  aria-label=${props.realtimeTalkActive
+                    ? t("chat.composer.stopVoiceInput")
+                    : t("chat.composer.startVoiceInput")}
+                  aria-pressed=${props.realtimeTalkActive ? "true" : "false"}
+                  @click=${props.onToggleRealtimeTalk}
+                >
+                  ${props.realtimeTalkActive ? icons.micOff : icons.mic}
+                </button>
+                <button
+                  type="button"
+                  class="agent-chat__talk-action agent-chat__talk-action--close"
+                  aria-label=${t("chat.composer.talkWindowClose")}
+                  @click=${closeTalkWindow}
+                >
+                  ${icons.x}
+                </button>
+              </div>
+            </div>
+          </footer>
         </div>
       </section>
     `;

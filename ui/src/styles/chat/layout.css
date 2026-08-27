@@ -3229,16 +3229,18 @@ button.chat-pr__diff {
 .chat--talk-window {
   min-height: 100%;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 52% 34%, color-mix(in srgb, #7d8cff 18%, transparent), transparent 22%),
-    linear-gradient(180deg, color-mix(in srgb, var(--bg) 96%, #ffffff), var(--bg));
+  border: 0;
+  background: #fbfbf9;
+  box-shadow: none;
 }
 
 .agent-chat__talk-window {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(100%, 520px);
   min-height: min(100dvh, 100%);
-  color: var(--text);
+  margin: 0 auto;
+  color: #111318;
 }
 
 .agent-chat__talk-window-header {
@@ -3246,11 +3248,15 @@ button.chat-pr__diff {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: max(16px, env(safe-area-inset-top)) clamp(16px, 4vw, 34px) 10px;
+  padding: max(14px, env(safe-area-inset-top)) clamp(14px, 5vw, 24px) 8px;
+}
+
+.agent-chat__talk-window-heading {
+  min-width: 0;
 }
 
 .agent-chat__talk-window-title {
-  color: var(--text-strong);
+  color: #111318;
   font-size: 15px;
   font-weight: 800;
   line-height: 1.2;
@@ -3258,7 +3264,7 @@ button.chat-pr__diff {
 
 .agent-chat__talk-window-subtitle,
 .agent-chat__talk-window-state {
-  color: var(--muted);
+  color: #626977;
   font-size: 12px;
   font-weight: 700;
 }
@@ -3274,33 +3280,90 @@ button.chat-pr__diff {
 
 .agent-chat__talk-window-stage {
   display: grid;
-  grid-template-rows: minmax(180px, 38vh) minmax(0, 1fr);
+  grid-template-rows: minmax(112px, auto) minmax(180px, 1fr) auto minmax(86px, auto);
+  align-content: stretch;
   min-height: 0;
-  padding: 0 clamp(14px, 4vw, 42px);
+  padding: 0 clamp(18px, 6vw, 38px);
+}
+
+.agent-chat__talk-surface {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.agent-chat__talk-surface p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #111318;
+  font-size: clamp(17px, 2.7vw, 21px);
+  line-height: 1.22;
+  white-space: pre-wrap;
+}
+
+.agent-chat__talk-surface--answer {
+  align-self: start;
+  padding-top: clamp(14px, 3vh, 24px);
+}
+
+.agent-chat__talk-surface--answer p {
+  max-width: 420px;
+}
+
+.agent-chat__talk-surface--question {
+  align-self: end;
+  justify-self: stretch;
+  padding-bottom: 12px;
+}
+
+.agent-chat__talk-surface--question p,
+.agent-chat__talk-input-pill {
+  border-radius: 13px;
+  background: #dde3ee;
+  color: #1d2430;
+}
+
+.agent-chat__talk-surface--question p {
+  width: fit-content;
+  max-width: min(100%, 420px);
+  margin-left: auto;
+  padding: 13px 15px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.agent-chat__talk-surface-actions {
+  display: flex;
+  gap: 14px;
+  margin-top: 16px;
+  color: #4e5664;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .agent-chat__talk-orb {
   position: relative;
   align-self: center;
   justify-self: center;
-  width: clamp(132px, 28vw, 230px);
+  width: clamp(118px, 35vw, 164px);
   aspect-ratio: 1;
   border-radius: 999px;
   background:
-    radial-gradient(circle at 54% 38%, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.18) 34%, transparent 54%),
-    radial-gradient(circle at 34% 64%, rgba(180, 218, 255, 0.82), transparent 48%),
-    linear-gradient(145deg, #6b73ff 0%, #9aa8ff 48%, #e7ecff 100%);
+    radial-gradient(circle at 56% 38%, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.2) 35%, transparent 56%),
+    radial-gradient(circle at 36% 68%, rgba(177, 221, 255, 0.84), transparent 48%),
+    linear-gradient(145deg, #7280ff 0%, #95a6ff 48%, #e9efff 100%);
   box-shadow:
-    0 34px 80px rgba(55, 76, 155, 0.2),
-    inset 0 -18px 34px rgba(255, 255, 255, 0.32),
-    inset 0 16px 32px rgba(56, 68, 170, 0.2);
+    0 28px 78px rgba(82, 96, 175, 0.24),
+    inset 0 -16px 30px rgba(255, 255, 255, 0.34),
+    inset 0 15px 28px rgba(80, 88, 184, 0.2);
 }
 
 .agent-chat__talk-orb::after {
   position: absolute;
-  inset: -14%;
+  inset: -16%;
   border-radius: inherit;
-  background: radial-gradient(circle, rgba(99, 116, 255, 0.18), transparent 62%);
+  background: radial-gradient(circle, rgba(94, 114, 255, 0.2), transparent 64%);
   content: "";
   opacity: 0;
   transform: scale(0.92);
@@ -3315,9 +3378,9 @@ button.chat-pr__diff {
 
 .agent-chat__talk-orb[data-status="thinking"] {
   background:
-    radial-gradient(circle at 56% 36%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.14) 34%, transparent 54%),
-    radial-gradient(circle at 35% 66%, rgba(137, 224, 202, 0.8), transparent 48%),
-    linear-gradient(145deg, #5668ff 0%, #71c8b8 58%, #e8fff9 100%);
+    radial-gradient(circle at 56% 36%, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.16) 34%, transparent 54%),
+    radial-gradient(circle at 35% 66%, rgba(120, 215, 203, 0.82), transparent 48%),
+    linear-gradient(145deg, #596aff 0%, #6fcbbb 58%, #eafff9 100%);
 }
 
 .agent-chat__talk-orb[data-status="error"] {
@@ -3338,58 +3401,146 @@ button.chat-pr__diff {
   }
 }
 
-.agent-chat__talk-window-conversation {
-  min-height: 0;
+.agent-chat__talk-camera-preview {
+  position: relative;
+  justify-self: center;
+  width: min(100%, 240px);
+  margin-top: -18px;
   overflow: hidden;
+  border: 1px solid rgba(25, 29, 40, 0.1);
+  border-radius: 16px;
+  background: #eef2f7;
+  box-shadow: 0 18px 48px rgba(34, 45, 75, 0.16);
 }
 
-.agent-chat__talk-window .agent-chat__voice-panel {
-  width: min(100%, 860px);
-  max-height: none;
-  margin: 0 auto;
-  border-color: color-mix(in srgb, var(--border) 72%, transparent);
-  background: color-mix(in srgb, var(--card) 78%, transparent);
-  box-shadow: none;
+.agent-chat__talk-camera-preview video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
 }
 
-.agent-chat__talk-window .agent-chat__voice-turns {
-  max-height: min(30vh, 280px);
+.agent-chat__talk-camera-switch {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #141820;
+  box-shadow: 0 6px 18px rgba(17, 24, 39, 0.18);
+}
+
+.agent-chat__talk-camera-switch svg {
+  width: 17px;
+  height: 17px;
 }
 
 .agent-chat__talk-window-footer {
-  padding: 12px clamp(12px, 4vw, 34px) max(14px, env(safe-area-inset-bottom));
+  padding: 8px clamp(12px, 5vw, 24px) max(14px, env(safe-area-inset-bottom));
 }
 
-.agent-chat__talk-window-footer .agent-chat__input {
-  width: min(100%, 780px);
-  margin: 0 auto;
+.agent-chat__talk-dock {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
 }
 
-.agent-chat__talk-window-footer .agent-chat__composer-shell {
+.agent-chat__talk-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-chat__talk-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
   border-radius: 999px;
+  background: #ffffff;
+  color: #151820;
+  box-shadow: 0 9px 26px rgba(31, 41, 55, 0.12);
 }
 
-.agent-chat__talk-window-footer .agent-chat__composer-footer {
-  display: none;
+.agent-chat__talk-action:hover:not(:disabled) {
+  background: #f0f3f8;
 }
 
-@media (max-width: 720px) {
+.agent-chat__talk-action:focus-visible {
+  outline: 3px solid rgba(102, 119, 255, 0.34);
+  outline-offset: 2px;
+}
+
+.agent-chat__talk-action:disabled {
+  color: #98a1af;
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.agent-chat__talk-action[aria-pressed="true"] {
+  background: #111318;
+  color: #ffffff;
+}
+
+.agent-chat__talk-action--close {
+  background: #111318;
+  color: #ffffff;
+}
+
+.agent-chat__talk-action svg {
+  width: 17px;
+  height: 17px;
+}
+
+.agent-chat__talk-input-pill {
+  min-width: 0;
+  min-height: 40px;
+  padding: 12px 14px;
+  overflow: hidden;
+  color: #586171;
+  font-size: 12px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 720px) {
+  .agent-chat__talk-window {
+    border-inline: 1px solid rgba(20, 24, 32, 0.05);
+  }
+}
+
+@media (max-width: 420px) {
+  .agent-chat__talk-window-header {
+    padding-inline: 12px;
+  }
+
   .agent-chat__talk-window-stage {
-    grid-template-rows: minmax(220px, 45vh) minmax(0, 1fr);
+    padding-inline: 14px;
   }
 
-  .agent-chat__talk-window .agent-chat__voice-panel-header {
-    display: none;
+  .agent-chat__talk-dock {
+    gap: 7px;
   }
 
-  .agent-chat__talk-window .agent-chat__voice-panel {
-    border-color: transparent;
-    background: transparent;
+  .agent-chat__talk-action-group {
+    gap: 6px;
   }
 
-  .agent-chat__talk-window .agent-chat__voice-turns {
-    max-height: 26vh;
-    padding-inline: 0;
+  .agent-chat__talk-action {
+    width: 34px;
+    height: 34px;
   }
 }
 
