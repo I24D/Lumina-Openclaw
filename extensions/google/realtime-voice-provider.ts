@@ -400,6 +400,24 @@ function buildGoogleLiveConnectConfig(
       ? { enableAffectiveDialog: config.enableAffectiveDialog }
       : {}),
     ...(thinkingConfig ? { thinkingConfig } : {}),
+    ...buildGoogleLiveSessionContinuity(config),
+  };
+}
+
+/**
+ * Session continuity, on unless explicitly disabled. Without compression Live
+ * caps a session at 15 minutes of audio (2 with video) and then terminates it;
+ * without resumption the server issues no handle, so nothing can be recovered.
+ */
+function buildGoogleLiveSessionContinuity(
+  config: Pick<GoogleRealtimeLiveConfig, "sessionResumption" | "contextWindowCompression">,
+  handle?: string,
+) {
+  return {
+    ...(config.sessionResumption === false ? {} : { sessionResumption: handle ? { handle } : {} }),
+    ...(config.contextWindowCompression === false
+      ? {}
+      : { contextWindowCompression: { slidingWindow: {} } }),
   };
 }
 
@@ -407,7 +425,10 @@ function toGoogleModelResource(model: string): string {
   return model.startsWith("models/") ? model : `models/${model}`;
 }
 
-function buildBrowserInitialSetup(model: string) {
+function buildBrowserInitialSetup(
+  model: string,
+  config: Pick<GoogleRealtimeLiveConfig, "sessionResumption" | "contextWindowCompression">,
+) {
   return {
     setup: {
       model: toGoogleModelResource(model),
@@ -416,6 +437,9 @@ function buildBrowserInitialSetup(model: string) {
       },
       inputAudioTranscription: {},
       outputAudioTranscription: {},
+      // Must mirror the token's liveConnectConstraints: the ephemeral token
+      // pins the session config, so a setup that drifts from it is rejected.
+      ...buildGoogleLiveSessionContinuity(config),
     },
   };
 }
@@ -1353,7 +1377,7 @@ async function createGoogleRealtimeBrowserSession(
       outputEncoding: "pcm16",
       outputSampleRateHz: 24_000,
     },
-    initialMessage: buildBrowserInitialSetup(model),
+    initialMessage: buildBrowserInitialSetup(model, config),
     model,
     voice,
     expiresAt: newSessionExpiresAtMs,

@@ -59,6 +59,7 @@ type GoogleLiveMessage = {
   toolCallCancellation?: {
     ids?: string[];
   };
+  goAway?: { timeLeft?: string };
 };
 
 const GOOGLE_LIVE_VIDEO_FRAME_INTERVAL_MS = 1_000;
@@ -431,6 +432,16 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
     // events remain provisional until activate() publishes that ownership.
     if (!this.lifecycle.isActive) {
       return;
+    }
+    if (message.goAway) {
+      // Live warns before it drops the socket. Say so: the close that follows
+      // would otherwise read as the session silently freezing mid-sentence.
+      this.ctx.callbacks.onStatus?.(
+        "error",
+        message.goAway.timeLeft
+          ? `Google ended the realtime session (${message.goAway.timeLeft} left)`
+          : "Google ended the realtime session",
+      );
     }
     const content = message.serverContent;
     if (content?.interrupted) {
