@@ -67,6 +67,9 @@ import type { ChatRunUiStatus } from "./run-lifecycle.ts";
 import type { CompactionStatus, FallbackStatus, PlanStatus } from "./tool-stream.ts";
 import type { WorkspaceResultConflict } from "./workspace-conflict.ts";
 import "../../components/resizable-divider.ts";
+
+/** Above this length a Talk answer stops being a glanceable line and needs body sizing. */
+const TALK_WINDOW_DENSE_ANSWER_CHARS = 180;
 type ChatReplyTarget = {
   messageId: string;
   text: string;
@@ -517,6 +520,10 @@ export function renderChat(props: ChatProps) {
     const talkEntries = props.realtimeTalkConversation ?? [];
     const latestAssistantEntry = latestRealtimeTalkEntry(talkEntries, "assistant");
     const latestUserEntry = latestRealtimeTalkEntry(talkEntries, "user");
+    // Headline sizing only reads well for a glanceable sentence. Drafted
+    // messages and lists arrive far longer, so they step down a tier.
+    const answerIsDense =
+      (latestAssistantEntry?.text.trim().length ?? 0) > TALK_WINDOW_DENSE_ANSWER_CHARS;
     const talkStatus = talkWindowStatusLabel(props.realtimeTalkActive, props.realtimeTalkStatus);
     const cameraEnabled = Boolean(props.realtimeTalkVideoStream);
     const screenEnabled = Boolean(props.realtimeTalkScreenStream);
@@ -590,7 +597,9 @@ export function renderChat(props: ChatProps) {
           </header>
           <main class="agent-chat__talk-window-stage">
             <section
-              class="agent-chat__talk-surface agent-chat__talk-surface--answer"
+              class=${`agent-chat__talk-surface agent-chat__talk-surface--answer${
+                answerIsDense ? " is-dense" : ""
+              }`}
               aria-label=${t("chat.composer.talkWindowAnswer")}
             >
               <p>

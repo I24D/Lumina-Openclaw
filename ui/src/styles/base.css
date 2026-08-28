@@ -273,6 +273,30 @@
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
 
+  /* Start Talk palette. The Talk window is a self-contained surface with its
+     own light/dark switch (.chat--talk-window-dark), independent of the app
+     theme, so these stay fixed and are never re-declared per theme. */
+  --talk-canvas: #fbfbf9;
+  --talk-canvas-dark: #050609;
+  --talk-ink: #111318;
+  --talk-ink-dark: #f8fafc;
+  --talk-muted: #626977;
+  --talk-muted-dark: #a8b1c1;
+  --talk-caption: #586171;
+  --talk-pill: #dde3ee;
+  --talk-pill-ink: #1d2430;
+  --talk-pill-dark: #202633;
+  --talk-pill-ink-dark: #f1f5f9;
+  --talk-preview: #eef2f7;
+  --talk-preview-dark: #111827;
+  --talk-control: #ffffff;
+  --talk-control-ink: #151820;
+  --talk-control-hover: #f0f3f8;
+  --talk-overlay-ink: #141820;
+  --talk-on-fill: #ffffff;
+  --talk-danger: #d92d20;
+  --talk-disabled: #98a1af;
+
   /* Layering */
   --z-dropdown: 100;
   --z-toast: 2000;

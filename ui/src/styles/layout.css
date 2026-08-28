@@ -73,7 +73,7 @@
   --shell-topbar-height: 0px;
   grid-template-columns: 0 minmax(0, 1fr);
   grid-template-rows: 0 1fr;
-  background: #fbfbf9;
+  background: var(--talk-canvas);
 }
 
 .shell--talk-window .topbar,
@@ -91,7 +91,14 @@
 .shell--talk-window .content--chat {
   grid-area: content;
   padding: 0;
-  background: #fbfbf9;
+  background: var(--talk-canvas);
+}
+
+/* Without this the shell stayed light behind a dark Talk window, flashing
+   white wherever the window did not cover it. */
+.shell--talk-window:has(.chat--talk-window-dark),
+.shell--talk-window:has(.chat--talk-window-dark) .content--chat {
+  background: var(--talk-canvas-dark);
 }
 
 .shell--talk-window .content--chat > openclaw-router-outlet {
