@@ -33,7 +33,7 @@ export {
 
 const maxListedFiles = 25;
 const autoscrubCommitMessage = "chore: remove dependency lockfile change";
-const securityTeamSlug = process.env.OPENCLAW_SECURITY_TEAM_SLUG ?? "openclaw-secops";
+const securityTeamSlug = process.env.OPENCLAW_SECURITY_TEAM_SLUG ?? "lumina-maintainers";
 const dependencyManifestFields = [
   "dependencies",
   "devDependencies",
@@ -305,7 +305,7 @@ export function renderAuthorizedDependencyComment(override) {
     "",
     "### Dependency graph change authorized",
     "",
-    "This PR includes dependency graph changes. A repository admin or member of `@openclaw/openclaw-secops` authorized this exact head SHA with `/allow-dependencies-change`.",
+    "This PR includes dependency graph changes. Repository owner `@I24D` authorized this exact head SHA with `/allow-dependencies-change`.",
     "",
     `- Approved SHA: ${markdownCode(override.sha)}`,
     `- Approved by: @${sanitizeGuardDisplayValue(override.login)}`,
@@ -324,7 +324,7 @@ export function renderTrustedDependencyComment({ actor, headSha }) {
     "",
     "### Dependency graph changes noted",
     "",
-    "This PR includes dependency graph changes. The dependency guard is informational because the PR author is a repository admin or a member of `@openclaw/openclaw-secops`.",
+    "This PR includes dependency graph changes. The dependency guard is informational because the PR author is the repository owner or an administrator.",
     "",
     `- Current SHA: ${markdownCode(headSha ?? "<head-sha>")}`,
     `- Trusted actor: @${sanitizeGuardDisplayValue(actor.login)}`,
@@ -443,7 +443,7 @@ export function renderBlockedDependencyComment({
     ...autoscrubLines,
     ...removalSteps,
     "",
-    "If this PR intentionally needs a dependency graph change, ask a repository admin or member of `@openclaw/openclaw-secops` to comment:",
+    "If this PR intentionally needs a dependency graph change, ask repository owner `@I24D` to comment:",
     "",
     "```text",
     allowDependenciesCommand,

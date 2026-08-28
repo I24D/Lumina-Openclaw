@@ -31,7 +31,7 @@ export {
   readBoundedGitHubJson,
 };
 
-const securityTeamSlug = process.env.OPENCLAW_SECURITY_TEAM_SLUG ?? "openclaw-secops";
+const securityTeamSlug = process.env.OPENCLAW_SECURITY_TEAM_SLUG ?? "lumina-maintainers";
 const maxListedFiles = 25;
 const securitySensitiveFiles = [
   {
@@ -230,7 +230,7 @@ export function renderSecuritySensitiveAwarenessComment(changes) {
     "Maintainer follow-up:",
     "- Review whether each security-sensitive file change is intentional.",
     "- Confirm the change does not weaken secret, credential, or local-state protection.",
-    "- If this PR intentionally needs the change, a repository admin or member of `@openclaw/openclaw-secops` must approve the exact head SHA.",
+    "- If this PR intentionally needs the change, repository owner `@I24D` must approve the exact head SHA.",
   ].join("\n");
 }
 
@@ -240,7 +240,7 @@ export function renderAuthorizedSecuritySensitiveComment(override) {
     "",
     "### Security-sensitive change authorized",
     "",
-    "This PR includes security-sensitive file changes. A repository admin or member of `@openclaw/openclaw-secops` authorized this exact head SHA with `/allow-security-sensitive-change`.",
+    "This PR includes security-sensitive file changes. Repository owner `@I24D` authorized this exact head SHA with `/allow-security-sensitive-change`.",
     "",
     `- Approved SHA: ${markdownCode(override.sha)}`,
     `- Approved by: @${sanitizeGuardDisplayValue(override.login)}`,
@@ -258,7 +258,7 @@ export function renderTrustedSecuritySensitiveComment({ actor, headSha, changes 
     "",
     "### Security-sensitive changes noted",
     "",
-    "This PR includes security-sensitive file changes. The guard is informational because the PR author is a repository admin or a member of `@openclaw/openclaw-secops`.",
+    "This PR includes security-sensitive file changes. The guard is informational because the PR author is the repository owner or an administrator.",
     "",
     `- Current SHA: ${markdownCode(headSha ?? "<head-sha>")}`,
     `- Trusted actor: @${sanitizeGuardDisplayValue(actor.login)}`,
@@ -294,7 +294,7 @@ export function renderBlockedSecuritySensitiveComment({ headSha, changes }) {
     "Detected security-sensitive changes:",
     ...renderChangedFileLines(changes),
     "",
-    "If this PR intentionally needs these changes, ask a repository admin or member of `@openclaw/openclaw-secops` to comment:",
+    "If this PR intentionally needs these changes, ask repository owner `@I24D` to comment:",
     "",
     "```text",
     allowSecuritySensitiveCommand,

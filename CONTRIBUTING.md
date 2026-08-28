@@ -1,172 +1,133 @@
-# Contributing to OpenClaw
+# Contributing to Lumina OpenClaw
 
-Welcome to the lobster tank! 🦞
+Thank you for helping improve Lumina OpenClaw. Contributions from the community
+are welcome: code, documentation, translations, tests, bug reports, design
+feedback, skills, plugins, and integration ideas all help the project grow.
 
-## Quick Links
+Lumina OpenClaw is created and continuously developed by **DAL NIJARUQ**. It is
+built on OpenClaw and preserves its MIT license, credits, and technical lineage.
 
-- **GitHub:** https://github.com/openclaw/openclaw
-- **Vision:** [`VISION.md`](VISION.md)
-- **Discord:** https://discord.gg/clawd
-- **X/Twitter:** [@openclaw](https://x.com/openclaw)
+## Quick links
 
-## Maintainers
+- [Open an issue](https://github.com/I24D/Lumina-Openclaw/issues/new/choose)
+- [Find an issue to work on](https://github.com/I24D/Lumina-Openclaw/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22)
+- [Start a discussion](https://github.com/I24D/Lumina-Openclaw/discussions)
+- [Open a pull request](https://github.com/I24D/Lumina-Openclaw/compare)
+- [Read the code of conduct](CODE_OF_CONDUCT.md)
+- [Report a security issue](SECURITY.md)
 
-The current OpenClaw Foundation team and Core Maintainers are listed on the
-OpenClaw people page: https://www.openclaw.org/people
+## Guia rapida en espanol
 
-## How to Contribute
+No necesitas acceso directo de escritura para colaborar. Haz un **fork** del
+repositorio, crea una rama en tu fork y envia un **Pull Request** hacia la rama
+`main` de `I24D/Lumina-Openclaw`.
 
-1. **Bugs & small fixes** → Open a PR!
-2. **New features / architecture** → Start a [GitHub Issue](https://github.com/openclaw/openclaw/issues/new/choose) or ask in Discord first. Most features are not accepted and should be third party plugins instead using our plugin SDK.
-3. **Refactor-only PRs** → Don't open a PR. We are not accepting refactor-only changes unless a maintainer explicitly asks for them as part of a concrete fix.
-4. **Test/CI-only PRs for known `main` failures** → Don't open a PR. The Maintainer team is already tracking those failures, and PRs that only tweak tests or CI to chase them will be closed unless they are required to validate a new fix.
-5. **Questions** → Discord [#help](https://discord.com/channels/1456350064065904867/1459642797895319552) / [#users-helping-users](https://discord.com/channels/1456350064065904867/1459007081603403828)
+1. Abre un Issue o una Discussion para cambios grandes.
+2. Haz fork del repositorio y clona tu fork.
+3. Crea una rama con un nombre claro, por ejemplo `fix/start-talk-layout`.
+4. Realiza un cambio enfocado y agrega las pruebas necesarias.
+5. Sube tu rama y abre un Pull Request usando la plantilla del repositorio.
+6. Manten activada la opcion **Allow edits from maintainers**.
 
-## Issue, PR, and Contact Routing
+Los arreglos pequenos y claros pueden enviarse directamente como Pull Request.
+Nunca publiques claves, tokens, datos personales, conversaciones privadas ni
+archivos `.env`.
 
-Start from this routing map before creating GitHub items:
+## Contribution workflow
 
-| Situation                                                | Use                                                                                                                                                                                  | Required evidence                                                                                                   |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Product bug, regression, crash, or behavior defect       | [Bug report](https://github.com/openclaw/openclaw/issues/new?template=bug_report.yml)                                                                                                | Repro steps, expected vs actual behavior, version, OS, model/provider route when relevant, logs/screenshots, impact |
-| Documentation bug or missing/contradictory docs          | [Docs bug report](https://github.com/openclaw/openclaw/issues/new?template=docs_bug_report.yml)                                                                                      | Affected docs path or URL, verification steps, expected docs content, actual docs content, impact, evidence         |
-| New feature, architecture change, or product improvement | [Feature request](https://github.com/openclaw/openclaw/issues/new?template=feature_request.yml) or Discord first                                                                     | Problem, proposed solution, alternatives, impact, examples or prior art                                             |
-| Onboarding, setup help, or general support question      | Discord [#help](https://discord.com/channels/1456350064065904867/1459642797895319552) / [#users-helping-users](https://discord.com/channels/1456350064065904867/1459007081603403828) | Do not open a GitHub issue unless there is a concrete product defect or docs gap                                    |
-| Security vulnerability                                   | See [Report a Vulnerability](#report-a-vulnerability) below                                                                                                                          | Do not file public issues for private security reports                                                              |
-| PR for an existing or newly filed issue                  | Use the [PR template](.github/pull_request_template.md)                                                                                                                              | Visible `Closes #<issue>` or `Related: #<issue>`, problem, shipped solution, user impact, validation evidence       |
+### 1. Choose or propose work
 
-For agent-authored or otherwise non-trivial work, create or reuse the issue first, then open the PR against it. Bugs and very small fixes may go straight to PR, but still link existing context when it exists and fill out the PR template.
+For a small bug fix, documentation correction, or translation, you may open a
+pull request directly. For a new feature, architecture change, or broad UI
+change, open an issue or discussion first so the direction can be agreed before
+you invest significant time.
 
-Do not guess who to tag. Let issue forms, labels/automation, and `.github/CODEOWNERS` route the work. Mention a maintainer only when an owned path or documented responsibility is directly relevant and you need a decision; otherwise rely on normal review. For coordinated change sets, ask in **#clawtributors** before opening more than the PR limit.
+Good starting points are issues labeled
+[`good first issue`](https://github.com/I24D/Lumina-Openclaw/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+or
+[`help wanted`](https://github.com/I24D/Lumina-Openclaw/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
 
-## PR Limits
+### 2. Fork and create a branch
 
-We cap at **20 open PRs per author**. If you exceed this, the `r: too-many-prs` label is added and your PR is auto-closed. This is a hard limit.
-
-For coordinated change sets that genuinely need more than 20 PRs, join the **#clawtributors** channel in Discord and talk to maintainers first.
-
-## Before You PR
-
-- Use **Node 24.15+** for source checkouts when possible. OpenClaw also supports Node 22.22.3+ and Node 25.9+, but Node 23, Node 22 before 22.22.3, and Node 24 before 24.15 are below the repository engine floor and can fail before `pnpm` commands run. See [Node install guidance](docs/install/node.md) if your local version is too old.
-- Test locally with your OpenClaw instance
-- External PRs must describe the user, product, or operational problem in **What Problem This Solves** and include useful validation in **Evidence**. Focused tests, CI results, screenshots, recordings, terminal output, live observations, redacted logs, and artifact links all count. Reviewers will inspect the code, tests, and CI; use the PR body to explain intent and make validation easy to understand.
-- When ClawSweeper, Barnacle, or a maintainer asks for more context or evidence, edit the PR description instead of only replying in a new comment. Keep **What Problem This Solves**, **Why This Change Was Made**, **User Impact**, and **Evidence** current; a short comment can point reviewers to the update, but the PR body should remain the durable explanation for maintainers and bots.
-- Keep PRs takeover-ready: open them from a branch maintainers can push to. For fork PRs, leave GitHub's **Allow edits by maintainers** option enabled so maintainers can finish urgent fixes, changelog entries, or merge prep when needed. If GitHub shows **Allow edits and access to secrets by maintainers**, enable it only when that workflow/secrets access is acceptable and say so in the PR.
-- Do not edit `CHANGELOG.md` in contributor PRs. Maintainers or ClawSweeper add the changelog entry when landing user-facing changes.
-- Run tests: `pnpm build && pnpm check && pnpm test`
-- For iterative local commits after running equivalent targeted validation for the touched surface, `git commit --no-verify` skips commit hooks.
-- For extension/plugin changes, run the fast local lane first:
-  - `pnpm test:extension <extension-name>`
-  - `pnpm test:extension --list` to see valid extension ids
-  - If you changed shared plugin or channel surfaces, run `pnpm test:contracts`
-  - For targeted shared-surface work, use `pnpm test:contracts:channels` or `pnpm test:contracts:plugins`
-  - These commands also cover the shared seam/smoke files that the default unit lane skips
-  - If you changed broader runtime behavior, still run the relevant wider lanes (`pnpm test:extensions`, `pnpm test:channels`, or `pnpm test`) before asking for review
-- If you touched bundled-plugin boundaries in shared code, run the matching inventories:
-  - `node --import tsx scripts/check-src-extension-import-boundary.mts --json` for `src/**`
-  - `node --import tsx scripts/check-sdk-package-extension-import-boundary.mts --json` for `src/plugin-sdk/**` and `packages/**`
-  - `node --import tsx scripts/check-test-helper-extension-import-boundary.mts --json` for `test/helpers/**`
-- Shared test helpers must use `src/test-utils/bundled-plugin-public-surface.ts` instead of repo-relative `extensions/**` imports. Keep plugin-local deep mocks inside the owning bundled plugin package.
-- If you are using an AI coding agent with OpenClaw skills available, run the `autoreview` skill before opening or updating your PR. Address accepted/actionable findings before asking for review.
-- Do not submit refactor-only PRs unless a maintainer explicitly requested that refactor for an active fix or deliverable.
-- Do not submit test or CI-config fixes for failures already red on `main` CI. If a failure is already visible in the [main branch CI runs](https://github.com/openclaw/openclaw/actions), it's a known issue the Maintainer team is tracking, and a PR that only addresses those failures will be closed automatically. If you spot a _new_ regression not yet shown in main CI, report it as an issue first.
-- Do not submit test-only PRs that just try to make known `main` CI failures pass. Test changes are acceptable when they are required to validate a new fix or cover new behavior in the same PR.
-- Ensure CI checks pass
-- Keep PRs focused (one thing per PR; do not mix unrelated concerns)
-- Describe what & why
-- **Include screenshots** — one showing the problem/before, one showing the fix/after (for UI or visual changes)
-- Use American English spelling and grammar in code, comments, docs, and UI strings
-- Do not edit files covered by `CODEOWNERS` security ownership unless a listed owner explicitly asked for the change or is already reviewing it with you. Treat those paths as restricted review surfaces, not opportunistic cleanup targets.
-
-## Review Conversations Are Author-Owned
-
-After your PR receives Barnacle, ClawSweeper, or maintainer feedback, read the [pull request review flow](https://docs.openclaw.ai/reference/pull-request-review-flow) for how to interpret rank-up moves, proof guidance, re-review requests, and review conversation follow-up.
-
-## Control UI Decorators
-
-The Control UI uses Lit with **legacy** decorators (current Rollup parsing does not support
-`accessor` fields required for standard decorators). When adding reactive fields, keep the
-legacy style:
-
-```ts
-@state() foo = "bar";
-@property({ type: Number }) count = 0;
+```bash
+git clone https://github.com/YOUR-USER/Lumina-Openclaw.git
+cd Lumina-Openclaw
+git remote add upstream https://github.com/I24D/Lumina-Openclaw.git
+git switch -c fix/short-description
 ```
 
-The root `tsconfig.json` is configured for legacy decorators (`experimentalDecorators: true`)
-with `useDefineForClassFields: false`. Avoid flipping these unless you are also updating the UI
-build tooling to support standard decorators.
+Use a short branch prefix such as `fix/`, `feat/`, `docs/`, `test/`, or
+`community/`. Keep each pull request focused on one problem.
 
-## AI/Vibe-Coded PRs Welcome! 🤖
+### 3. Set up the project
 
-Built with Codex, Claude, or other AI tools? **Awesome - just mark it!**
+Lumina OpenClaw is a pnpm workspace. Plain `npm install` at the repository root
+is not supported.
 
-Please include in your PR:
+```bash
+pnpm install
+pnpm build
+pnpm ui:build
+```
 
-- [ ] Mark as AI-assisted in the PR title or description
-- [ ] Include a concise **Evidence** section with the most useful validation. Reviewers will inspect the code, tests, and CI rather than relying on the PR body alone.
-- [ ] Include prompts or session logs if possible (super helpful!)
-- [ ] Confirm you understand what the code does
-- [ ] Run the `autoreview` skill when available and address accepted/actionable findings
-- [ ] Follow the [pull request review flow](https://docs.openclaw.ai/reference/pull-request-review-flow) after Barnacle, ClawSweeper, or maintainer feedback
+Use Node.js 24.15 or newer when possible. The project also supports Node.js
+22.22.3 or newer and Node.js 25.9 or newer.
 
-AI PRs are first-class citizens here. We just want transparency so reviewers know what to look for.
+### 4. Validate the change
 
-## Current Focus & Roadmap 🗺
+Run the narrowest relevant tests while developing, then broaden validation in
+proportion to the change:
 
-We are currently prioritizing:
+```bash
+pnpm check
+pnpm test
+pnpm build
+```
 
-- **Stability**: Fixing edge cases in channel connections (WhatsApp/Telegram).
-- **UX**: Improving the onboarding wizard and error messages.
-- **Skills**: For skill contributions, head to [ClawHub](https://clawhub.ai/) — the community hub for OpenClaw skills.
-- **Performance**: Optimizing token usage and compaction logic.
+For UI changes, include before-and-after screenshots and verify the relevant
+desktop and mobile layouts. For extension changes, run
+`pnpm test:extension <extension-name>` first. Never alter tests only to hide a
+real failure.
 
-Check the [GitHub Issues](https://github.com/openclaw/openclaw/issues) for
-["good first issue"](https://github.com/openclaw/openclaw/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
-labels. If none are open, pick a small docs or bug issue and leave a quick comment saying
-you'd like to work on it.
+### 5. Open the pull request
 
-## Maintainers
+Push your branch to your fork and open a pull request against
+`I24D/Lumina-Openclaw:main`. Complete the repository template and include:
 
-We're selectively expanding the maintainer team.
-If you're an experienced contributor who wants to help shape OpenClaw's direction — whether through code, docs, or community — we'd like to hear from you.
+- the problem and why it matters;
+- the solution and its user impact;
+- a linked issue when one exists (`Closes #123` or `Related: #123`);
+- tests, screenshots, logs, or other evidence;
+- any compatibility, migration, privacy, or security considerations.
 
-Being a maintainer is a responsibility, not an honorary title. We expect active, consistent involvement — triaging issues, reviewing PRs, and helping move the project forward.
+Keep **Allow edits from maintainers** enabled so DAL NIJARUQ can help finish the
+branch when necessary. Reviews may request changes before a contribution is
+merged. A submitted pull request does not guarantee acceptance.
 
-Still interested? Email contributing@openclaw.ai with:
+## What belongs here
 
-- Links to your PRs on OpenClaw (if you don't have any, start there first)
-- Links to open source projects you maintain or actively contribute to
-- Your GitHub, Discord, and X/Twitter handles
-- A brief intro: background, experience, and areas of interest
-- Languages you speak and where you're based
-- How much time you can realistically commit
+Lumina-specific work belongs in this repository, including its assistant
+experience, memory, Supabase integration, observability, WhatsApp operations,
+model discipline, documentation, branding, and developer tooling.
 
-We welcome people across all skill sets — engineering, documentation, community management, and more.
-We review every human-only-written application carefully and add maintainers slowly and deliberately.
-Please allow a few weeks for a response.
+If a change is useful only to upstream OpenClaw and does not relate to Lumina,
+consider proposing it at
+[openclaw/openclaw](https://github.com/openclaw/openclaw) instead. When a Lumina
+change modifies inherited OpenClaw behavior, explain that boundary in the pull
+request.
 
-## Report a Vulnerability
+## AI-assisted contributions
 
-We take security reports seriously. Report vulnerabilities directly to the repository where the issue lives:
+AI-assisted contributions are welcome. Disclose meaningful AI assistance in the
+pull request, confirm that you understand the submitted code, and review all
+generated content for correctness, licenses, privacy, and secrets. The author is
+responsible for the final contribution regardless of which tools helped create
+it.
 
-- **Core CLI and gateway** — [openclaw/openclaw](https://github.com/openclaw/openclaw)
-- **macOS desktop app** — [openclaw/openclaw](https://github.com/openclaw/openclaw) (apps/macos)
-- **iOS app** — [openclaw/openclaw](https://github.com/openclaw/openclaw) (apps/ios)
-- **Android app** — [openclaw/openclaw](https://github.com/openclaw/openclaw) (apps/android)
-- **ClawHub** — [openclaw/clawhub](https://github.com/openclaw/clawhub)
+## Community and safety
 
-For issues that don't fit a specific repo, or if you're unsure, email **security@openclaw.ai** and we'll route it.
+By participating, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Do not use public issues or discussions for vulnerabilities or exposed secrets;
+follow [SECURITY.md](SECURITY.md) instead.
 
-### Required in Reports
-
-1. **Title**
-2. **Severity Assessment**
-3. **Impact**
-4. **Affected Component**
-5. **Technical Reproduction**
-6. **Demonstrated Impact**
-7. **Environment**
-8. **Remediation Advice**
-
-Reports without reproduction steps, demonstrated impact, and remediation advice will be deprioritized. Given the volume of AI-generated scanner findings, we must ensure we're receiving vetted reports from researchers who understand the issues.
+All accepted contributions are provided under the repository's MIT license.

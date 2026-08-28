@@ -183,8 +183,8 @@ describe("dependency guard workflow", () => {
     const runStep = workflowStep(detectSteps, 1, "dependency guard bounded comment run step");
     const script = readFileSync("scripts/github/dependency-guard.mjs", "utf8");
 
-    expect(runStep.env?.OPENCLAW_SECURITY_TEAM_SLUG).toBe("openclaw-secops");
-    expect(runStep.env?.OPENCLAW_SECURITY_APPROVERS).toBe("vincentkoc,steipete,joshavant");
+    expect(runStep.env?.OPENCLAW_SECURITY_TEAM_SLUG).toBe("lumina-maintainers");
+    expect(runStep.env?.OPENCLAW_SECURITY_APPROVERS).toBe("I24D");
     expect(workflow).toContain("scripts/github/dependency-guard.mjs");
     expect(script).toContain('"dependencies-changed"');
     expect(script).not.toContain('"blocked: dependencies"');
@@ -211,7 +211,7 @@ describe("dependency guard workflow", () => {
     expect(script).toContain('"overrides"');
     expect(script).toContain('"packageManager"');
     expect(script).toContain("/allow-dependencies-change");
-    expect(script).toContain("openclaw-secops");
+    expect(script).toContain("lumina-maintainers");
     expect(script).toContain("securityApproverSet");
     expect(guardSources).toContain("/memberships/");
     expect(guardSources).toContain("isCommentNewerThan");
@@ -267,15 +267,11 @@ describe("dependency guard workflow", () => {
 
   it("requires secops review for future workflow or guard changes", () => {
     const codeowners = readFileSync(CODEOWNERS, "utf8");
-    expect(codeowners).toContain(
-      "/.github/workflows/dependency-guard.yml @openclaw/openclaw-secops",
-    );
-    expect(codeowners).toContain(
-      "/test/scripts/dependency-guard-workflow.test.ts @openclaw/openclaw-secops",
-    );
-    expect(codeowners).toContain("/scripts/github/dependency-guard.mjs @openclaw/openclaw-secops");
-    expect(codeowners).toContain("/package-lock.json @openclaw/openclaw-secops");
-    expect(codeowners).toContain("/extensions/*/package-lock.json @openclaw/openclaw-secops");
-    expect(codeowners).toContain("/pnpm-lock.yaml @openclaw/openclaw-secops");
+    expect(codeowners).toContain("/.github/workflows/dependency-guard.yml @I24D");
+    expect(codeowners).toContain("/test/scripts/dependency-guard-workflow.test.ts @I24D");
+    expect(codeowners).toContain("/scripts/github/dependency-guard.mjs @I24D");
+    expect(codeowners).toContain("/package-lock.json @I24D");
+    expect(codeowners).toContain("/extensions/*/package-lock.json @I24D");
+    expect(codeowners).toContain("/pnpm-lock.yaml @I24D");
   });
 });

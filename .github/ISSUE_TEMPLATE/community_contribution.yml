@@ -1,0 +1,55 @@
+name: Community contribution proposal
+description: Propose a contribution or volunteer to work on a Lumina OpenClaw improvement.
+title: "[Community]: "
+labels:
+  - community
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for wanting to help Lumina OpenClaw. Small fixes may go directly to a pull request; use this form when you want to coordinate an idea or larger change first.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Contribution area
+      options:
+        - User interface or Start Talk
+        - Memory or Supabase
+        - WhatsApp or another channel
+        - Observability, diagnostics, or QA
+        - Skill, plugin, or developer tooling
+        - Documentation or translation
+        - Testing or bug fix
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to contribute?
+      description: Describe the problem, proposed contribution, and expected benefit.
+      placeholder: I would like to improve... because...
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: Proposed approach
+      description: Explain the files, behavior, design, or workflow you expect to change.
+      placeholder: My initial approach is...
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: References or evidence
+      description: Add screenshots, examples, prior art, logs, or related issues when available.
+  - type: checkboxes
+    id: agreement
+    attributes:
+      label: Contributor agreement
+      options:
+        - label: I will follow the contribution guide and Code of Conduct.
+          required: true
+        - label: I will not include credentials, private conversations, personal data, or `.env` contents.
+          required: true

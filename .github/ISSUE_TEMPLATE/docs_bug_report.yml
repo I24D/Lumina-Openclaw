@@ -3,7 +3,7 @@ description: Report documentation defects (incorrect, missing, outdated, or cont
 title: "[Docs Bug]: "
 labels:
   - bug
-  - docs
+  - documentation
 body:
   - type: markdown
     attributes:

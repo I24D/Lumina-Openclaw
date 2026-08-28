@@ -1,65 +1,50 @@
 <!--
-Optional linked context:
-Add a visible `Closes #<issue-number>` or `Related: #<issue-number>` line
-below this comment.
+Thank you for contributing to Lumina OpenClaw.
 
-Required PR title:
-type: user-facing description
-Use a parenthesized scope only when it adds clarity:
-fix(auth): login redirect loops when session cookie is expired
+Use a clear title such as:
+  fix: prevent duplicate Start Talk transcripts
+  feat(memory): add opt-in recall diagnostics
 
-Types: feat, fix, improve, refactor, docs, chore.
-For fixes, describe the user-visible symptom and trigger:
-fix: task list fails to load when user has no environments
-Avoid implementation details such as:
-fix: add null check to task query
+Keep "Allow edits from maintainers" enabled. Never include credentials,
+private conversations, personal data, or .env contents.
 -->
 
-<details>
-<summary>Additional instructions</summary>
+## Related issue
 
-**MUST:** Keep **Allow edits from maintainers** enabled for this PR so maintainers
-can help update the branch when needed.
-
-</details>
+<!-- Use `Closes #<issue-number>`, `Fixes #<issue-number>`, or `Related: #<issue-number>`. -->
 
 ## What Problem This Solves
 
 <!--
 Describe the concrete user, product, or operational problem.
-For fixes, begin with:
-"Fixes an issue where users <do X> would <experience Y> when <condition>."
-or:
-"Resolves a problem where..."
-
-Name the affected UI surface or workflow. Do not describe the code-level cause here.
+Explain who is affected and when the problem occurs.
 -->
 
 ## Why This Change Was Made
 
-<!--
-In one or two sentences, explain the complete shipped solution, key design
-decisions, and relevant boundaries or non-goals. Include implementation detail
-only when it helps reviewers understand user-visible behavior or risk.
-Avoid file-by-file narration.
--->
+<!-- Explain the complete solution and any important non-goals. -->
 
 ## User Impact
 
-<!--
-State what users, operators, or developers can now do or expect. Lead with the
-concrete benefit and use user-facing language. If there is no user-visible
-impact, say so plainly.
--->
+<!-- What can users or operators now do or expect? -->
 
 ## Evidence
 
 <!--
-Show the most useful proof that this change works. Screenshots, screencasts,
-terminal output, focused tests, CI results, live observations, redacted logs,
-and artifact links are all useful. Include before/after evidence for visual
-changes when it clarifies the result.
-
-Reviewers will inspect the code, tests, and CI. Use this section to make the
-validation easy to understand, not to restate the diff.
+List the tests you ran. Add screenshots or recordings for visual changes and
+redacted logs for runtime changes.
 -->
+
+## Contribution checklist
+
+- [ ] I kept this pull request focused on one problem.
+- [ ] I tested the affected behavior and listed the evidence above.
+- [ ] I added or updated tests and documentation where appropriate.
+- [ ] I did not include secrets, private data, generated build output, or `.env` files.
+- [ ] I reviewed the [Code of Conduct](https://github.com/I24D/Lumina-Openclaw/blob/main/CODE_OF_CONDUCT.md) and [contribution guide](https://github.com/I24D/Lumina-Openclaw/blob/main/CONTRIBUTING.md).
+- [ ] I kept **Allow edits from maintainers** enabled.
+- [ ] I disclosed meaningful AI assistance below, or wrote `None`.
+
+## AI assistance
+
+<!-- Name the tool and briefly explain how it was used, or write `None`. -->

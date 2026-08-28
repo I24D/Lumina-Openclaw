@@ -1,8 +1,11 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Onboarding
+  - name: Lumina OpenClaw discussions
+    url: https://github.com/I24D/Lumina-Openclaw/discussions
+    about: Ask questions, share ideas, and talk with the Lumina community.
+  - name: Security reports
+    url: https://github.com/I24D/Lumina-Openclaw/security/policy
+    about: Read the security policy before reporting a vulnerability or exposed secret.
+  - name: Upstream OpenClaw support
     url: https://discord.gg/clawd
-    about: "New to OpenClaw? Join Discord for setup guidance in #help."
-  - name: Support
-    url: https://discord.gg/clawd
-    about: "Get help from the OpenClaw community on Discord in #help."
+    about: Get help with behavior inherited directly from upstream OpenClaw.

@@ -111,6 +111,24 @@ pnpm ui:build
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow and the [source setup guide](https://docs.openclaw.ai/start/setup) for the development loop.
 
+## Contribute to Lumina OpenClaw
+
+Community contributions are welcome. You do not need direct write access: fork
+the repository, create a focused branch, and open a Pull Request against `main`.
+Code, documentation, translations, tests, skills, plugins, bug reports, and UI
+ideas can all move Lumina forward.
+
+[Contribution guide](CONTRIBUTING.md) -
+[Good first issues](https://github.com/I24D/Lumina-Openclaw/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) -
+[Propose a contribution](https://github.com/I24D/Lumina-Openclaw/issues/new?template=community_contribution.yml) -
+[Community discussions](https://github.com/I24D/Lumina-Openclaw/discussions) -
+[Open a Pull Request](https://github.com/I24D/Lumina-Openclaw/compare)
+
+All contributions are reviewed under the direction of **DAL NIJARUQ**, principal
+creator and ongoing developer of Lumina OpenClaw. Please read the
+[Code of Conduct](CODE_OF_CONDUCT.md) before participating and keep credentials,
+private conversations, personal data, and `.env` files out of public reports.
+
 ## Community
 
 [![Star History Chart](https://api.star-history.com/svg?repos=I24D/Lumina-Openclaw&type=date&legend=top-left)](https://www.star-history.com/#I24D/Lumina-Openclaw&type=date&legend=top-left)
