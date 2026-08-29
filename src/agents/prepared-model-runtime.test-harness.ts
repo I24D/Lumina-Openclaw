@@ -68,6 +68,7 @@ const preparedModelRuntimeMocks = vi.hoisted(() => ({
     entries: [],
     routeVariants: [],
   })),
+  runtimeSyntheticAuthProviderRefs: [] as string[],
   resolveAmbientCredentials: vi.fn((..._args: unknown[]) => ({})),
   resolveStaticCatalogModel: vi.fn<StaticCatalogResolver>(() => undefined),
   warn: vi.fn(),
@@ -85,13 +86,6 @@ const preparedModelRuntimeMocks = vi.hoisted(() => ({
 vi.mock("../plugins/plugin-metadata-snapshot.js", () => ({
   isPluginMetadataSnapshotCompatible: () => true,
   loadPluginMetadataSnapshot: () => preparedModelRuntimeMocks.pluginMetadataSnapshot,
-  projectPluginMetadataSnapshotWorkspace: ({
-    snapshot,
-    workspaceDir,
-  }: {
-    snapshot: typeof preparedModelRuntimeMocks.pluginMetadataSnapshot & { workspaceDir?: string };
-    workspaceDir: string;
-  }) => ({ ...snapshot, index: { ...snapshot.index, workspaceDir }, workspaceDir }),
   resolvePluginMetadataSnapshot: () => preparedModelRuntimeMocks.pluginMetadataSnapshot,
 }));
 
@@ -122,7 +116,8 @@ vi.mock("./prepared-model-catalog-worker.js", () => ({
   }),
 }));
 
-vi.mock("./model-catalog.js", () => ({
+vi.mock("./model-catalog.js", async () => ({
+  findModelCatalogEntry: (await import("./model-catalog-lookup.js")).findModelCatalogEntry,
   buildPreparedModelCatalogSnapshot: (...args: Parameters<BuildPreparedModelCatalogSnapshot>) =>
     preparedModelRuntimeMocks.buildPreparedModelCatalogSnapshot(...args),
 }));
@@ -174,10 +169,11 @@ vi.mock("./agent-model-discovery.js", () => ({
 }));
 
 vi.mock("../plugins/synthetic-auth.runtime.js", () => ({
-  resolveRuntimeSyntheticAuthProviderRefs: () => [],
+  resolveRuntimeSyntheticAuthProviderRefs: () =>
+    preparedModelRuntimeMocks.runtimeSyntheticAuthProviderRefs,
 }));
 
-vi.mock("./agent-scope.js", () => ({
+const agentScopeMocks = vi.hoisted(() => ({
   listAgentEntries: (config: { agents?: { list?: unknown[] } }) => config.agents?.list ?? [],
   listAgentIds: () => {
     if (preparedModelRuntimeMocks.configuredAgentIdsError) {
@@ -193,6 +189,7 @@ vi.mock("./agent-scope.js", () => ({
     (agentId === "default" ? "/tmp/unused-workspace" : `/tmp/workspace-${agentId}`),
   tryResolveConfiguredAgentWorkspaceDir: () => "/tmp/unused-workspace",
   tryResolveSystemAgentWorkspaceDir: () => "/tmp/unused-workspace",
+  resolveAmbientOwnerAgentId: () => "default",
   resolveDefaultAgentDir: () => "/tmp/unused-agent",
   resolveDefaultAgentId: () => "default",
   resolveAgentConfig: (config: { agents?: { list?: Array<{ id?: string }> } }, agentId: string) =>
@@ -204,6 +201,14 @@ vi.mock("./agent-scope.js", () => ({
     defaultAgentId: "default",
     sessionAgentId: agentId ?? "default",
   }),
+}));
+
+vi.mock("./agent-scope.js", () => agentScopeMocks);
+vi.mock("./agent-scope-config.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./agent-scope-config.js")>()),
+  listAgentIds: agentScopeMocks.listAgentIds,
+  resolveAgentDir: agentScopeMocks.resolveAgentDir,
+  resolveAgentWorkspaceDir: agentScopeMocks.resolveAgentWorkspaceDir,
 }));
 
 vi.mock("./legacy-inherited-auth-dir.js", () => ({
@@ -288,6 +293,7 @@ vi.mock("./auth-profiles/runtime-snapshots.js", () => ({
 }));
 
 vi.mock("./auth-profiles/external-cli-sync.js", () => ({
+  listExternalCliSyncProviderIds: () => [],
   resolveExternalCliAuthProfiles: () => [],
 }));
 
@@ -378,6 +384,7 @@ export function resetPreparedModelRuntimeHarness(): void {
     entries: [],
     routeVariants: [],
   });
+  preparedModelRuntimeMocks.runtimeSyntheticAuthProviderRefs = [];
   preparedModelRuntimeMocks.resolveAmbientCredentials.mockReset().mockReturnValue({});
   preparedModelRuntimeMocks.resolveStaticCatalogModel.mockReset().mockReturnValue(undefined);
   preparedModelRuntimeMocks.createStaticCatalogResolver

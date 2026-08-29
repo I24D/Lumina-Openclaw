@@ -2,7 +2,7 @@
 import childProcess from "node:child_process";
 import fsSync from "node:fs";
 
-const DARWIN_PS_TIMEOUT_MS = 1000;
+const PROCESS_START_TIMEOUT_MS = 1000;
 
 function isValidPid(pid: number): boolean {
   return Number.isInteger(pid) && pid > 0;
@@ -40,10 +40,7 @@ export function isPidAlive(pid: number): boolean {
       return false;
     }
   }
-  if (isZombieProcess(pid)) {
-    return false;
-  }
-  return true;
+  return !isZombieProcess(pid);
 }
 
 /** Returns true only when the PID is invalid, missing, or known to be a Linux zombie. */
@@ -59,20 +56,27 @@ export function isPidDefinitelyDead(pid: number): boolean {
   return isZombieProcess(pid);
 }
 
-function getDarwinProcessStartTime(pid: number): number | null {
+function getPlatformProcessStartTime(pid: number): number | null {
   try {
+    const windows = process.platform === "win32";
+    const command = windows ? `(Get-Process -Id ${pid}).StartTime.ToString('o')` : String(pid);
+    const args = windows
+      ? ["-NoProfile", "-NonInteractive", "-Command", command]
+      : ["-o", "lstart=", "-p", command];
     const startedAt = childProcess
-      .execFileSync("/bin/ps", ["-o", "lstart=", "-p", String(pid)], {
+      .execFileSync(windows ? "powershell.exe" : "/bin/ps", args, {
         encoding: "utf8",
         env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
         stdio: ["ignore", "pipe", "ignore"],
-        timeout: DARWIN_PS_TIMEOUT_MS,
+        timeout: PROCESS_START_TIMEOUT_MS,
+        killSignal: "SIGKILL",
+        windowsHide: windows,
       })
       .trim();
     // Darwin's lstart output has no timezone. Force UTC for both ps and parsing so
     // a system timezone change cannot make a live lock owner look like PID reuse.
-    const startedAtMs = Date.parse(`${startedAt} UTC`);
-    return Number.isFinite(startedAtMs) ? Math.floor(startedAtMs / 1000) : null;
+    const startedAtMs = Date.parse(windows ? startedAt : `${startedAt} UTC`);
+    return Number.isFinite(startedAtMs) ? Math.floor(startedAtMs / (windows ? 1 : 1000)) : null;
   } catch {
     return null;
   }
@@ -80,10 +84,7 @@ function getDarwinProcessStartTime(pid: number): number | null {
 
 /** Read the Linux procfs start identity used by Linux-owned runtime state. */
 export function getProcessStartTime(pid: number): number | null {
-  if (!isValidPid(pid)) {
-    return null;
-  }
-  if (process.platform !== "linux") {
+  if (!isValidPid(pid) || process.platform !== "linux") {
     return null;
   }
   try {
@@ -104,32 +105,12 @@ export function getProcessStartTime(pid: number): number | null {
   }
 }
 
-// Windows exposes neither procfs nor ps(1), so no per-pid start time is
-// readable there. Node does expose this process's own uptime, which covers the
-// one case that must never fail: proving our own identity when claiming a
-// durable fence. Cache it -- Date.now() and process.uptime() each drift by a
-// millisecond between calls, and a fence that reads a different value on every
-// call would look like a different process to itself.
-let selfProcessStartTimeSeconds: number | null = null;
-
-function getSelfProcessStartTime(): number {
-  selfProcessStartTimeSeconds ??= Math.floor((Date.now() - process.uptime() * 1000) / 1000);
-  return selfProcessStartTimeSeconds;
-}
-
 /** Read a cross-platform process identity for filesystem lock ownership. */
 export function getFileLockProcessStartTime(pid: number): number | null {
   if (!isValidPid(pid)) {
     return null;
   }
-  if (process.platform === "darwin") {
-    return getDarwinProcessStartTime(pid);
-  }
-  if (process.platform === "linux") {
-    return getProcessStartTime(pid);
-  }
-  // Anything else (Windows) can still identify itself. Other pids stay null,
-  // which callers already read as "cannot prove this owner is stale" -- the
-  // conservative answer, and exactly what Windows returned before.
-  return pid === process.pid ? getSelfProcessStartTime() : null;
+  return process.platform === "darwin" || process.platform === "win32"
+    ? getPlatformProcessStartTime(pid)
+    : getProcessStartTime(pid);
 }

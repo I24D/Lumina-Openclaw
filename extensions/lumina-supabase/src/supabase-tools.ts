@@ -70,6 +70,7 @@ function serializeFilter(filter: {
     throw new Error("each filter needs a column");
   }
   assertSupabaseIdentifier(column, "filter column");
+  // SAFETY: membership is checked immediately below before the value controls serialization.
   const op = (filter.op ?? "eq") as (typeof FILTER_OPS)[number];
   if (!FILTER_OPS.includes(op)) {
     throw new Error(`filter op must be one of: ${FILTER_OPS.join(", ")}`);
@@ -157,6 +158,7 @@ export function createSupabaseSchemaTool(deps: ToolDeps) {
         if (!parsed.ok) {
           return jsonResult({ ok: false, status: parsed.status, error: parsed.error });
         }
+        // SAFETY: PostgREST OpenAPI owns this response; every projected field remains optional.
         const schema = parsed.data as {
           paths?: Record<string, unknown>;
           definitions?: Record<string, { properties?: Record<string, unknown> }>;
@@ -217,6 +219,7 @@ export function createSupabaseQueryTool(deps: ToolDeps) {
 
         const filters = Array.isArray(rawParams.filters) ? rawParams.filters : [];
         for (const raw of filters) {
+          // SAFETY: the tool runtime validates every item against FilterSchema before execution.
           const [key, value] = serializeFilter(raw as Record<string, unknown>);
           params.append(key, value);
         }
@@ -306,6 +309,7 @@ export function createSupabaseMutateTool(deps: ToolDeps) {
         const params = new URLSearchParams();
         const filters = Array.isArray(rawParams.filters) ? rawParams.filters : [];
         for (const raw of filters) {
+          // SAFETY: the tool runtime validates every item against FilterSchema before execution.
           const [key, value] = serializeFilter(raw as Record<string, unknown>);
           params.append(key, value);
         }

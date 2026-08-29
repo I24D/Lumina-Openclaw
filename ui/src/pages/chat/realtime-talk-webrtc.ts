@@ -4,11 +4,7 @@ import { REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME } from "../../../../src/talk/des
 import { formatUiError } from "../../lib/format-error.ts";
 import { RealtimeTalkMediaStreamMeter } from "./realtime-talk-audio.ts";
 import { RealtimeTalkCameraController } from "./realtime-talk-camera-controller.ts";
-import {
-  openRealtimeTalkCamera,
-  openRealtimeTalkInput,
-  openRealtimeTalkScreen,
-} from "./realtime-talk-input.ts";
+import { openRealtimeTalkInput } from "./realtime-talk-input.ts";
 import {
   type RealtimeTalkWebRtcSdpSessionResult,
   REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
@@ -23,6 +19,7 @@ import {
   type RealtimeTalkTransportStartResult,
 } from "./realtime-talk-shared.ts";
 import { captureRealtimeTalkVideoFrame } from "./realtime-talk-video.ts";
+import { createRealtimeTalkVisionControllers } from "./realtime-talk-vision-controllers.ts";
 import {
   RealtimeTalkWebRtcOfferExchange,
   RealtimeTalkResponseOutcomeOwner,
@@ -73,20 +70,9 @@ export class WebRtcSdpRealtimeTalkTransport implements RealtimeTalkTransport {
     private readonly ctx: RealtimeTalkTransportContext,
   ) {
     this.emitTalkEvent = createRealtimeTalkEventEmitter(ctx, session);
-    this.camera = new RealtimeTalkCameraController({
-      acquire: (deviceId, signal) => openRealtimeTalkCamera(deviceId, { signal }),
-      getDeviceId: () => this.ctx.videoDeviceId,
-      setDeviceId: (deviceId) => (this.ctx.videoDeviceId = deviceId),
-      isClosed: () => this.closed,
-      onStream: (stream) => this.ctx.callbacks.onVideoStream?.(stream),
-    });
-    this.screen = new RealtimeTalkCameraController({
-      acquire: (_deviceId, signal) => openRealtimeTalkScreen({ signal }),
-      getDeviceId: () => undefined,
-      setDeviceId: () => undefined,
-      isClosed: () => this.closed,
-      onStream: (stream) => this.ctx.callbacks.onScreenStream?.(stream),
-    });
+    const vision = createRealtimeTalkVisionControllers(ctx, () => this.closed);
+    this.camera = vision.camera;
+    this.screen = vision.screen;
   }
 
   async start(): Promise<RealtimeTalkTransportStartResult> {

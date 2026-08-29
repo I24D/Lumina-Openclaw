@@ -8,8 +8,8 @@ title: "macOS app"
 ---
 
 The macOS app is the OpenClaw **menu bar companion**: native tray UI, macOS
-permission prompts, notifications, WebChat, voice input, Canvas, and
-Mac-hosted node tools such as `system.run`.
+permission prompts, notifications, WebChat, voice input, a hosted-widget panel,
+and Mac-hosted node tools such as `system.run`.
 
 Use **Quick Chat** for a Spotlight-style main-session composer without opening a full window. Press Option-Space (⌥Space) by default, choose it from the menu bar menu, or record another shortcut in **Settings → General**.
 
@@ -92,6 +92,8 @@ In the macOS app's embedded dashboard, clicking an external web link opens it in
 
 The titlebar controls follow the app sidebar: while it is expanded, back/forward sit at its right edge next to the sidebar toggle; while it is collapsed, they make way for a search button (opens the command palette) and a new-session button.
 
+Drag the empty header space or title in the docked OpenClaw chat panel to move the app window. Its dock-position and close buttons remain clickable.
+
 Right-click an external link to choose **Open in Sidebar**, **Open in Default Browser**, or **Copy Link**. Modified clicks and user-activated new-window links from the dashboard continue to open in the default browser; new-window links inside the sidebar open as new sidebar tabs. Regular browser-hosted Control UI pages keep the browser's normal link and context-menu behavior.
 
 ## Import browser logins
@@ -123,7 +125,7 @@ See [Gateway on macOS](/platforms/mac/bundled-gateway) for manual recovery.
 
 - Menu bar status, notifications, health, WebChat, and the floating Quick Chat bar.
 - macOS permission prompts for screen, microphone, speech, automation, and accessibility.
-- One Mac node that combines native Canvas, camera/screen capture, notifications,
+- One Mac node that combines the native widget panel, camera/screen capture, notifications,
   location, and computer control with the CLI node host's system, browser,
   plugin, skill, and MCP commands.
 - Exec approval prompts for Mac-hosted commands.
@@ -152,7 +154,7 @@ own docs.
 | Read menu bar status and health checks   | [Menu bar](/platforms/mac/menu-bar), [Health checks](/platforms/mac/health)                 |
 | Use the embedded chat UI                 | [WebChat](/platforms/mac/webchat)                                                           |
 | Use voice wake or push-to-talk           | [Voice wake](/platforms/mac/voicewake)                                                      |
-| Use Canvas and Canvas deep links         | [Canvas](/platforms/mac/canvas)                                                             |
+| Present hosted widgets in the Mac panel  | [Widget panel](/platforms/mac/canvas)                                                       |
 | Host PeekabooBridge for UI automation    | [Peekaboo bridge](/platforms/mac/peekaboo)                                                  |
 | Configure command approvals              | [Exec approvals](/tools/exec-approvals), [advanced details](/tools/exec-approvals-advanced) |
 | Inspect Mac node commands and app IPC    | [macOS IPC](/platforms/mac/xpc)                                                             |

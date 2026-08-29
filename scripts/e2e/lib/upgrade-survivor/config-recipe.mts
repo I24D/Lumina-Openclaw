@@ -154,6 +154,26 @@ const representativeConfigSteps: ConfigStep[] = [
   ),
 ];
 
+const configuredPluginInstallSteps = [
+  configSetJsonFile(
+    "plugins-configured-installs",
+    "configured-plugin-installs",
+    "plugins",
+    "plugins-configured-installs.json",
+  ),
+  {
+    id: "channels-whatsapp-unset",
+    intent: "configured-plugin-installs",
+    argv: ["config", "unset", "channels.whatsapp"],
+  },
+  configSetJsonFile(
+    "channels-matrix",
+    "configured-plugin-installs",
+    "channels.matrix",
+    "channels-matrix.json",
+  ),
+];
+
 const scenarioConfigSteps = new Map<string, ConfigStep[]>([
   [
     "acpx-openclaw-tools-bridge",
@@ -188,28 +208,8 @@ const scenarioConfigSteps = new Map<string, ConfigStep[]>([
       },
     ],
   ],
-  [
-    "configured-plugin-installs",
-    [
-      configSetJsonFile(
-        "plugins-configured-installs",
-        "configured-plugin-installs",
-        "plugins",
-        "plugins-configured-installs.json",
-      ),
-      {
-        id: "channels-whatsapp-unset",
-        intent: "configured-plugin-installs",
-        argv: ["config", "unset", "channels.whatsapp"],
-      },
-      configSetJsonFile(
-        "channels-matrix",
-        "configured-plugin-installs",
-        "channels.matrix",
-        "channels-matrix.json",
-      ),
-    ],
-  ],
+  ["configured-plugin-installs", configuredPluginInstallSteps],
+  ["sqlite-volume", configuredPluginInstallSteps],
   [
     "codex-allowlist-survival",
     [
@@ -232,12 +232,7 @@ export function resolveScenarioConfigSteps(scenario: string): ConfigStep[] {
   return scenarioConfigSteps.get(scenario) ?? [];
 }
 
-const recipe: ConfigStep[] = [
-  {
-    id: "update-channel",
-    intent: "update",
-    argv: ["config", "set", "update.channel", "stable"],
-  },
+const sharedRecipe: ConfigStep[] = [
   configSetJsonFile("gateway", "gateway", "gateway", "gateway.json"),
   ...representativeConfigSteps,
   {
@@ -247,10 +242,23 @@ const recipe: ConfigStep[] = [
   },
 ];
 
-export function resolveUpgradeSurvivorConfigSteps(scenario = "base"): ConfigStep[] {
-  const validateStep = recipe.at(-1);
+export function resolveUpgradeSurvivorConfigSteps(
+  scenario = "base",
+  configuredUpdateChannel = process.env.OPENCLAW_UPGRADE_SURVIVOR_UPDATE_CHANNEL,
+): ConfigStep[] {
+  const validateStep = sharedRecipe.at(-1);
+  const updateChannel =
+    configuredUpdateChannel || (scenario === "prerelease-plugin-registry" ? "beta" : "stable");
+  if (updateChannel !== "stable" && updateChannel !== "beta") {
+    throw new Error(`invalid upgrade survivor update channel: ${updateChannel}`);
+  }
   return [
-    ...recipe.slice(0, -1),
+    {
+      id: "update-channel",
+      intent: "update",
+      argv: ["config", "set", "update.channel", updateChannel],
+    },
+    ...sharedRecipe.slice(0, -1),
     ...resolveScenarioConfigSteps(scenario),
     ...(validateStep ? [validateStep] : []),
   ];

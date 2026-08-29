@@ -1,3 +1,16 @@
+import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
+import type { TranscriptDisplayPosition } from "../chat/transcript-display-position.js";
+import {
+  projectChatDisplayMessage,
+  projectChatDisplayMessagesWithState,
+} from "./chat-display-projection.js";
+import { resolveCurrentUserProfileDisplay } from "./current-user-profile-display.js";
+
+export type SessionMessageProjectionState = {
+  streamErrorFallbackPending: boolean;
+  turnBoundaryPending: boolean;
+};
+
 /** Attach OpenClaw metadata to a transcript message without dropping existing metadata. */
 export function attachOpenClawTranscriptMeta(
   message: unknown,
@@ -30,8 +43,73 @@ function readTranscriptMessageIdempotencyKey(message: unknown): string | undefin
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+function readTranscriptMessageSenderIsOwner(message: unknown): boolean | undefined {
+  const openclaw = asOptionalRecord(asOptionalRecord(message)?.["__openclaw"]);
+  const value = openclaw?.senderIsOwner;
+  return typeof value === "boolean" ? value : undefined;
+}
+
+/** Project one transcript message into the exact payload emitted as session.message. */
+export function projectSessionMessagePayload(params: {
+  agentId?: string;
+  message: unknown;
+  messageId?: string;
+  messageSeq?: number;
+  transcriptPosition?: TranscriptDisplayPosition;
+  projectionState?: SessionMessageProjectionState;
+  runId?: string;
+  sessionKey: string;
+  sessionSnapshot?: Record<string, unknown>;
+}): { payload?: Record<string, unknown>; projectionState: SessionMessageProjectionState } {
+  const idempotencyKey = readTranscriptMessageIdempotencyKey(params.message);
+  const senderIsOwner = readTranscriptMessageSenderIsOwner(params.message);
+  const rawMessage = attachOpenClawTranscriptMeta(params.message, {
+    // Placement comes from the selected reader snapshot, never persisted/imported metadata.
+    transcriptPosition: params.transcriptPosition,
+    ...(params.messageId ? { id: params.messageId } : {}),
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+    ...(params.messageSeq !== undefined ? { seq: params.messageSeq } : {}),
+  });
+  const projected = params.projectionState
+    ? projectChatDisplayMessagesWithState([rawMessage], {
+        resolveCurrentUserProfileDisplay,
+        streamErrorFallbackPending: params.projectionState.streamErrorFallbackPending,
+        turnBoundaryPending: params.projectionState.turnBoundaryPending,
+      })
+    : {
+        messages: [projectChatDisplayMessage(rawMessage, { resolveCurrentUserProfileDisplay })],
+        streamErrorFallbackPending: false,
+        turnBoundaryPending: false,
+      };
+  const projectionState = {
+    streamErrorFallbackPending: projected.streamErrorFallbackPending,
+    turnBoundaryPending: projected.turnBoundaryPending,
+  };
+  const message = projected.messages[0];
+  if (!message) {
+    return { projectionState };
+  }
+  return {
+    payload: {
+      sessionKey: params.sessionKey,
+      ...(senderIsOwner === undefined ? {} : { senderIsOwner }),
+      ...(params.agentId ? { agentId: params.agentId } : {}),
+      message,
+      ...(params.messageId ? { messageId: params.messageId } : {}),
+      ...(params.messageSeq !== undefined ? { messageSeq: params.messageSeq } : {}),
+      ...params.sessionSnapshot,
+      ...(params.runId ? { runId: params.runId } : {}),
+    },
+    projectionState,
+  };
+}
+
 /** Project one stored transcript entry onto the client-visible chat history shape. */
-export function projectTranscriptEntryMessage(entry: unknown, seq: number): unknown {
+export function projectTranscriptEntryMessage(
+  entry: unknown,
+  seq: number,
+  transcriptPosition?: TranscriptDisplayPosition,
+): unknown {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
     return null;
   }
@@ -48,6 +126,7 @@ export function projectTranscriptEntryMessage(entry: unknown, seq: number): unkn
       ...(typeof record.id === "string" ? { id: record.id } : {}),
       ...(idempotencyKey ? { idempotencyKey } : {}),
       ...(Number.isFinite(recordTimestampMs) ? { recordTimestampMs } : {}),
+      transcriptPosition,
       seq,
     });
   }
@@ -64,6 +143,7 @@ export function projectTranscriptEntryMessage(entry: unknown, seq: number): unkn
     __openclaw: {
       kind,
       id: typeof record.id === "string" ? record.id : undefined,
+      transcriptPosition,
       seq,
     },
   };

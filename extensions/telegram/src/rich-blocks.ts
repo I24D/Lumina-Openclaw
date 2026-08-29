@@ -29,6 +29,7 @@ import {
   renderMarkdownRichListSource,
   type MarkdownRichListSource,
 } from "./rich-blocks-list.js";
+import { renderTelegramMonospaceGrid } from "./text-width.js";
 
 const TELEGRAM_RICH_TEXT_TABLE_COLUMN_LIMIT = 20;
 
@@ -375,27 +376,30 @@ function splitParagraphs(ir: MarkdownIR, start: number, end: number): InputRichB
   return paragraphs;
 }
 
-// Gap emitter: agent-authored block HTML islands (details/lists/media/math/…)
-// become typed blocks; the text around them stays on the paragraph path.
-function emitGapBlocks(ir: MarkdownIR, start: number, end: number): InputRichBlock[] {
-  if (end <= start) {
-    return [];
-  }
-  // Code-formatted ranges keep their tags literal: `<hr/>` inside a code span
-  // is an example, not a divider. Only the island's opening tag position
-  // matters — code content nested inside an island body must not reject it.
+function findAuthoredHtmlIslands(ir: MarkdownIR, start: number, end: number) {
+  // Only the opener must be authored HTML. Code nested inside an island body
+  // remains valid content, while an opener shown as code must stay literal.
   const codeRanges = ir.styles.filter(
     (span) =>
       (span.style === "code" || span.style === "code_block") &&
       span.end > start &&
       span.start < end,
   );
-  const islands = findTelegramHtmlIslands(ir.text.slice(start, end)).filter(
+  return findTelegramHtmlIslands(ir.text.slice(start, end)).filter(
     (island) =>
       !codeRanges.some(
         (range) => start + island.start >= range.start && start + island.start < range.end,
       ),
   );
+}
+
+// Gap emitter: agent-authored block HTML islands (details/lists/media/math/…)
+// become typed blocks; the text around them stays on the paragraph path.
+function emitGapBlocks(ir: MarkdownIR, start: number, end: number): InputRichBlock[] {
+  if (end <= start) {
+    return [];
+  }
+  const islands = findAuthoredHtmlIslands(ir, start, end);
   if (islands.length === 0) {
     return splitParagraphs(ir, start, end);
   }
@@ -411,18 +415,9 @@ function emitGapBlocks(ir: MarkdownIR, start: number, end: number): InputRichBlo
 }
 
 function renderAsciiTableGrid(table: MarkdownTableMeta): string {
-  const rows = [table.headers, ...table.rows];
-  const columnCount = Math.max(...rows.map((row) => row.length), 0);
-  const widths = Array.from({ length: columnCount }, () => 3);
-  for (const row of rows) {
-    for (let index = 0; index < columnCount; index += 1) {
-      widths[index] = Math.max(widths[index] ?? 3, row[index]?.length ?? 0);
-    }
-  }
-  const renderRow = (row: readonly string[]) =>
-    `| ${widths.map((width, index) => (row[index] ?? "").padEnd(width)).join(" | ")} |`;
-  const divider = `| ${widths.map((width) => "-".repeat(width)).join(" | ")} |`;
-  return [renderRow(table.headers), divider, ...table.rows.map(renderRow)].join("\n");
+  return renderTelegramMonospaceGrid([table.headers, ...table.rows], {
+    headerSeparator: true,
+  });
 }
 
 function cellToRichText(cell: MarkdownTableCell | undefined): RichText | undefined {
@@ -485,6 +480,7 @@ function collectStructuralSegments(
   tables: readonly MarkdownTableMeta[],
 ): StructuralSegment[] {
   const segments: StructuralSegment[] = [];
+  const htmlIslands = findAuthoredHtmlIslands(ir, 0, ir.text.length);
   for (const span of ir.styles) {
     if (span.end <= span.start) {
       continue;
@@ -512,6 +508,9 @@ function collectStructuralSegments(
     segments.push({ kind: "table", start: offset, end: offset, table });
   }
   for (const source of collectMarkdownRichListSources(ir)) {
+    if (htmlIslands.some((island) => source.start >= island.start && source.end <= island.end)) {
+      continue;
+    }
     segments.push({ kind: "list", start: source.start, end: source.end, source });
   }
   // Containers sort before their children (start asc, end desc) so emitSegments

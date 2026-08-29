@@ -280,6 +280,7 @@ export function createSupabaseAdminProjectTool(deps: AdminDeps) {
         if (!parsed.ok) {
           return jsonResult({ ok: false, status: parsed.status, error: parsed.error });
         }
+        // SAFETY: the Management API owns this response; every projected field remains optional.
         const project = parsed.data as {
           name?: string;
           status?: string;

@@ -1,5 +1,5 @@
 {
-  "startupJsGzipBytes": 337511,
-  "reason": "cloud worker settings navigation and machine selection",
-  "updatedAt": "2026-08-16"
+  "startupJsGzipBytes": 346472,
+  "reason": "Lumina detached Start Talk route and official OpenClaw 8d30790 integration; Talk CSS is lazy-loaded and fixed caps remain unchanged",
+  "updatedAt": "2026-08-29"
 }

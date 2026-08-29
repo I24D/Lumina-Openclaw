@@ -14,6 +14,8 @@ import {
 } from "../../agents/agent-runtime-id.js";
 import {
   buildUsageAgentMetaFields,
+  resolveFinalAssistantRawText,
+  resolveFinalAssistantVisibleText,
   resolveReportedModelRef,
 } from "../../agents/embedded-agent-runner/run/helpers.js";
 import {
@@ -24,6 +26,7 @@ import { resolveDefaultModelForAgent } from "../../agents/model-selection-config
 import type { AgentMessage } from "../../agents/runtime/index.js";
 import type { SessionPlacementTurnParams } from "../../agents/session-placement-admission.js";
 import { resolveEffectiveAgentRuntime } from "../../agents/thinking-runtime.js";
+import { resolveEffectiveToolFsWorkspaceOnly } from "../../agents/tool-fs-policy.js";
 import { hasNonzeroUsage, normalizeUsage } from "../../agents/usage.js";
 import { emitTrustedDiagnosticEvent, isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
 import type { WorkerLaunchPlan } from "../../worker/launch-descriptor.js";
@@ -32,9 +35,11 @@ import {
   type WorkerReplayMessageWindowUnavailable,
 } from "../../worker/replay-message-window.js";
 import {
+  cloneImageContent,
   toWorkerTranscriptMessage,
   type WorkerProviderReplayUnavailable,
 } from "../../worker/transcript-message.js";
+import { parseWorkerRuntimeResult } from "../../worker/worker-process-protocol.js";
 import type { WorkerRuntimeResult } from "../../worker/worker.runtime.js";
 import {
   measureAgentRuntimeIdentityTokenBytes,
@@ -42,6 +47,41 @@ import {
   type AgentRuntimeIdentityTokenParams,
 } from "../agent-runtime-identity-token.js";
 import type { WorkerSessionTurnClaim } from "./placement-record.js";
+import type { WorkerSessionPlacementStore } from "./placement-store.js";
+import {
+  bindWorkerTurnAdmissionContinuation,
+  bindWorkerTurnExecutionIdentity,
+} from "./placement-turn-claim-events.js";
+import { WorkerTurnExecutionError } from "./worker-turn-failure.js";
+
+export async function prepareWorkerTurnImages(
+  turn: SessionPlacementTurnParams,
+  agentId: string,
+  workspaceDir: string,
+) {
+  // Managed image references belong to the Gateway filesystem. Rendered PDF
+  // pages use the same ordered image input before crossing the worker boundary.
+  const { prepareEmbeddedAttemptPromptExecution } =
+    await import("../../agents/embedded-agent-runner/run/prompt-image-preparation.js");
+  const result = await prepareEmbeddedAttemptPromptExecution({
+    attempt: {
+      ...turn,
+      model: { input: turn.modelHasVision === false ? ["text"] : ["text", "image"] },
+    },
+    mediaOwnerAgentId: agentId,
+    effectiveFsWorkspaceOnly: resolveEffectiveToolFsWorkspaceOnly({ cfg: turn.config, agentId }),
+    effectiveWorkspace: workspaceDir,
+    prompt: "",
+    skipPromptSubmission: false,
+  });
+  if (result.failedMediaCount > 0) {
+    throw new WorkerTurnExecutionError(
+      `Cloud worker could not load ${result.failedMediaCount} image attachment(s). Resend the attachments and retry.`,
+    );
+  }
+  // Ingress metadata such as sourceIndex stays on the Gateway, outside the closed wire shape.
+  return result.images.map(cloneImageContent);
+}
 
 type WorkerInitialMessagePlan =
   | { kind: "complete"; messages: WorkerTranscriptMessage[] }
@@ -84,7 +124,11 @@ function buildWorkerAgentRuntimeIdentity(params: {
 type PrepareWorkerAgentRuntimeIdentityParams = Omit<
   Parameters<typeof buildWorkerAgentRuntimeIdentity>[0],
   "admittedRunContext" | "turn"
-> & { runtimeInstanceId: string; turn: SessionPlacementTurnParams };
+> & {
+  runtimeInstanceId: string;
+  turn: SessionPlacementTurnParams;
+  placements: WorkerSessionPlacementStore;
+};
 
 export async function prepareWorkerAgentRuntimeIdentity(
   params: PrepareWorkerAgentRuntimeIdentityParams,
@@ -96,9 +140,27 @@ export async function prepareWorkerAgentRuntimeIdentity(
     admittedRunContext: params.turn.admittedRunContext,
     preparedRunAdmission: params.turn.preparedRunAdmission,
   });
+  const runtimeIdentity = buildWorkerAgentRuntimeIdentity({ ...params, admittedRunContext });
+  // Worker session RPC carries no raw identity token. Bind provenance to the exact
+  // host claim before launch so child lineage cannot become bearer authority.
+  if (runtimeIdentity.executionIdentityToken) {
+    bindWorkerTurnExecutionIdentity(
+      params.placements,
+      params.turnClaim,
+      runtimeIdentity.executionIdentityToken,
+      admittedRunContext.operationalRunInstance,
+      { agentId: params.agentId, sessionKey: params.sessionKey },
+    );
+  }
+  bindWorkerTurnAdmissionContinuation(
+    params.placements,
+    params.turnClaim,
+    admittedRunContext.operationalRunInstance,
+    params.turn.prepareAssistantTranscriptMessage,
+  );
   return {
     operationalRunInstance: admittedRunContext.operationalRunInstance,
-    runtimeIdentity: buildWorkerAgentRuntimeIdentity({ ...params, admittedRunContext }),
+    runtimeIdentity,
   };
 }
 
@@ -212,50 +274,23 @@ function fitLaunchDescriptor(
   }
 }
 
-export function parseRuntimeResult(stdout: string): WorkerRuntimeResult {
+type StartedWorkerRuntimeResult = Exclude<WorkerRuntimeResult, { status: "not-started" }>;
+
+export function parseRuntimeResult(stdout: string): StartedWorkerRuntimeResult {
   let value: unknown;
   try {
     value = JSON.parse(stdout.trim()) as unknown;
   } catch (error) {
     throw new Error("Worker process returned invalid output", { cause: error });
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  const result = parseWorkerRuntimeResult(value);
+  if (!result) {
     throw new Error("Worker process returned invalid output");
   }
-  const result = value as Record<string, unknown>;
-  if (
-    result.status === "failed" &&
-    result.reason === "turn-failed" &&
-    (result.transcriptLeafId === null || typeof result.transcriptLeafId === "string") &&
-    typeof result.transcriptNextSeq === "number" &&
-    Number.isSafeInteger(result.transcriptNextSeq) &&
-    result.transcriptNextSeq >= 1 &&
-    Object.keys(result).every((key) =>
-      ["status", "reason", "transcriptLeafId", "transcriptNextSeq"].includes(key),
-    )
-  ) {
-    return result as WorkerRuntimeResult;
+  if (result.status === "not-started") {
+    throw new Error(result.errorText);
   }
-  if (
-    result.status === "completed" &&
-    (result.transcriptLeafId === null || typeof result.transcriptLeafId === "string") &&
-    typeof result.transcriptNextSeq === "number" &&
-    Number.isSafeInteger(result.transcriptNextSeq) &&
-    result.transcriptNextSeq >= 1 &&
-    Object.keys(result).every((key) =>
-      ["status", "transcriptLeafId", "transcriptNextSeq"].includes(key),
-    )
-  ) {
-    return result as WorkerRuntimeResult;
-  }
-  if (
-    result.status === "fenced" &&
-    (result.reason === "credential-replaced" || result.reason === "owner-epoch-mismatch") &&
-    Object.keys(result).every((key) => ["status", "reason"].includes(key))
-  ) {
-    return result as WorkerRuntimeResult;
-  }
-  throw new Error("Worker process returned invalid output");
+  return result;
 }
 
 export function assistantText(message: AgentMessage): string {
@@ -265,9 +300,15 @@ export function assistantText(message: AgentMessage): string {
   return message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
 }
 
-export function buildWorkerAgentMeta(params: {
+export function buildWorkerTurnResult(params: {
   messages: AgentMessage[];
   modelRef: { provider: string; model: string };
+  terminal: Extract<AgentMessage, { role: "assistant" }>;
+  durationMs: number;
+  sessionId: string;
+  sessionFile: SessionPlacementTurnParams["sessionFile"];
+  text: string;
+  workspaceConflictSummary?: string;
 }) {
   const usageAccumulator = createUsageAccumulator();
   const assistants = params.messages.filter(
@@ -292,12 +333,29 @@ export function buildWorkerAgentMeta(params: {
     ...params.modelRef,
     assistant: lastAssistant,
   });
+  const replyText =
+    params.workspaceConflictSummary === undefined
+      ? params.text
+      : params.text
+        ? `${params.text}\n\n${params.workspaceConflictSummary}`
+        : params.workspaceConflictSummary;
   return {
-    provider: reportedModelRef.provider,
-    model: reportedModelRef.model,
-    usage: usageMeta.usage,
-    lastCallUsage: usageMeta.lastCallUsage,
-    promptTokens: usageMeta.promptTokens,
+    ...(replyText ? { payloads: [{ text: replyText }] } : {}),
+    meta: {
+      durationMs: params.durationMs,
+      agentMeta: {
+        sessionId: params.sessionId,
+        sessionFile: params.sessionFile,
+        provider: reportedModelRef.provider,
+        model: reportedModelRef.model,
+        usage: usageMeta.usage,
+        lastCallUsage: usageMeta.lastCallUsage,
+        promptTokens: usageMeta.promptTokens,
+      },
+      stopReason: params.terminal.stopReason,
+      finalAssistantVisibleText: resolveFinalAssistantVisibleText(params.terminal),
+      finalAssistantRawText: resolveFinalAssistantRawText(params.terminal),
+    },
   };
 }
 
@@ -321,9 +379,6 @@ export function assertSupportedTurn(params: SessionPlacementTurnParams): {
   provider: string;
   model: string;
 } {
-  if (params.images?.length || params.imageOrder?.length) {
-    throw new Error("Cloud worker turns do not yet support current-turn image input");
-  }
   if (params.clientTools?.length) {
     throw new Error("Cloud worker turns do not support client-provided tools");
   }

@@ -12,6 +12,8 @@ export type CrabboxCommandRunner = (
   argv: string[],
   options: {
     killProcessTree: boolean;
+    env?: NodeJS.ProcessEnv;
+    input?: string | Uint8Array;
     maxOutputBytes: number;
     signal?: AbortSignal;
     timeoutMs: number;
@@ -23,6 +25,8 @@ export async function runCrabboxCommand(params: {
   args: string[];
   binary: string;
   runCommand: CrabboxCommandRunner;
+  env?: NodeJS.ProcessEnv;
+  input?: string | Uint8Array;
   signal?: AbortSignal;
   timeoutMs: number;
 }): Promise<SpawnResult> {
@@ -31,6 +35,8 @@ export async function runCrabboxCommand(params: {
       timeoutMs: params.timeoutMs,
       maxOutputBytes: MAX_OUTPUT_BYTES,
       killProcessTree: true,
+      ...(params.env === undefined ? {} : { env: params.env }),
+      ...(params.input === undefined ? {} : { input: params.input }),
       ...(params.signal ? { signal: params.signal } : {}),
     });
   } catch {
@@ -44,7 +50,6 @@ export function provisionProfileError(result: SpawnResult): WorkerProviderError 
   }
   const output = `${result.stderr}\n${result.stdout}`;
   if (
-    /\bprovider=\S+\s+does not support fixed idempotent lease IDs\b/u.test(output) ||
     /(?:unknown|unrecognized) (?:flag|option)[^\r\n]*--lease-id/iu.test(output) ||
     /flag provided but not defined:\s*-lease-id/iu.test(output)
   ) {
@@ -52,9 +57,11 @@ export function provisionProfileError(result: SpawnResult): WorkerProviderError 
       "Crabbox 0.41.1 or newer with fixed lease ID support is required",
     );
   }
+  // A backend capability rejection is not evidence of an obsolete CLI.
   if (
-    /\blease_id_conflict\b/u.test(output) &&
-    !/\bretry after provider inventory converges\b/iu.test(output)
+    /\bprovider=\S+\s+does not support fixed idempotent lease IDs\b/u.test(output) ||
+    (/\blease_id_conflict\b/u.test(output) &&
+      !/\bretry after provider inventory converges\b/iu.test(output))
   ) {
     return permanentCrabboxCommandError("warmup", result);
   }
@@ -87,7 +94,8 @@ export function provisionProfileError(result: SpawnResult): WorkerProviderError 
   return undefined;
 }
 
-export function isAuthoritativeLeaseAbsence(result: SpawnResult, identifier: string): boolean {
+// Recognition failure does not prove resource absence; only the stop owner can confirm cleanup.
+export function isUnrecognizedLease(result: SpawnResult, identifier: string): boolean {
   const output = `${result.stderr}\n${result.stdout}`;
   if (
     !output.includes(identifier) ||
@@ -128,17 +136,6 @@ export async function stopCrabboxLease(params: {
     timeoutMs: params.timeoutMs ?? CRABBOX_LIFECYCLE_TIMEOUT_MS,
   });
   if (result.termination === "exit" && result.code === 0) {
-    return;
-  }
-  const alreadyStopped =
-    `${result.stderr}\n${result.stdout}`.includes(params.id) &&
-    /\balready (?:destroyed|released|stopped|terminated)\b/iu.test(
-      `${result.stderr}\n${result.stdout}`,
-    );
-  if (
-    result.termination === "exit" &&
-    (isAuthoritativeLeaseAbsence(result, params.id) || alreadyStopped)
-  ) {
     return;
   }
   throw crabboxCommandError("stop", result);

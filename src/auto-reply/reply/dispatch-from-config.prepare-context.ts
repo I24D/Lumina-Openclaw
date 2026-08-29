@@ -26,6 +26,8 @@ import {
 import { resolveSendPolicy } from "../../sessions/send-policy.js";
 import { resolveSilentReplyPolicyFromPolicies } from "../../shared/silent-reply-policy.js";
 import { sessionDeliveryChannel } from "../../utils/delivery-context.shared.js";
+import { resolveCommandTurnContext } from "../command-turn-context.js";
+import { isActiveRunSafeCommandTurn } from "../commands-registry.js";
 import type { ReplyPayload } from "../reply-payload.js";
 import { resolveConversationBindingContextFromMessage } from "./conversation-binding-input.js";
 import { capturePendingConversationTurnReply } from "./conversation-turn-capture.js";
@@ -48,6 +50,7 @@ import { waitForReplyDispatcherIdle } from "./reply-dispatcher.js";
 import { isDuplicateRestartRecoverySource } from "./restart-recovery-claim.js";
 import { resolveStableMessageToolAvailability } from "./session-stable-reply-mode.js";
 import {
+  isDirectedSourceReplyTurn,
   isExplicitSourceReplyCommand,
   isUnauthorizedTextSlashCommand,
   resolveSourceReplyVisibilityPolicy,
@@ -376,20 +379,16 @@ export async function prepareDispatchOperationContext(state: PrepareDispatchDeli
         }
       : result;
   const explicitCommandTurnCtx = isExplicitSourceReplyCommand(ctx, cfg);
+  const activeRunSafeCommandTurn =
+    explicitCommandTurnCtx &&
+    isActiveRunSafeCommandTurn({
+      commandTurn: resolveCommandTurnContext(ctx),
+      cfg,
+      provider: ctx.Provider ?? ctx.Surface,
+    });
   const unauthorizedTextSlashSourceReplyCtx =
     (chatType === "group" || chatType === "channel") && isUnauthorizedTextSlashCommand(ctx);
-  // The no-visible-reply fallback exists for a user who asked and got nothing.
-  // Only positively directed turns qualify: direct chats, explicit mentions
-  // (channels fold reply-to-bot into WasMentioned), and command turns. Ambient
-  // group chatter, room events, and turns whose classification facts were lost
-  // upstream (queued followups, rebuilt contexts) can never draw a visible
-  // failure notice, even when silence policy is disallow. A command turn is the
-  // one directed room_event (mirrors the room_event source-reply suppression
-  // bypass below); every other room_event stays undirected regardless of a
-  // stray WasMentioned/direct classification.
-  const noVisibleReplyFallbackDirected =
-    explicitCommandTurnCtx ||
-    (ctx.InboundEventKind !== "room_event" && (chatType === "direct" || ctx.WasMentioned === true));
+  const noVisibleReplyFallbackDirected = isDirectedSourceReplyTurn(ctx, cfg, chatType === "direct");
   const shouldDeliverPluginBindingReply =
     !suppressAutomaticSourceDelivery ||
     explicitCommandTurnCtx ||
@@ -484,13 +483,18 @@ export async function prepareDispatchOperationContext(state: PrepareDispatchDeli
           isError: true,
         })
       : false;
-    commitInboundDedupeIfClaimed();
-    recordProcessed("completed", { reason: "reply_operation_aborted" });
+    if (state.turnAdoptionState && !state.turnAdoptionState.adopted) {
+      releaseInboundDedupeIfClaimed();
+    } else {
+      commitInboundDedupeIfClaimed();
+    }
+    recordProcessed("skipped", { reason: "reply_operation_aborted" });
     markIdle("message_completed");
     state.completeDispatchReplyOperation();
     return attachSourceReplyDeliveryMode({
       queuedFinal,
       counts: dispatcher.getQueuedCounts(),
+      ...(state.turnLedger.hasVisibleDelivery() ? { observedReplyDelivery: true } : {}),
     });
   };
 
@@ -545,6 +549,7 @@ export async function prepareDispatchOperationContext(state: PrepareDispatchDeli
     commentaryPayloadsEnabled,
     attachSourceReplyDeliveryMode,
     explicitCommandTurnCtx,
+    activeRunSafeCommandTurn,
     shouldDeliverPluginBindingReply,
     inboundDedupeClaim,
     commitInboundDedupeIfClaimed,

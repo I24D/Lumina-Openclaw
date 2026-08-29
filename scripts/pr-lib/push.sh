@@ -179,8 +179,9 @@ verify_pr_head_branch_matches_expected() {
   local pr="$1"
   local expected_head="$2"
 
-  local current_head
-  current_head=$(gh pr view "$pr" --json headRefName --jq .headRefName)
+  local current_head current_head_json
+  current_head_json=$(read_pr_view_json "$pr" "headRefName") || exit 1
+  current_head=$(pr_view_string_field "$current_head_json" "headRefName" "$pr" "Re-run prepare-init.") || exit 1
   if [ "$current_head" != "$expected_head" ]; then
     echo "PR head branch changed from $expected_head to $current_head. Re-run prepare-init."
     exit 1
@@ -310,7 +311,9 @@ push_prep_head_to_pr_branch() {
           git rebase "pr-$pr-latest"
           prep_head_sha=$(git rev-parse HEAD)
           local_prep_head_sha="$prep_head_sha"
+          refresh_main_snapshot || return 1
           run_prepare_push_retry_gates "$docs_only"
+          refresh_main_snapshot || return 1
         fi
 
         if ! push_output=$(push_prep_head_once "$pr_head" "$lease_sha" "$prep_head_sha" 2>&1); then

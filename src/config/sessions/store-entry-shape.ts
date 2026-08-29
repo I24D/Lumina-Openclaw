@@ -58,6 +58,9 @@ export function projectCanonicalSessionEntryShape(value: Record<string, unknown>
     memoryFlushFailureCount,
     memoryFlushLastFailedAt: _memoryFlushLastFailedAt,
     memoryFlushLastFailureError: _memoryFlushLastFailureError,
+    owner: _projectedOwner,
+    participants: _projectedParticipants,
+    participantCount: _projectedParticipantCount,
     ...canonicalValue
   } = value;
   const icon =
@@ -148,6 +151,16 @@ export function projectCanonicalSessionEntryShape(value: Record<string, unknown>
   return canonicalValue as unknown as SessionEntry;
 }
 
+/** Removes the runtime-only skill catalog without mutating the live session snapshot. */
+export function stripRuntimeOnlySessionSkillsFields(entry: SessionEntry): SessionEntry {
+  const snapshot = entry.skillsSnapshot;
+  if (snapshot?.resolvedSkills === undefined) {
+    return entry;
+  }
+  const { resolvedSkills: _drop, ...skillsSnapshot } = snapshot;
+  return { ...entry, skillsSnapshot };
+}
+
 function normalizePendingFinalDelivery(
   value: unknown,
 ): SessionEntry["pendingFinalDelivery"] | undefined {
@@ -205,7 +218,7 @@ function normalizePendingDeliveryNotice(
   const intentId = normalizeOptionalString(value.intentId);
   return createdAt !== undefined &&
     intentId &&
-    (value.state === "owed" || value.state === "unresolved")
+    (value.state === "owed" || value.state === "unresolved" || value.state === "acknowledged")
     ? { createdAt, context: value.context, intentId, state: value.state }
     : undefined;
 }

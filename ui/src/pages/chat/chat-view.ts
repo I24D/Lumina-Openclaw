@@ -2,6 +2,7 @@ import { html, nothing, type TemplateResult } from "lit";
 import { ref } from "lit/directives/ref.js";
 import { styleMap } from "lit/directives/style-map.js";
 import type {
+  ProgressCard,
   SessionPlacementDiskSpace,
   SessionSharingRole,
   SessionSuggestion,
@@ -12,28 +13,41 @@ import type {
   ControlUiSessionPullRequest,
 } from "../../../../src/gateway/control-ui-contract.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
-import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
+import type { GatewaySessionRow, ModelCatalogEntry, SessionsListResult } from "../../api/types.ts";
 import type { ExecApprovalDecision, ExecApprovalRequest } from "../../app/exec-approval.ts";
 import type { QuestionPrompt } from "../../app/question-prompt.ts";
 import type { ChatSendShortcut } from "../../app/settings.ts";
 import { renderExecApprovalCard } from "../../components/exec-approval-card.ts";
 import { icons } from "../../components/icons.ts";
 import type { ImageLightboxItem } from "../../components/image-lightbox.ts";
+import type { SessionLinkTarget } from "../../components/markdown-session-links.ts";
+import type { PersonActivityRouting } from "../../components/person-activity-link.ts";
 import { t } from "../../i18n/index.ts";
 import type { BoardProvider } from "../../lib/board/provider.ts";
 import type {
   ChatAttachment,
+  ChatGuardianNotice,
   ChatQueueItem,
   ChatStreamSegment,
 } from "../../lib/chat/chat-types.ts";
 import type { ControlUiFollowUpMode } from "../../lib/chat/follow-up-mode.ts";
 import type { EmbedSandboxMode } from "../../lib/chat/tool-display.ts";
-import { resolveAsciiShortcutKey } from "../../lib/keyboard-shortcuts.ts";
+import {
+  KEYBOARD_SHORTCUT_COMBOS,
+  matchesShortcutCombo,
+} from "../../lib/keyboard-shortcut-catalog.ts";
 import type { ProviderUsageDisplayProps } from "../../lib/provider-quota-summary.ts";
 import type { SessionToolOverrides } from "../../lib/sessions/patch.ts";
 import type { UiSessionDefaultsHost } from "../../lib/sessions/session-key.ts";
-import type { ChatRunStartupStatus } from "./chat-run-startup.ts";
-import { type ChatCloudStartupNoticeProps, renderChatViewNotices } from "./chat-view-notices.ts";
+import { getChatHistoryLoadState, retryChatHistoryLoad } from "./chat-history.ts";
+import { chatStartupStatusLabel, type ChatRunStartupStatus } from "./chat-run-startup.ts";
+import type { ChatState } from "./chat-state-contract.ts";
+import { renderDetachedTalkWindow } from "./chat-talk-window.ts";
+import {
+  type ChatPlacementStartupNoticeProps,
+  renderChatComposerNotices,
+  renderChatTopbarNotices,
+} from "./chat-view-notices.ts";
 import { createChatAttachmentDropHandlers } from "./components/chat-attachments.ts";
 import type { BackgroundTasksProps } from "./components/chat-background-tasks.types.ts";
 import type {
@@ -45,6 +59,7 @@ import type {
 import { isChatRunWorking, renderChatComposer } from "./components/chat-composer.ts";
 import { isImageLightboxEvent, openInlineChatImage } from "./components/chat-image-lightbox.ts";
 import type { ArtifactDownloadResolver } from "./components/chat-message-media.ts";
+import type { ChatPermissionPickerProps } from "./components/chat-permission-picker.ts";
 import { renderChatPullRequests } from "./components/chat-pull-requests.ts";
 import { renderChatSessionSuggestions } from "./components/chat-session-suggestions.ts";
 import type { SidebarContent, SidebarFullMessageLoader } from "./components/chat-sidebar.ts";
@@ -59,17 +74,16 @@ import {
 import { renderChatThread } from "./components/chat-thread.ts";
 import type { ChatTranscriptController } from "./components/chat-transcript-controller.ts";
 import type { ChatInputHistoryKeyInput, ChatInputHistoryKeyResult } from "./input-history.ts";
+import type { LinkFaviconFetcher } from "./link-favicon-loader.ts";
 import type { RealtimeTalkConversationEntry } from "./realtime-talk-conversation.ts";
 import type { RealtimeTalkCameraDevice } from "./realtime-talk-input.ts";
 import type { RealtimeTalkLevelSignal } from "./realtime-talk-level.ts";
 import type { RealtimeTalkStatus } from "./realtime-talk.ts";
 import type { ChatRunUiStatus } from "./run-lifecycle.ts";
-import type { CompactionStatus, FallbackStatus, PlanStatus } from "./tool-stream.ts";
+import type { CompactionStatus, FallbackStatus } from "./tool-stream.ts";
 import type { WorkspaceResultConflict } from "./workspace-conflict.ts";
 import "../../components/resizable-divider.ts";
 
-/** Above this length a Talk answer stops being a glanceable line and needs body sizing. */
-const TALK_WINDOW_DENSE_ANSWER_CHARS = 180;
 type ChatReplyTarget = {
   messageId: string;
   text: string;
@@ -77,40 +91,10 @@ type ChatReplyTarget = {
   sourceMessageId?: string | null;
 };
 
-function latestRealtimeTalkEntry(
-  entries: readonly RealtimeTalkConversationEntry[] | undefined,
-  role: RealtimeTalkConversationEntry["role"],
-) {
-  for (let index = (entries?.length ?? 0) - 1; index >= 0; index -= 1) {
-    const entry = entries?.[index];
-    if (entry?.role === role && entry.text.trim()) {
-      return entry;
-    }
-  }
-  return null;
-}
-
-function talkWindowStatusLabel(
-  active: boolean | undefined,
-  status: RealtimeTalkStatus | undefined,
-) {
-  if (!active) {
-    return t("chat.composer.talkWindowReady");
-  }
-  if (status === "thinking") {
-    return t("chat.composer.talkWindowThinking");
-  }
-  if (status === "error") {
-    return t("chat.composer.talkConversationError");
-  }
-  if (status === "connecting") {
-    return t("chat.voice.connecting");
-  }
-  return t("chat.composer.talkWindowListening");
-}
 export type ChatProps = ChatTaskSuggestionTrayProps &
-  ChatCloudStartupNoticeProps & {
+  ChatPlacementStartupNoticeProps & {
     transcript: ChatTranscriptController;
+    historyState?: ChatState;
     paneId: string;
     sessionKey: string;
     announceTranscript?: boolean;
@@ -127,7 +111,9 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     waitingApproval?: boolean;
     compactionStatus?: CompactionStatus | null;
     fallbackStatus?: FallbackStatus | null;
-    planStatus?: PlanStatus | null;
+    progressCard?: ProgressCard | null;
+    progressCardHasActiveRun?: boolean;
+    onDismissProgressCard?: (card: ProgressCard) => void;
     gatewayQuestionPrompts?: readonly QuestionPrompt[];
     onGatewayQuestionChange?: () => void;
     onGatewayQuestionSubmit?: (
@@ -142,6 +128,8 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
       onShowEarlier: () => void;
     };
     toolMessages: unknown[];
+    browserTabPreviewsActive?: boolean;
+    guardianNotices?: ChatGuardianNotice[];
     streamSegments: ChatStreamSegment[];
     stream: string | null;
     streamStartedAt: number | null;
@@ -150,6 +138,8 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     runOutputTokens?: number | null;
     assistantAvatarUrl?: string | null;
     draft: string;
+    modelCatalog: readonly ModelCatalogEntry[];
+    modelSwitching: boolean;
     queue: ChatQueueItem[];
     queuedOutboxCount?: number;
     realtimeTalkActive?: boolean;
@@ -170,11 +160,15 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     offline?: boolean;
     gatewayClient?: GatewayBrowserClient | null;
     composerHoldToRecord?: boolean;
+    onComposerHoldToRecordChange?: (enabled: boolean) => void;
+    onOpenTalkSettings?: () => void;
+    onOpenDictationSettings?: () => void;
     suggestionComposer?: boolean;
-    typingActors?: readonly { id: string; label: string }[];
-    onTypingChange?: (typing: boolean) => void;
+    typingActors?: readonly { id: string; label: string; preview?: string }[];
+    onTypingChange?: (typing: boolean, preview?: string) => void;
     canSend: boolean;
     disabledReason: string | null;
+    disabledReasonTone?: "info" | "danger";
     disabledBanner?: ChatComposerDisabledBanner;
     modelSetupRequired?: boolean;
     onModelSetup?: () => void;
@@ -183,8 +177,8 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     runError?: { summary: string } | null;
     inlineApproval?: ExecApprovalRequest | null;
     approvalBusy?: boolean;
+    approvalCanGrant: boolean;
     approvalErrors?: ReadonlyMap<string, string>;
-    approvalNowMs?: number;
     onApprovalDecision?: (
       approvalId: string,
       decision: ExecApprovalDecision,
@@ -203,6 +197,7 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     boardProvider?: BoardProvider;
     embedSandboxMode?: EmbedSandboxMode;
     allowExternalEmbedUrls?: boolean;
+    fetchLinkFavicon?: LinkFaviconFetcher;
     chatMessageMaxWidth?: string | null;
     assistantName: string;
     sendShortcut?: ChatSendShortcut;
@@ -211,7 +206,9 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     userId?: string | null;
     userName?: string | null;
     userAvatar?: string | null;
+    personActivity?: PersonActivityRouting;
     localMediaPreviewRoots?: string[];
+    connectionEpoch?: number;
     assistantAttachmentAuthToken?: string | null;
     resolveArtifactDownload?: ArtifactDownloadResolver;
     autoExpandToolCalls?: boolean;
@@ -224,9 +221,9 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     onPendingReadsChange?: (delta: 1 | -1) => void;
     onAttachmentsChange?: (attachments: ChatAttachment[]) => void;
     onRemoveAttachment?: (attachment: ChatAttachment) => void;
-    onAssistantAttachmentLoaded?: () => void;
     onRequestOpenImage?: () => number;
     onOpenImage?: (item: ImageLightboxItem, requestVersion?: number) => void;
+    onAssistantAttachmentLoaded?: () => void;
     showNewMessages?: boolean;
     onScrollToBottom?: (options?: { smooth?: boolean }) => void;
     onRefresh: () => void;
@@ -236,8 +233,8 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     onRequestUpdate?: () => void;
     onHistoryKeydown?: (input: ChatInputHistoryKeyInput) => ChatInputHistoryKeyResult;
     onSlashIntent?: () => void | Promise<void>;
+    onSlashCommand?: (command: string) => void;
     onSend: ChatComposerProps["onSend"];
-    onCompact?: () => void | Promise<void>;
     onOpenSessionCheckpoints?: () => void | Promise<void>;
     onToggleRealtimeTalk?: () => void;
     onToggleRealtimeCamera?: () => void;
@@ -245,14 +242,17 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     onSwitchRealtimeCamera?: () => void;
     onDismissError?: () => void;
     onDismissRealtimeTalkError?: () => void;
-    onDictationError?: (message: string) => void;
     onAbort?: () => void;
     onQueueRemove: (id: string) => void;
     onQueueRetry?: (id: string) => void;
     onQueueSteer?: (id: string) => void;
     onQueueMove?: (id: string, toIndex: number) => void;
     queuedEdit?: ChatQueuedEditProps;
-    onGoalCommand?: (command: string) => void;
+    onGoalAction?: ChatComposerProps["onGoalAction"];
+    onGoalSubmit?: ChatComposerProps["onGoalSubmit"];
+    goalDraftMode?: ChatComposerProps["goalDraftMode"];
+    onGoalDraftModeChange?: ChatComposerProps["onGoalDraftModeChange"];
+    currentSessionId?: string | null;
     onHistoryIntent?: (event: Event) => void;
     onCompanionQuestion?: (question: string) => void;
     onCompanionPrefill?: (question: string) => void;
@@ -273,10 +273,13 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     onSessionSelect?: (sessionKey: string) => void;
     onOpenSidebar?: (content: SidebarContent) => void;
     onOpenWorkspaceFile?: (target: { path: string; line?: number | null }) => void;
+    onOpenSessionLink?: (target: SessionLinkTarget) => void;
     onRevealWorkspaceFile?: (path: string) => void;
     onChatScroll?: (event: Event) => void;
     basePath?: string;
+    resourceBasePath?: string;
     composerControls?: TemplateResult | typeof nothing;
+    permissionPicker?: ChatPermissionPickerProps;
     replyTarget?: ChatReplyTarget | null;
     onClearReply?: () => void;
     onSetReply?: (target: ChatReplyTarget) => void;
@@ -302,6 +305,13 @@ export type ChatProps = ChatTaskSuggestionTrayProps &
     onOpenSessionDiff?: () => void;
     onExpandPullRequests?: () => void;
     onDismissPullRequest?: (pullRequest: ControlUiSessionPullRequest) => void;
+    githubPublicationBusy?: boolean;
+    githubPublicationResult?:
+      | import("../../../../packages/gateway-protocol/src/index.js").SessionGitHubPublicationResult
+      | null;
+    githubPublicationError?: string | null;
+    githubPublicationGuidance?: string;
+    onPublishPullRequest?: () => void;
   };
 
 export function renderChat(props: ChatProps) {
@@ -324,30 +334,39 @@ export function renderChat(props: ChatProps) {
     ? (item: ImageLightboxItem) => openImage?.(item, props.onRequestOpenImage?.())
     : undefined;
   const attachmentDropHandlers = createChatAttachmentDropHandlers({ ...props, canCompose });
+  const placementStartup =
+    props.placementStartup?.phase === "failed" ? null : props.placementStartup;
+  const queue = props.placementStartup?.initialTurn
+    ? [...props.queue, props.placementStartup.initialTurn]
+    : props.queue;
+  // Placement is visible work, but does not own an abortable model run yet.
+  const runWorking = Boolean(placementStartup) || isChatRunWorking(props);
   let chatSection: HTMLElement | null = null;
   const thread = renderChatThread(
     {
       paneId: props.paneId,
       sessionKey: props.sessionKey,
       announceTranscript: props.announceTranscript,
-      loading: props.loading,
-      historyLoading: props.historyPagination?.loading,
+      loading: props.loading && !placementStartup,
+      historySentinel: props.historyPagination !== undefined,
       messages: props.messages,
       toolMessages: props.toolMessages,
+      browserTabPreviewsActive: props.browserTabPreviewsActive,
+      guardianNotices: props.guardianNotices,
       streamSegments: props.streamSegments,
       stream: props.stream,
-      streamStartedAt: props.streamStartedAt,
+      streamStartedAt: placementStartup?.startedAt ?? props.streamStartedAt,
       runId: props.runId,
       runOutputTokens: props.runOutputTokens,
-      queue: props.queue,
+      runStatus: props.runStatus,
+      queue,
       showThinking: props.showThinking,
       showToolCalls: props.showToolCalls,
       persistCommentary: props.persistCommentary,
       runActive: Boolean(props.canAbort),
-      runWorking: isChatRunWorking(props),
-      startupStatus: props.startupStatus,
+      runWorking,
+      startupLabel: chatStartupStatusLabel(props.startupStatus, placementStartup),
       waitingApproval: props.waitingApproval,
-      planStatus: props.planStatus,
       questionPrompts: props.gatewayQuestionPrompts,
       sessions: props.sessions,
       sessionHost: props.sessionHost,
@@ -358,28 +377,45 @@ export function renderChat(props: ChatProps) {
       userId: props.userId,
       userName: props.userName,
       userAvatar: props.userAvatar,
+      personActivity: props.personActivity,
       basePath: props.basePath,
+      resourceBasePath: props.resourceBasePath,
       fullMessageAgentId: props.fullMessageAgentId,
       loadFullAssistantMessage: props.loadFullAssistantMessage,
       localMediaPreviewRoots: props.localMediaPreviewRoots,
+      connectionEpoch: props.connectionEpoch,
       assistantAttachmentAuthToken: props.assistantAttachmentAuthToken,
       resolveArtifactDownload: props.resolveArtifactDownload,
       canvasPluginSurfaceUrl: props.canvasPluginSurfaceUrl,
       embedSandboxMode: props.embedSandboxMode,
       allowExternalEmbedUrls: props.allowExternalEmbedUrls,
+      fetchLinkFavicon: props.fetchLinkFavicon,
       autoExpandToolCalls: props.autoExpandToolCalls,
       realtimeTalkConversation: props.realtimeTalkConversation,
+      typingActors: props.typingActors,
       onOpenSidebar: props.onOpenSidebar,
       onOpenWorkspaceFile: props.onOpenWorkspaceFile,
+      onOpenSessionLink: props.onOpenSessionLink,
       onOpenSessionCheckpoints: props.onOpenSessionCheckpoints,
-      onAssistantAttachmentLoaded: props.onAssistantAttachmentLoaded,
       onRequestOpenImage: props.onRequestOpenImage,
       onOpenImage: openImage,
+      onAssistantAttachmentLoaded: props.onAssistantAttachmentLoaded,
       onRequestUpdate: requestUpdate,
       onChatScroll: props.onChatScroll,
       onHistoryIntent: props.onHistoryIntent,
       onDraftChange: props.onDraftChange,
       onSend: props.onSend,
+      queuedMessageAction: props.placementStartup?.initialTurn
+        ? {
+            id: props.placementStartup.initialTurn.id,
+            label:
+              props.placementStartup.action === "check-delivery"
+                ? t("chat.queue.checkDelivery")
+                : undefined,
+            onAction: props.connected ? props.onRetrySessionPlacementStartup : undefined,
+          }
+        : undefined,
+      onRetryQueuedMessage: props.connected && canCompose ? props.onQueueRetry : undefined,
       onSetReply: props.onSetReply,
       replyMessageAccess: props.replyMessageAccess,
       onRewindMessage: props.onRewindMessage,
@@ -399,87 +435,20 @@ export function renderChat(props: ChatProps) {
     },
     props.transcript,
   );
+  // The composer keeps the outbox queue; only the transcript includes the
+  // placement initial turn, whose retry action belongs to startup.
   const chatColumnFooter = renderChatComposer({
-    paneId: props.paneId,
-    sessionKey: props.sessionKey,
-    currentAgentId: props.currentAgentId,
-    connected: props.connected,
-    offline: props.offline,
-    queuedOutboxCount: props.queuedOutboxCount,
-    canSend: props.canSend,
-    disabledReason: props.disabledReason,
-    disabledBanner: props.disabledBanner,
-    runError: props.runError,
-    sending: props.sending,
-    canAbort: props.canAbort,
-    runStatus: props.runStatus,
-    waitingApproval: props.waitingApproval,
-    compactionStatus: props.compactionStatus,
-    fallbackStatus: props.fallbackStatus,
-    planStatus: props.planStatus,
-    gatewayQuestionPrompts: props.gatewayQuestionPrompts,
-    messages: props.messages,
-    stream: props.stream,
-    queue: props.queue,
-    draft: props.draft,
-    sessions: props.sessions,
-    toolOverrides: props.toolOverrides,
-    capabilityMenu: props.capabilityMenu,
-    providerUsage: props.providerUsage,
-    assistantName: props.assistantName,
-    sendShortcut: props.sendShortcut,
-    followUpMode: props.followUpMode,
-    attachmentLimits: props.attachmentLimits,
-    attachments: props.attachments,
-    getAttachments: props.getAttachments,
-    pendingAttachmentReads: props.pendingAttachmentReads,
-    getPendingAttachmentReads: props.getPendingAttachmentReads,
-    readSignal: props.readSignal,
-    onPendingReadsChange: props.onPendingReadsChange,
-    replyTarget: props.replyTarget,
-    realtimeTalkActive: props.realtimeTalkActive,
-    realtimeTalkStatus: props.realtimeTalkStatus,
-    realtimeTalkDetail: props.realtimeTalkDetail,
-    realtimeTalkInputLevel: props.realtimeTalkInputLevel,
-    realtimeTalkConversation: props.realtimeTalkConversation,
-    realtimeTalkVideoStream: props.realtimeTalkVideoStream,
-    realtimeTalkCameraDevices: props.realtimeTalkCameraDevices,
-    realtimeTalkVideoCapable: props.realtimeTalkVideoCapable,
-    realtimeTalkVideoPending: props.realtimeTalkVideoPending,
-    realtimeTalkCameraError: props.realtimeTalkCameraError,
-    gatewayClient: props.gatewayClient,
-    composerHoldToRecord: props.composerHoldToRecord,
-    suggestionComposer: props.suggestionComposer,
-    typingActors: props.typingActors,
-    onTypingChange: props.onTypingChange,
-    composerControls: props.composerControls,
-    getDraft: props.getDraft,
-    onDraftChange: props.onDraftChange,
+    ...props,
+    anchoredNotices: renderChatComposerNotices(props),
     onRequestUpdate: requestUpdate,
-    onHistoryKeydown: props.onHistoryKeydown,
-    onSlashIntent: props.onSlashIntent,
-    onSend: props.onSend,
-    onCompact: props.suggestionComposer ? undefined : props.onCompact,
     onToggleRealtimeTalk: props.suggestionComposer ? undefined : props.onToggleRealtimeTalk,
-    onToggleRealtimeCamera: props.onToggleRealtimeCamera,
-    onSwitchRealtimeCamera: props.onSwitchRealtimeCamera,
-    onDismissRealtimeTalkError: props.onDismissRealtimeTalkError,
-    onDictationError: props.onDictationError,
-    onAbort: props.onAbort,
-    onQueueRemove: props.onQueueRemove,
-    onQueueRetry: props.onQueueRetry,
-    onQueueSteer: props.onQueueSteer,
-    onQueueMove: props.onQueueMove,
-    queuedEdit: props.queuedEdit,
-    onGoalCommand: props.onGoalCommand,
-    onGatewayQuestionChange: props.onGatewayQuestionChange,
-    onGatewayQuestionSubmit: props.onGatewayQuestionSubmit,
-    onGatewayQuestionSkip: props.onGatewayQuestionSkip,
-    onClearReply: props.onClearReply,
-    onAttachmentsChange: props.onAttachmentsChange,
-    onRemoveAttachment: props.onRemoveAttachment,
     onOpenImage: openImmediateImage,
   });
+  const taskSuggestionTray = renderChatTaskSuggestionTray(props);
+  const gutterStack =
+    taskSuggestionTray === nothing
+      ? nothing
+      : html`<div class="chat-gutter-stack">${taskSuggestionTray}</div>`;
   const scrollToBottomButton =
     props.showNewMessages && props.onScrollToBottom
       ? html`
@@ -517,250 +486,42 @@ export function renderChat(props: ChatProps) {
       `
     : nothing;
   if (props.talkWindow) {
-    const talkEntries = props.realtimeTalkConversation ?? [];
-    const latestAssistantEntry = latestRealtimeTalkEntry(talkEntries, "assistant");
-    const latestUserEntry = latestRealtimeTalkEntry(talkEntries, "user");
-    // Headline sizing only reads well for a glanceable sentence. Drafted
-    // messages and lists arrive far longer, so they step down a tier.
-    const answerIsDense =
-      (latestAssistantEntry?.text.trim().length ?? 0) > TALK_WINDOW_DENSE_ANSWER_CHARS;
-    const talkStatus = talkWindowStatusLabel(props.realtimeTalkActive, props.realtimeTalkStatus);
-    const cameraEnabled = Boolean(props.realtimeTalkVideoStream);
-    const screenEnabled = Boolean(props.realtimeTalkScreenStream);
-    const cameraDisabled =
-      !props.realtimeTalkVideoCapable ||
-      props.realtimeTalkVideoPending ||
-      props.realtimeTalkStatus === "connecting" ||
-      props.realtimeTalkStatus === "error";
-    const screenDisabled =
-      !props.realtimeTalkScreenCapable ||
-      props.realtimeTalkScreenPending ||
-      props.realtimeTalkStatus === "connecting" ||
-      props.realtimeTalkStatus === "error";
-    const cameraFacingMode = props.realtimeTalkVideoStream
-      ?.getVideoTracks?.()[0]
-      ?.getSettings?.().facingMode;
-    const mirrorCameraPreview = cameraFacingMode !== "environment";
-    let talkDarkBackground = false;
-    try {
-      talkDarkBackground =
-        globalThis.localStorage?.getItem("openclaw:talk-window:dark-background") === "1";
-    } catch {
-      talkDarkBackground = false;
-    }
-    const toggleTalkWindowBackground = (event: Event) => {
-      const section = (event.currentTarget as HTMLElement | null)?.closest(".chat--talk-window");
-      const enabled = !(
-        section instanceof HTMLElement && section.classList.contains("chat--talk-window-dark")
-      );
-      section?.classList.toggle("chat--talk-window-dark", enabled);
-      try {
-        globalThis.localStorage?.setItem(
-          "openclaw:talk-window:dark-background",
-          enabled ? "1" : "0",
-        );
-      } catch {
-        // Theme preference is cosmetic and must not break Talk controls.
-      }
-    };
-    const closeTalkWindow = () => {
-      if (props.realtimeTalkActive) {
-        props.onToggleRealtimeTalk?.();
-      }
-      window.setTimeout(() => window.close(), 0);
-    };
-    return html`
-      <section
-        ${ref((element) => {
-          chatSection = element instanceof HTMLElement ? element : null;
-        })}
-        class=${`card chat chat--talk-window ${talkDarkBackground ? "chat--talk-window-dark" : ""}`}
-        @drop=${attachmentDropHandlers.onDrop}
-        @dragenter=${attachmentDropHandlers.onDragenter}
-        @dragleave=${attachmentDropHandlers.onDragleave}
-        @dragover=${attachmentDropHandlers.onDragover}
-      >
-        <div class="agent-chat__talk-window">
-          <header class="agent-chat__talk-window-header">
-            <div class="agent-chat__talk-window-heading">
-              <div class="agent-chat__talk-window-title">${t("chat.composer.talkWindowTitle")}</div>
-              <div class="agent-chat__talk-window-subtitle">${props.assistantName}</div>
-            </div>
-            <div
-              class="agent-chat__talk-window-state"
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
-            >
-              ${talkStatus}
-            </div>
-          </header>
-          <main class="agent-chat__talk-window-stage">
-            <section
-              class=${`agent-chat__talk-surface agent-chat__talk-surface--answer${
-                answerIsDense ? " is-dense" : ""
-              }`}
-              aria-label=${t("chat.composer.talkWindowAnswer")}
-            >
-              <p>
-                ${latestAssistantEntry?.text.trim() ||
-                (props.realtimeTalkStatus === "thinking"
-                  ? t("chat.composer.talkWindowThinking")
-                  : t("chat.composer.talkWindowAnswerPlaceholder"))}
-                ${latestAssistantEntry?.isStreaming
-                  ? html`<span
-                      class="agent-chat__voice-turn-stream"
-                      aria-label=${t("chat.composer.stillListening")}
-                    ></span>`
-                  : nothing}
-              </p>
-            </section>
-            ${props.realtimeTalkScreenStream
-              ? html`
-                  <div
-                    class="agent-chat__talk-vision-preview agent-chat__talk-vision-preview--screen"
-                  >
-                    <video
-                      autoplay
-                      .muted=${true}
-                      playsinline
-                      aria-label=${t("chat.composer.screenSharePreview")}
-                      ${ref((element) => {
-                        if (element instanceof HTMLVideoElement) {
-                          element.srcObject = props.realtimeTalkScreenStream ?? null;
-                        }
-                      })}
-                    ></video>
-                    <span>${t("chat.composer.screenSharing")}</span>
-                  </div>
-                `
-              : nothing}
-            ${props.realtimeTalkVideoStream
-              ? html`
-                  <div
-                    class="agent-chat__talk-vision-preview agent-chat__talk-vision-preview--camera"
-                  >
-                    <video
-                      class=${mirrorCameraPreview ? "agent-chat__video-preview-mirrored" : nothing}
-                      autoplay
-                      .muted=${true}
-                      playsinline
-                      aria-label=${t("chat.composer.cameraPreview")}
-                      ${ref((element) => {
-                        if (element instanceof HTMLVideoElement) {
-                          element.srcObject = props.realtimeTalkVideoStream ?? null;
-                        }
-                      })}
-                    ></video>
-                    ${props.realtimeTalkCameraDevices &&
-                    props.realtimeTalkCameraDevices.length >= 2 &&
-                    props.onSwitchRealtimeCamera
-                      ? html`
-                          <button
-                            type="button"
-                            class="agent-chat__talk-camera-switch"
-                            aria-label=${t("chat.composer.switchCamera")}
-                            ?disabled=${props.realtimeTalkVideoPending}
-                            @click=${props.onSwitchRealtimeCamera}
-                          >
-                            ${icons.switchCamera}
-                          </button>
-                        `
-                      : nothing}
-                  </div>
-                `
-              : nothing}
-            <section
-              class="agent-chat__talk-surface agent-chat__talk-surface--question"
-              aria-label=${t("chat.composer.talkWindowQuestion")}
-            >
-              <p>
-                ${latestUserEntry?.text.trim() || t("chat.composer.talkWindowQuestionPlaceholder")}
-                ${latestUserEntry?.isStreaming
-                  ? html`<span
-                      class="agent-chat__voice-turn-stream"
-                      aria-label=${t("chat.composer.stillListening")}
-                    ></span>`
-                  : nothing}
-              </p>
-            </section>
-          </main>
-          <footer class="agent-chat__talk-window-footer">
-            <div
-              class="agent-chat__talk-dock"
-              role="toolbar"
-              aria-label=${t("chat.composer.talkWindowControls")}
-            >
-              <div class="agent-chat__talk-action-group">
-                <button
-                  type="button"
-                  class="agent-chat__talk-action"
-                  aria-label=${screenEnabled
-                    ? t("chat.composer.stopSharingScreen")
-                    : t("chat.composer.talkWindowShareScreen")}
-                  aria-pressed=${screenEnabled ? "true" : "false"}
-                  title=${screenDisabled && !props.realtimeTalkScreenCapable
-                    ? t("chat.composer.talkWindowShareScreenUnavailable")
-                    : nothing}
-                  ?disabled=${screenDisabled}
-                  @click=${props.onToggleRealtimeScreenShare}
-                >
-                  ${icons.monitor}
-                </button>
-                <button
-                  type="button"
-                  class="agent-chat__talk-action"
-                  aria-label=${cameraEnabled
-                    ? t("chat.composer.turnCameraOff")
-                    : t("chat.composer.turnCameraOn")}
-                  aria-pressed=${cameraEnabled ? "true" : "false"}
-                  title=${cameraDisabled && !props.realtimeTalkVideoCapable
-                    ? t("chat.composer.talkWindowCameraUnavailable")
-                    : nothing}
-                  ?disabled=${cameraDisabled}
-                  @click=${props.onToggleRealtimeCamera}
-                >
-                  ${cameraEnabled ? icons.cameraOff : icons.camera}
-                </button>
-                <button
-                  type="button"
-                  class="agent-chat__talk-action"
-                  aria-label=${t("chat.composer.toggleTalkBackground")}
-                  @click=${toggleTalkWindowBackground}
-                >
-                  ${icons.moon}
-                </button>
-              </div>
-              <div class="agent-chat__talk-input-pill" aria-live="polite">
-                ${latestUserEntry?.text.trim() || t("chat.composer.talkWindowQuestionPlaceholder")}
-              </div>
-              <div class="agent-chat__talk-action-group agent-chat__talk-action-group--end">
-                <button
-                  type="button"
-                  class="agent-chat__talk-action agent-chat__talk-action--danger"
-                  aria-label=${props.realtimeTalkActive
-                    ? t("chat.composer.stopVoiceInput")
-                    : t("chat.composer.startVoiceInput")}
-                  aria-pressed=${props.realtimeTalkActive ? "true" : "false"}
-                  @click=${props.onToggleRealtimeTalk}
-                >
-                  ${props.realtimeTalkActive ? icons.micOff : icons.mic}
-                </button>
-                <button
-                  type="button"
-                  class="agent-chat__talk-action agent-chat__talk-action--close"
-                  aria-label=${t("chat.composer.talkWindowClose")}
-                  @click=${closeTalkWindow}
-                >
-                  ${icons.x}
-                </button>
-              </div>
-            </div>
-          </footer>
-        </div>
-      </section>
-    `;
+    return renderDetachedTalkWindow(props, attachmentDropHandlers, (section) => {
+      chatSection = section;
+    });
   }
+  const historyState = props.historyState;
+  const historyLoadState = historyState ? getChatHistoryLoadState(historyState) : undefined;
+  const historyFailed =
+    historyState !== undefined &&
+    historyLoadState?.phase === "failed" &&
+    historyLoadState.sessionKey === props.sessionKey;
+  const transcriptEmpty =
+    !runWorking &&
+    props.messages.length === 0 &&
+    props.toolMessages.length === 0 &&
+    props.streamSegments.length === 0 &&
+    !props.stream &&
+    queue.length === 0;
+  // A failed load with cached content must stay visible without displacing the
+  // transcript; only an empty pane may replace the thread with the error panel.
+  const renderHistoryFailure = (inline: boolean) =>
+    html`<div
+      class="chat-history-error${inline ? " chat-history-error--inline" : ""}"
+      role=${inline ? "status" : "alert"}
+    >
+      <span>${historyLoadState?.phase === "failed" ? historyLoadState.message : ""}</span>
+      <button
+        class="btn btn--sm"
+        type="button"
+        @click=${() => historyState && retryChatHistoryLoad(historyState)}
+      >
+        ${t("common.retry")}
+      </button>
+    </div>`;
+  const historyError = historyFailed && transcriptEmpty ? renderHistoryFailure(false) : nothing;
+  const historyRefreshNotice =
+    historyFailed && !transcriptEmpty ? renderHistoryFailure(true) : nothing;
 
   return html`
     <section
@@ -796,12 +557,7 @@ export function renderChat(props: ChatProps) {
           props.onClearReply?.();
           return;
         }
-        if (
-          (event.metaKey || event.ctrlKey) &&
-          !event.altKey &&
-          !event.shiftKey &&
-          resolveAsciiShortcutKey(event) === "f"
-        ) {
+        if (matchesShortcutCombo(KEYBOARD_SHORTCUT_COMBOS.transcriptSearch, event)) {
           event.preventDefault();
           toggleTranscriptSearch(props.paneId, requestUpdate, event);
         }
@@ -812,23 +568,24 @@ export function renderChat(props: ChatProps) {
           <div class="chat-split-container">
             <div class="chat-main">
               <div class="chat-main__conversation-column">
-                ${props.header ?? nothing} ${renderChatViewNotices(props)}
+                ${props.header ?? nothing} ${renderChatTopbarNotices(props)}
                 ${renderTranscriptSearch(props.paneId, requestUpdate)}
                 <div class="chat-main__conversation">
-                  ${thread} ${earlierHistoryButton} ${scrollToBottomButton}
+                  ${historyRefreshNotice} ${historyError === nothing ? thread : historyError}
+                  ${earlierHistoryButton} ${scrollToBottomButton}
                   ${props.inlineApproval && props.onApprovalDecision
                     ? html`<div class="chat-inline-approval">
                         ${renderExecApprovalCard({
                           approval: props.inlineApproval,
                           busy: props.approvalBusy === true,
+                          canGrant: props.approvalCanGrant,
                           error: props.approvalErrors?.get(props.inlineApproval.id) ?? null,
-                          nowMs: props.approvalNowMs ?? Date.now(),
                           variant: "inline",
                           onDecision: props.onApprovalDecision,
                         })}
                       </div>`
                     : nothing}
-                  ${renderChatTaskSuggestionTray(props)}
+                  ${gutterStack}
                   ${renderChatPullRequests({
                     pullRequests: props.pullRequests ?? [],
                     branch: props.pullRequestsBranch,
@@ -837,6 +594,11 @@ export function renderChat(props: ChatProps) {
                     onExpand: () => props.onExpandPullRequests?.(),
                     onDismiss: (pullRequest) => props.onDismissPullRequest?.(pullRequest),
                     onOpenSessionDiff: props.onOpenSessionDiff,
+                    publicationBusy: props.githubPublicationBusy === true,
+                    publicationResult: props.githubPublicationResult,
+                    publicationError: props.githubPublicationError,
+                    publicationGuidance: props.githubPublicationGuidance,
+                    onPublish: props.onPublishPullRequest,
                   })}
                   ${renderChatSessionSuggestions({
                     suggestions: props.sessionSuggestions ?? [],

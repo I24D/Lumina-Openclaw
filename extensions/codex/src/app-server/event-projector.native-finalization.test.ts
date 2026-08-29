@@ -366,6 +366,7 @@ describe("CodexAppServerEventProjector native tool finalization", () => {
       itemId: "cmd-snapshot",
       name: "bash",
     }).data;
+    expect(toolStart.hideFromChannelProgress).toBe(true);
     expect(toolStart.args).toEqual({ command: "pnpm test extensions/codex", cwd: "/workspace" });
     const toolResult = findAgentEvent(onAgentEvent, {
       stream: "tool",
@@ -373,6 +374,7 @@ describe("CodexAppServerEventProjector native tool finalization", () => {
       itemId: "cmd-snapshot",
       name: "bash",
     }).data;
+    expect(toolResult.hideFromChannelProgress).toBe(true);
     expect(toolResult.status).toBe("completed");
     expect(toolResult.isError).toBe(false);
     expect(onToolResult).toHaveBeenCalledWith({
@@ -509,6 +511,7 @@ describe("CodexAppServerEventProjector native tool finalization", () => {
     expect(toolResultMessage.toolCallId).toBe("cmd-denied");
     expect(toolResultMessage.toolName).toBe("bash");
     expect(toolResultMessage.isError).toBe(true);
+    expect(toolResultMessage.details).toEqual({ reason: "missing_tool_result" });
     const toolResultContent = requireArray(toolResultMessage.content, "tool result content");
     expect(JSON.stringify(toolResultContent)).toContain("matching tool.result");
     const finalAssistant = requireRecord(result.messagesSnapshot[3], "final assistant message");

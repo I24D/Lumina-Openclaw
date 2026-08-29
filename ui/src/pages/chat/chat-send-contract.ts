@@ -2,7 +2,12 @@ import type { GatewayBrowserClient, GatewayHelloOk } from "../../api/gateway.ts"
 import type { AgentsListResult } from "../../api/types.ts";
 import type { CommandClientPresentationAction } from "../../app/command-client-presentation.ts";
 import type { UiSettings } from "../../app/settings.ts";
-import type { ChatAttachment, ChatQueueItem } from "../../lib/chat/chat-types.ts";
+import type { AuthenticatedUser } from "../../app/user-profile.ts";
+import type {
+  ChatAttachment,
+  ChatGoalDraftMode,
+  ChatQueueItem,
+} from "../../lib/chat/chat-types.ts";
 import type { ControlUiFollowUpMode } from "../../lib/chat/follow-up-mode.ts";
 import type { SessionCapability, SessionRefreshTarget } from "../../lib/sessions/index.ts";
 import type { ChatCommandHost } from "./chat-commands.ts";
@@ -22,6 +27,8 @@ export type ChatHost = ChatInputHistoryState &
   ToolStreamHost &
   ChatCommandHost & {
     sessions: SessionCapability;
+    /** Initial placement owns admission even while transport loss hides its content. */
+    hasPendingInitialTurn?: (sessionKey: string) => boolean;
     client: GatewayBrowserClient | null;
     connected: boolean;
     connectionEpoch: number;
@@ -29,13 +36,14 @@ export type ChatHost = ChatInputHistoryState &
     reconnectResumeSessionId?: string | null;
     chatLoading: boolean;
     chatMessage: string;
+    chatGoalDraftMode?: ChatGoalDraftMode | null;
     chatMessages: unknown[];
     chatThinkingLevel: string | null;
     chatVerboseLevel: string | null;
     chatStreamStartedAt: number | null;
     chatAttachments: ChatAttachment[];
     chatQueue: ChatQueueItem[];
-    /** Set while a queued row is held out of the queue inside the composer. */
+    /** Pane-local row draft while a queued message remains held in the outbox. */
     chatQueuedEdit?: QueuedMessageEdit | null;
     /** Active leaf of the history snapshot currently rendered by this pane. */
     chatDisplayedLeafEntryId?: string | null;
@@ -48,6 +56,7 @@ export type ChatHost = ChatInputHistoryState &
     lastError: string | null;
     chatError?: string | null;
     hello: GatewayHelloOk | null;
+    selfUser?: AuthenticatedUser | null;
     requestUpdate?: () => void;
     refreshSessionsAfterChat: Map<string, SessionRefreshTarget>;
     chatSubmitGuards?: Map<string, Promise<void>>;

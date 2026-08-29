@@ -1,10 +1,15 @@
 import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { Type } from "typebox";
 import { Value } from "typebox/value";
 import {
   GATEWAY_CLIENT_IDS,
   GATEWAY_CLIENT_MODES,
 } from "../../packages/gateway-protocol/src/client-info.js";
+import {
+  type SessionPermissionMode,
+  SessionPermissionModeSchema,
+} from "../../packages/gateway-protocol/src/schema/sessions-row.js";
 import {
   type WorkerConnectParams,
   type WorkerConnectRequestFrame,
@@ -13,6 +18,7 @@ import {
   WorkerTranscriptMessageSchema,
   type WorkerTranscriptCommitParams,
   WORKER_PROTOCOL_MAX_IDENTIFIER_LENGTH,
+  WORKER_TRANSCRIPT_MAX_CONTENT_PARTS,
 } from "../../packages/gateway-protocol/src/schema/worker-admission.js";
 import type {
   WorkerInferenceModelRef,
@@ -22,9 +28,11 @@ import {
   WORKER_INFERENCE_MAX_CONTEXT_MESSAGES,
   WorkerInferenceModelRefSchema,
   WorkerInferenceOptionsSchema,
+  WorkerInferenceImageContentSchema,
 } from "../../packages/gateway-protocol/src/schema/worker-inference.js";
 import { PROTOCOL_VERSION } from "../../packages/gateway-protocol/src/version.js";
 import type { OperationalRunInstanceRef } from "../agents/admitted-run-context.js";
+import type { ImageContent } from "../llm/types.js";
 import { isWorkerToolName, type WorkerToolAuthority } from "./tool-authority.js";
 import { isWorkerTranscriptMessageFrameSafe } from "./transcript-message.js";
 import {
@@ -32,14 +40,22 @@ import {
   type WorkerConnectionEndpoint,
 } from "./worker-connection-endpoint.js";
 
-const LAUNCH_VERSION = 3;
+const LAUNCH_VERSION = 4;
+const WorkerPromptImagesSchema = Type.Array(WorkerInferenceImageContentSchema, {
+  minItems: 1,
+  maxItems: WORKER_TRANSCRIPT_MAX_CONTENT_PARTS - 1,
+});
 
 export type WorkerBrowserLaunchDescriptor = {
   cdpUrl: string;
   launcherPath: string;
 };
 
-type WorkerLaunchAssignment = {
+type WorkerLaunchPermissionContext =
+  | { permissionMode: SessionPermissionMode; workerContainmentRoot: string }
+  | { permissionMode?: never; workerContainmentRoot?: never };
+
+type WorkerLaunchAssignment = WorkerLaunchPermissionContext & {
   /** Host placement namespace used for worker-local policy, hooks, and audit attribution. */
   agentId: string;
   operationalRunInstance: OperationalRunInstanceRef;
@@ -48,6 +64,7 @@ type WorkerLaunchAssignment = {
   runId: string;
   turnId: string;
   prompt: string;
+  images?: ImageContent[];
   suppressPromptTranscript: boolean;
   workspaceDir: string;
   modelRef: WorkerInferenceModelRef;
@@ -71,7 +88,7 @@ type WorkerLaunchAdmission = Omit<WorkerConnectParams["admission"], "runId"> & {
 };
 
 export type WorkerLaunchPlan = {
-  version: 3;
+  version: 4;
   admission: WorkerLaunchAdmission;
   assignment: WorkerLaunchAssignment;
 };
@@ -180,8 +197,20 @@ function parseAssignment(value: unknown): WorkerLaunchAssignment | undefined {
         "liveEvents",
         "toolAuthority",
       ],
-      ["systemPrompt", "browser"],
+      ["systemPrompt", "images", "browser", "permissionMode", "workerContainmentRoot"],
     )
+  ) {
+    return undefined;
+  }
+  const hasPermissionMode = Object.hasOwn(value, "permissionMode");
+  const hasContainmentRoot = Object.hasOwn(value, "workerContainmentRoot");
+  if (
+    hasPermissionMode !== hasContainmentRoot ||
+    (hasPermissionMode &&
+      (!Value.Check(SessionPermissionModeSchema, value.permissionMode) ||
+        typeof value.workerContainmentRoot !== "string" ||
+        !isIdentifier(value.workerContainmentRoot) ||
+        !isAbsoluteHostPath(value.workerContainmentRoot)))
   ) {
     return undefined;
   }
@@ -196,6 +225,7 @@ function parseAssignment(value: unknown): WorkerLaunchAssignment | undefined {
     value.agentRuntimeIdentityToken.length > 16_384 ||
     !isIdentifier(value.turnId) ||
     typeof value.prompt !== "string" ||
+    (value.images !== undefined && !Value.Check(WorkerPromptImagesSchema, value.images)) ||
     typeof value.suppressPromptTranscript !== "boolean" ||
     !isIdentifier(value.workspaceDir) ||
     !isAbsoluteHostPath(value.workspaceDir) ||
@@ -282,7 +312,12 @@ function validateWorkerLaunchPlan(candidate: WorkerLaunchPlan): WorkerLaunchPlan
     candidate.admission.ownerEpoch < 1 ||
     !isWorkerTranscriptMessageFrameSafe({
       role: "user",
-      content: [{ type: "text", text: candidate.assignment.prompt }],
+      content: [
+        { type: "text", text: candidate.assignment.prompt },
+        ...(candidate.assignment.suppressPromptTranscript
+          ? []
+          : (candidate.assignment.images ?? [])),
+      ],
       timestamp: Number.MAX_SAFE_INTEGER,
     })
   ) {
@@ -331,7 +366,7 @@ export function parseWorkerLaunchDescriptor(value: unknown): WorkerLaunchDescrip
   }
   return completeWorkerLaunchDescriptor(
     {
-      version: value.version as 3,
+      version: value.version as 4,
       admission: value.admission as WorkerLaunchAdmission,
       assignment: value.assignment as WorkerLaunchAssignment,
     },

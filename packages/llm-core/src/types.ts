@@ -347,8 +347,12 @@ export interface AssistantMessage {
   content: (TextContent | ThinkingContent | ToolCall)[];
   openclawDelivery?: {
     audioAsVoice?: true;
+    /** Exact media directives consumed by the managed-media transcript rewrite owner. */
+    mediaUrls?: string[];
     replyToCurrent?: true;
     replyToId?: string;
+    /** Provider text phase is unresolved until the assistant turn reaches terminal state. */
+    textPhaseRequiresTerminal?: true;
     /** Parsed once at the assistant write boundary; delivery resolves policy from these facts. */
     tts?: AssistantDeliveryTtsFacts;
   };
@@ -530,6 +534,8 @@ export interface OpenAIResponsesCompat {
   sendSessionIdHeader?: boolean;
   /** Whether the provider supports `prompt_cache_retention: "24h"`. Default: true. */
   supportsLongCacheRetention?: boolean;
+  /** Whether the provider honors top-level `instructions`. Defaults to true only for verified native routes (OpenAI, xAI); every other route defaults to false and embeds the system prompt in `input` unless set true here after verifying against that endpoint. */
+  supportsInstructions?: boolean;
 }
 
 /** Compatibility settings for Anthropic Messages-compatible APIs. */

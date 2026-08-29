@@ -17,9 +17,9 @@
 
 **DAL NIJARUQ is the principal creator and ongoing developer of Lumina OpenClaw.** This repository builds on OpenClaw and keeps the upstream MIT license, credits, and technical lineage intact.
 
-It answers you on the channels you already use. It can speak and listen on macOS/iOS/Android, and can render a live Canvas you control. The Gateway is just the control plane - the product is the assistant.
+It connects models, tools, messaging channels, and optional companion apps through one Gateway. The same foundation can run as a personal assistant or as a shared [team deployment](https://docs.openclaw.ai/start/teams), while Lumina adds its own memory, operations, voice, and local-first experience.
 
-[Website](https://openclaw.ai) · [Docs](https://docs.openclaw.ai) · [Getting started](https://docs.openclaw.ai/start/getting-started) · [Showcase](https://docs.openclaw.ai/start/showcase) · [FAQ](https://docs.openclaw.ai/help/faq) · [Vision](VISION.md) · [DeepWiki](https://deepwiki.com/openclaw/openclaw)
+[Website](https://openclaw.ai) · [Docs](https://docs.openclaw.ai) · [Getting started](https://docs.openclaw.ai/start/getting-started) · [Why OpenClaw](https://docs.openclaw.ai/start/why-openclaw) · [Showcase](https://docs.openclaw.ai/start/showcase) · [FAQ](https://docs.openclaw.ai/help/faq) · [Vision](VISION.md) · [DeepWiki](https://deepwiki.com/openclaw/openclaw)
 
 ## Install
 
@@ -55,15 +55,27 @@ iwr -useb https://openclaw.ai/install.ps1 | iex
 Already manage Node.js? Install the published package instead (Node 22.22.3+, 24.15+, or 25.9+):
 
 ```bash
-npm install -g openclaw@latest
+npm install -g openclaw@latest --allow-scripts=openclaw
 ```
 
-See the [installation guide](https://docs.openclaw.ai/install) for npm 12 lifecycle-script requirements, Docker, Nix, and other deployment paths.
+That command is for npm 12 or npm 11.16+. On npm 11.15 and earlier, omit
+`--allow-scripts=openclaw`. See the
+[installation guide](https://docs.openclaw.ai/install) for the lifecycle script
+contract, Docker, Nix, and other deployment paths.
 
 ## Quick start
 
+On a fresh install, the installer scripts start onboarding automatically.
+Complete the wizard they open. If you installed the package directly with npm,
+pnpm, or Bun, run:
+
 ```bash
 openclaw onboard --install-daemon
+```
+
+After onboarding:
+
+```bash
 openclaw gateway status
 openclaw dashboard
 ```

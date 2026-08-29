@@ -6,6 +6,7 @@ import {
   prepareAgentRunAdmission,
 } from "../../agents/admitted-run-context.js";
 import { SessionManager } from "../../agents/sessions/session-manager.js";
+import { clearRuntimeConfigSnapshot } from "../../config/io.js";
 import { upsertSessionEntryCore } from "../../config/sessions/session-accessor.js";
 import { resetAgentEventsForTest } from "../../infra/agent-events.js";
 import {
@@ -78,6 +79,7 @@ export async function setupWorkerTurnLauncherTest(): Promise<void> {
 export async function cleanupWorkerTurnLauncherTest(): Promise<void> {
   cleanupAdmissionSink?.();
   cleanupAdmissionSink = undefined;
+  clearRuntimeConfigSnapshot();
   closeOpenClawStateDatabaseForTest();
   resetAgentEventsForTest();
   await testState.cleanup();
@@ -122,6 +124,7 @@ export function openSessionManager(): SessionManager {
 
 export function seedActivePlacement(
   executionMode: "worker-turn" | "remote-exec" = "worker-turn",
+  remoteWorkspaceDir = "/worker/workspace",
 ): void {
   let placement = placements.startDispatch({
     sessionId: SESSION_ID,
@@ -149,7 +152,7 @@ export function seedActivePlacement(
     to: "starting",
     expectedGeneration: placement.generation,
     patch: {
-      remoteWorkspaceDir: "/worker/workspace",
+      remoteWorkspaceDir,
       workspaceBaseManifestRef: MANIFEST_REF,
     },
   });
@@ -199,6 +202,8 @@ export function attachedEnvironment(): WorkerTurnEnvironmentRecord {
     profileId: "development",
     profileSnapshot: { settings: { region: "test" } },
     provisionOperationId: "provision-worker-turn",
+    nodeSetupId: null,
+    nodeDeviceId: null,
     sharedHost: false,
     bootstrapReceipt: {
       bundleHash: BUNDLE_HASH,
@@ -321,6 +326,8 @@ export function turn(runId = "run-worker-turn", executionIdentity = false) {
     sessionFile,
     sessionTarget,
     workspaceDir: root,
+    permissionMode: "workspace" as const,
+    sessionRoot: root,
     prompt: "Inspect this workspace",
     timeoutMs: 5_000,
     runId,

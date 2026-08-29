@@ -32,6 +32,9 @@ They are different parts of the same Lumina project by **DAL NIJARUQ**.
 
 ## Staying Current With Upstream OpenClaw
 
+Current integration: OpenClaw `2026.8.1` at official commit
+`8d30790f083c467b240f0ef0e0da81cb0db09d73` (updated 2026-08-29).
+
 This repository tracks `openclaw/openclaw` as a real git ancestor, so upstream
 releases arrive through an ordinary pull:
 
@@ -52,6 +55,7 @@ else fast-forwards untouched. The Lumina-owned surface is:
 | Windows cron process identity                          | `src/shared/pid-alive.ts`                                                                                                                     |
 | WhatsApp outbound safety                               | `extensions/whatsapp/src/outbound-safety.ts`, `send.ts`, `auto-reply/monitor/inbound-dispatch.ts`, `on-message.ts`                            |
 | Supabase extension                                     | `extensions/lumina-supabase/**` (upstream has no such path)                                                                                   |
+| Detached Start Talk, camera, and screen sharing        | `ui/src/pages/chat/**`, `ui/src/app/app-shell-view.ts`, `ui/src/styles/chat/talk-window.css`                                                  |
 | Branding and docs                                      | `README.md`, `VISION.md`, `docs/LUMINA_OPENCLAW.md`, `docs/assets/lumina-openclaw-banner-*.svg`, `package.json`                               |
 | CI and scripts                                         | `.github/workflows/lumina-baseline-ci.yml`, fork guards on inherited workflows, `scripts/lumina-dev-healthcheck.mts`                          |
 

@@ -223,18 +223,33 @@ describe("process start times", () => {
     });
   });
 
-  it("identifies only the current process where no per-pid source exists", () => {
+  it("reads a bounded Windows PowerShell process start identity", () => {
+    const execSpy = vi
+      .spyOn(childProcess, "execFileSync")
+      .mockReturnValue("2026-07-06T12:34:56.7890000Z\n");
+
     return withMockedPlatform("win32", async () => {
-      // The procfs reader stays Linux-only.
+      expect(getProcessStartTime(42)).toBeNull();
+      expect(getFileLockProcessStartTime(42)).toBe(Date.UTC(2026, 6, 6, 12, 34, 56, 789));
+      expect(execSpy).toHaveBeenCalledWith(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "(Get-Process -Id 42).StartTime.ToString('o')",
+        ],
+        expect.objectContaining({ timeout: 1000, windowsHide: true }),
+      );
+      execSpy.mockReturnValueOnce("invalid\n");
+      expect(getFileLockProcessStartTime(42)).toBeNull();
+    });
+  });
+
+  it("returns null on unsupported platforms", () => {
+    return withMockedPlatform("freebsd", async () => {
       expect(getProcessStartTime(process.pid)).toBeNull();
-      // Windows exposes no per-pid start time, but a durable fence still has to
-      // prove *this* process's identity, so self resolves -- and stays stable,
-      // or a fence would read a different owner on every call.
-      const self = getFileLockProcessStartTime(process.pid);
-      expect(typeof self).toBe("number");
-      expect(getFileLockProcessStartTime(process.pid)).toBe(self);
-      // Other pids stay unknown, which callers read as "cannot prove stale".
-      expect(getFileLockProcessStartTime(process.pid + 1)).toBeNull();
+      expect(getFileLockProcessStartTime(process.pid)).toBeNull();
     });
   });
 

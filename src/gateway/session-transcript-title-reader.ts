@@ -11,9 +11,8 @@ import {
 } from "../config/sessions/session-accessor.js";
 import { pruneMapToMaxSize } from "../infra/map-size.js";
 import { hasInterSessionUserProvenance } from "../sessions/input-provenance.js";
+import { projectSessionDisplayMessage } from "./session-display-projection.js";
 import {
-  extractMessageRole,
-  extractSessionTranscriptText,
   resolveTranscriptReadTarget,
   sqliteMessageEventWithSeq,
   toTranscriptReadScope,
@@ -80,11 +79,11 @@ function readSqliteTitleProbeRange(
 }
 
 function findFirstTitleUserMessage(
-  entries: readonly SessionTranscriptMessageEvent[],
+  entries: readonly Parameters<typeof sqliteMessageEventWithSeq>[0][],
   includeInterSession: boolean,
 ): unknown {
   return entries.map(sqliteMessageEventWithSeq).find((message) => {
-    if (extractMessageRole(message) !== "user") {
+    if (projectSessionDisplayMessage(message)?.role !== "user") {
       return false;
     }
     return (
@@ -94,14 +93,16 @@ function findFirstTitleUserMessage(
   });
 }
 
-function findLastMessageText(entries: readonly SessionTranscriptMessageEvent[]): string | null {
-  return (
-    entries
-      .toReversed()
-      .map(sqliteMessageEventWithSeq)
-      .map(extractSessionTranscriptText)
-      .find(Boolean) ?? null
-  );
+function findLastMessageText(
+  entries: readonly Parameters<typeof sqliteMessageEventWithSeq>[0][],
+): string | null {
+  let text: string | null = null;
+  entries.findLast((entry) => {
+    const message = sqliteMessageEventWithSeq(entry);
+    text = projectSessionDisplayMessage(message, { flattenMarkdown: true })?.text ?? null;
+    return text !== null;
+  });
+  return text;
 }
 
 function readSqliteTitleFields(
@@ -161,7 +162,7 @@ function readSqliteTitleFields(
       );
     }
     fields = {
-      firstUserMessage: firstUser ? extractSessionTranscriptText(firstUser) : null,
+      firstUserMessage: firstUser ? (projectSessionDisplayMessage(firstUser)?.text ?? null) : null,
       lastMessagePreview: lastText,
     };
   } catch (error) {
@@ -284,7 +285,7 @@ function readSessionTitleFieldsFromTranscriptBatchCurrent(
       continue;
     }
     const fields = {
-      firstUserMessage: firstUser ? extractSessionTranscriptText(firstUser) : null,
+      firstUserMessage: firstUser ? (projectSessionDisplayMessage(firstUser)?.text ?? null) : null,
       lastMessagePreview: lastText,
     };
     const fieldsByVariant =

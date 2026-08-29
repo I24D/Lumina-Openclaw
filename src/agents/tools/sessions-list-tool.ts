@@ -3,14 +3,14 @@
  *
  * Lists visible sessions and optionally hydrates titles, last messages, and transcript-derived metadata.
  */
-import {
-  normalizeOptionalLowercaseString,
-  readStringValue,
-} from "@openclaw/normalization-core/string-coerce";
+import { readStringValue } from "@openclaw/normalization-core/string-coerce";
 import pMap from "p-map";
 import { Type } from "typebox";
-import type { SessionRunStatus } from "../../../packages/gateway-protocol/src/schema/sessions-row.js";
-import { getRuntimeConfig } from "../../config/config.js";
+import { Value } from "typebox/value";
+import {
+  SessionRunStatusSchema,
+  type SessionRunStatus,
+} from "../../../packages/gateway-protocol/src/schema/sessions-row.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { readSessionTitleFieldsFromTranscriptAsync } from "../../gateway/session-transcript-title-reader.js";
@@ -21,8 +21,10 @@ import { resolveSessionAgentIds } from "../agent-scope.js";
 import {
   optionalNonNegativeIntegerSchema,
   optionalPositiveIntegerSchema,
+  stringEnum,
 } from "../schema/typebox.js";
 import {
+  describeSessionLinkRule,
   describeSessionsListTool,
   describeSessionVisibilityScope,
   SESSIONS_LIST_TOOL_DISPLAY_SUMMARY,
@@ -42,20 +44,19 @@ import {
 } from "./in-process-gateway.js";
 import { resolveSessionToolTargetAgentId } from "./scoped-session-access.js";
 import {
-  createAgentToAgentPolicy,
   createSessionVisibilityRowChecker,
   classifySessionListKind,
   deriveChannel,
   resolveDisplaySessionKey,
-  resolveEffectiveSessionToolsVisibility,
   resolveInternalSessionKey,
-  resolveSandboxedSessionToolContext,
+  resolveSessionToolContext,
+  SESSION_LIST_KINDS,
   type GatewaySessionListRow,
   type SessionListRow,
 } from "./sessions-helpers.js";
 
 const SessionsListToolSchema = Type.Object({
-  kinds: Type.Optional(Type.Array(Type.String())),
+  kinds: Type.Optional(Type.Array(stringEnum(SESSION_LIST_KINDS))),
   limit: optionalPositiveIntegerSchema(),
   activeMinutes: optionalPositiveIntegerSchema(),
   messageLimit: optionalNonNegativeIntegerSchema(),
@@ -72,18 +73,12 @@ const SessionListRowOutputSchema = Type.Object(
     key: Type.String(),
     sessionId: Type.Optional(Type.String()),
     agentId: Type.String(),
-    kind: Type.Union([
-      Type.Literal("main"),
-      Type.Literal("group"),
-      Type.Literal("cron"),
-      Type.Literal("hook"),
-      Type.Literal("node"),
-      Type.Literal("other"),
-    ]),
+    kind: stringEnum(SESSION_LIST_KINDS),
     channel: Type.String(),
     archived: Type.Boolean(),
     pinned: Type.Boolean(),
     label: Type.Optional(Type.String()),
+    category: Type.Optional(Type.String()),
     displayName: Type.Optional(Type.String()),
     derivedTitle: Type.Optional(Type.String()),
     lastMessagePreview: Type.Optional(Type.String()),
@@ -93,15 +88,7 @@ const SessionListRowOutputSchema = Type.Object(
     model: Type.Optional(Type.String()),
     contextTokens: Type.Optional(Type.Number()),
     totalTokens: Type.Optional(Type.Number()),
-    status: Type.Optional(
-      Type.Union([
-        Type.Literal("running"),
-        Type.Literal("done"),
-        Type.Literal("failed"),
-        Type.Literal("killed"),
-        Type.Literal("timeout"),
-      ]),
-    ),
+    status: Type.Optional(SessionRunStatusSchema),
     abortedLastRun: Type.Optional(Type.Boolean()),
     childSessions: Type.Optional(Type.Array(Type.String())),
     messages: Type.Optional(Type.Array(Type.Unknown())),
@@ -113,6 +100,11 @@ const SessionsListOutputSchema = Type.Object(
   {
     count: Type.Number(),
     sessions: Type.Array(SessionListRowOutputSchema),
+    sessionLinkRule: Type.Optional(
+      Type.String({
+        description: "How to build Control UI URLs for sessionKey values in this result.",
+      }),
+    ),
     visibility: Type.Optional(
       Type.Object(
         {
@@ -132,13 +124,7 @@ type GatewayCaller = AgentToolGatewayRequestCaller;
 const SESSIONS_LIST_TRANSCRIPT_FIELD_ROWS = 100;
 
 function readSessionRunStatus(value: unknown): SessionRunStatus | undefined {
-  return value === "running" ||
-    value === "done" ||
-    value === "failed" ||
-    value === "killed" ||
-    value === "timeout"
-    ? value
-    : undefined;
+  return Value.Check(SessionRunStatusSchema, value) ? value : undefined;
 }
 
 /** Creates the sessions-list tool with gateway-backed listing and local transcript enrichment. */
@@ -148,42 +134,39 @@ export function createSessionsListTool(opts?: {
   sandboxed?: boolean;
   config?: OpenClawConfig;
   callGateway?: GatewayCaller;
+  sessionLinkBase?: string;
 }): AnyAgentTool {
   return {
     label: "Sessions",
     name: "sessions_list",
     displaySummary: SESSIONS_LIST_TOOL_DISPLAY_SUMMARY,
-    description: describeSessionsListTool(),
+    description: describeSessionsListTool({ sessionLinkBase: opts?.sessionLinkBase }),
     parameters: SessionsListToolSchema,
     outputSchema: SessionsListOutputSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
-      const cfg = opts?.config ?? getRuntimeConfig();
-      const { mainKey, alias, requesterInternalKey, mainSessionKey, restrictToSpawned } =
-        resolveSandboxedSessionToolContext({
-          cfg,
-          agentSessionKey: opts?.agentSessionKey,
-          requesterAgentId: opts?.requesterAgentIdOverride,
-          sandboxed: opts?.sandboxed,
-        });
-      const effectiveRequesterKey = requesterInternalKey ?? alias;
+      const {
+        cfg,
+        mainKey,
+        alias,
+        effectiveRequesterKey,
+        mainSessionKey,
+        restrictToSpawned,
+        sessionVisibility: visibility,
+        a2aPolicy,
+      } = resolveSessionToolContext(opts);
       const requesterAgentId = resolveSessionAgentIds({
         config: cfg,
         sessionKey: effectiveRequesterKey,
         agentId: opts?.requesterAgentIdOverride,
       }).sessionAgentId;
-      const visibility = resolveEffectiveSessionToolsVisibility({
-        cfg,
-        sandboxed: opts?.sandboxed === true,
-      });
-
-      const kindsRaw = readStringArrayParam(params, "kinds")
-        ?.map((value) => normalizeOptionalLowercaseString(value))
-        .filter((value): value is string => Boolean(value));
-      const allowedKindsList = (kindsRaw ?? []).filter((value) =>
-        ["main", "group", "cron", "hook", "node", "other"].includes(value),
-      );
-      const allowedKinds = allowedKindsList.length ? new Set(allowedKindsList) : undefined;
+      const kindsRaw = readStringArrayParam(params, "kinds")?.map((value) => value.toLowerCase());
+      const requestedKinds = params.kinds;
+      const allowedKinds =
+        (Array.isArray(requestedKinds) || typeof requestedKinds === "string") &&
+        requestedKinds.length > 0
+          ? new Set(kindsRaw)
+          : undefined;
 
       const limit = readPositiveIntegerParam(params, "limit");
       const activeMinutes = readPositiveIntegerParam(params, "activeMinutes");
@@ -196,7 +179,6 @@ export function createSessionsListTool(opts?: {
       const includeDerivedTitles = params.includeDerivedTitles === true;
       const includeLastMessage = params.includeLastMessage === true;
       const gatewayCall = opts?.callGateway ?? callAgentToolGatewayRequest;
-      const a2aPolicy = createAgentToAgentPolicy(cfg);
       const hydrateTranscriptFieldsAfterFiltering = includeDerivedTitles || includeLastMessage;
       const defaultAgentId = requesterAgentId;
       const visibilityGuard = createSessionVisibilityRowChecker({
@@ -370,6 +352,7 @@ export function createSessionsListTool(opts?: {
           typeof entry.agentId === "string" && entry.agentId ? entry.agentId : resolvedAgentId;
         const stateVersion = stateVersions[stateVersionAgentId]?.[key];
         const rowLabel = readStringValue(entry.label);
+        const category = readStringValue(entry.category);
         const displayName = readStringValue(entry.displayName);
         const derivedTitle = readStringValue(entry.derivedTitle);
         const lastMessagePreview = readStringValue(entry.lastMessagePreview);
@@ -390,6 +373,8 @@ export function createSessionsListTool(opts?: {
           : undefined;
         const updatedAt = typeof entry.updatedAt === "number" ? entry.updatedAt : undefined;
         const model = readStringValue(entry.model);
+        // sessions.list owns runtime/context provenance; this tool only filters and
+        // narrows its GatewaySessionListRow without reinterpreting raw session state.
         const contextTokens =
           typeof entry.contextTokens === "number" ? entry.contextTokens : undefined;
         const totalTokens = typeof entry.totalTokens === "number" ? entry.totalTokens : undefined;
@@ -419,6 +404,7 @@ export function createSessionsListTool(opts?: {
           archived: entry.archived === true,
           pinned: entry.pinned === true,
           ...(rowLabel ? { label: rowLabel } : {}),
+          ...(category ? { category } : {}),
           ...(displayName ? { displayName } : {}),
           ...(derivedTitle ? { derivedTitle } : {}),
           ...(lastMessagePreview ? { lastMessagePreview } : {}),
@@ -528,6 +514,9 @@ export function createSessionsListTool(opts?: {
       return jsonResult({
         count: rows.length,
         sessions: rows,
+        ...(opts?.sessionLinkBase
+          ? { sessionLinkRule: describeSessionLinkRule(opts.sessionLinkBase) }
+          : {}),
         ...(visibilityMetadata ? { visibility: visibilityMetadata } : {}),
       });
     },

@@ -1,6 +1,5 @@
 // Control UI chat module implements realtime talk behavior.
 import { DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS } from "@openclaw/gateway-client/browser";
-import type { TalkCatalogResult } from "@openclaw/gateway-protocol";
 import { normalizeTalkTransport } from "../../../../src/talk/talk-session-controller.js";
 import {
   normalizeVoiceTranscriptText,
@@ -8,6 +7,7 @@ import {
 } from "../../../../src/talk/voice-transcript.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { formatUiError } from "../../lib/format-error.ts";
+import { resolveRealtimeTalkVideoCapability } from "./realtime-talk-capabilities.ts";
 import { GatewayRelayRealtimeTalkTransport } from "./realtime-talk-gateway-relay.ts";
 import { GoogleLiveRealtimeTalkTransport } from "./realtime-talk-google-live.ts";
 import type {
@@ -178,7 +178,9 @@ export class RealtimeTalkSession {
       const existingAcceptingTranscripts = this.acceptingTranscripts;
       const existingServerOwnedVoiceSession = this.serverOwnedVoiceSession;
       const existingTransportGeneration = this.transportGeneration;
-      const providerVideoCapable = await this.resolveVideoCapability();
+      const providerVideoCapable = this.callbacks.onVideoCapability
+        ? await resolveRealtimeTalkVideoCapability(this.client, this.options.provider)
+        : false;
       if (this.closed || lifecycleGeneration !== this.lifecycleGeneration) {
         return;
       }
@@ -341,31 +343,6 @@ export class RealtimeTalkSession {
       if (!ownerTransferred) {
         owner.release();
       }
-    }
-  }
-
-  private async resolveVideoCapability(): Promise<boolean> {
-    if (!this.callbacks.onVideoCapability) {
-      return false;
-    }
-    try {
-      const catalog = await this.client.request<TalkCatalogResult>(
-        "talk.catalog",
-        {},
-        { timeoutMs: DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS },
-      );
-      const selectedProvider = this.options.provider ?? catalog.realtime.activeProvider;
-      if (!selectedProvider) {
-        return false;
-      }
-      return (
-        catalog.realtime.providers.find(
-          (provider) =>
-            provider.id === selectedProvider || provider.aliases?.includes(selectedProvider),
-        )?.supportsVideoFrames === true
-      );
-    } catch {
-      return false;
     }
   }
 
