@@ -1,0 +1,60 @@
+{
+  "id": "lumina-open-design",
+  "name": "Lumina Design",
+  "description": "OpenDesign workspace managed by Lumina without delegated model runs.",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true
+  },
+  "uiHints": {
+    "daemonUrl": {
+      "label": "OpenDesign daemon URL",
+      "help": "Loopback URL used by Lumina. Keep this local; remote access is provided by the authenticated Gateway tab."
+    },
+    "executablePath": {
+      "label": "OpenDesign executable"
+    },
+    "cliPath": {
+      "label": "OpenDesign CLI entry"
+    },
+    "resourceRoot": {
+      "label": "OpenDesign resource root"
+    },
+    "autoStart": {
+      "label": "Start OpenDesign with the Gateway"
+    },
+    "sessionKey": {
+      "label": "Lumina design session",
+      "help": "Session that receives design requests from the Design tab."
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "daemonUrl": {
+        "type": "string"
+      },
+      "executablePath": {
+        "type": "string"
+      },
+      "cliPath": {
+        "type": "string"
+      },
+      "resourceRoot": {
+        "type": "string"
+      },
+      "autoStart": {
+        "type": "boolean"
+      },
+      "sessionKey": {
+        "type": "string"
+      },
+      "startupTimeoutMs": {
+        "type": "number",
+        "minimum": 5000,
+        "maximum": 120000
+      }
+    }
+  }
+}

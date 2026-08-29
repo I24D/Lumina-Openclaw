@@ -1,0 +1,30 @@
+{
+  "name": "@openclaw/lumina-open-design",
+  "version": "2026.8.1",
+  "private": true,
+  "description": "Lumina-owned OpenDesign runtime, MCP policy, and Control UI workspace.",
+  "type": "module",
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*",
+    "openclaw": "workspace:*"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.8.1"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.8.1"
+    },
+    "build": {
+      "openclawVersion": "2026.8.1"
+    }
+  }
+}

@@ -41,6 +41,13 @@ Lumina focus:
 - Supabase, memory-wiki, SQL, conversation archive, and health checks form the persistent operational base.
 - WhatsApp and local gateway flows are first-class Lumina surfaces.
 - Diagnostics, Prometheus/OpenTelemetry, QA lab, and workboard visibility are treated as core development concerns.
+- The authenticated **Diseño** workspace connects Lumina to local OpenDesign projects while keeping the active OpenClaw model in control.
+
+### Lumina Design with OpenDesign
+
+Lumina can now turn a brief into persistent, inspectable OpenDesign artifacts from a dedicated Control UI tab. The integration starts the local OpenDesign daemon when needed, exposes previews through the authenticated Gateway, and limits MCP access to non-destructive design tools. It does not delegate model runs or silently replace the model selected in OpenClaw.
+
+See [Lumina Design and OpenDesign](docs/LUMINA_OPEN_DESIGN.md) for installation, architecture, security policy, validation, and troubleshooting.
 
 ```bash
 # macOS / Linux / WSL2

@@ -7,7 +7,11 @@ import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/c
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import { getLogbookState, stopLogbookPolling } from "./logbook-controller.ts";
 import { renderLogbook } from "./logbook-view.ts";
-import { PluginPage } from "./plugin-page.ts";
+import {
+  PluginPage,
+  resolveLuminaDesignHostMethod,
+  resolvePluginTabSandbox,
+} from "./plugin-page.ts";
 
 type TestBundledView = {
   render: (props: Parameters<typeof renderLogbook>[0]) => unknown;
@@ -158,6 +162,21 @@ describe("PluginPage", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("grants same-origin only to the bundled Lumina Design tab", () => {
+    expect(resolvePluginTabSandbox("lumina-open-design", "design", "scripts")).toBe(
+      "allow-scripts allow-same-origin allow-forms",
+    );
+    expect(resolvePluginTabSandbox("external-plugin", "panel", "scripts")).toBe("allow-scripts");
+    expect(resolvePluginTabSandbox("external-plugin", "panel", "strict")).toBe("");
+  });
+
+  it("limits the Lumina Design frame bridge to known write methods", () => {
+    expect(resolveLuminaDesignHostMethod("create")).toBe("lumina.openDesign.create");
+    expect(resolveLuminaDesignHostMethod("studio")).toBe("lumina.openDesign.studio");
+    expect(resolveLuminaDesignHostMethod("delete")).toBeNull();
+    expect(resolveLuminaDesignHostMethod({ action: "create" })).toBeNull();
   });
 
   it("refreshes parent auth before mounting an external plugin frame", async () => {

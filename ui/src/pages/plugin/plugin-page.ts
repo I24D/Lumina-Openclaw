@@ -82,6 +82,30 @@ function pluginFrameGrantCoversTab(
 
 const EXTERNAL_AUTH_REFRESH_TIMEOUT_MS = 10_000;
 const EXTERNAL_AUTH_PROBE_TIMEOUT_MS = 5_000;
+const TRUSTED_SAME_ORIGIN_TABS = new Set(["lumina-open-design/design"]);
+
+export function resolveLuminaDesignHostMethod(action: unknown): string | null {
+  if (action === "create") {
+    return "lumina.openDesign.create";
+  }
+  if (action === "studio") {
+    return "lumina.openDesign.studio";
+  }
+  return null;
+}
+
+export function resolvePluginTabSandbox(
+  pluginId: string,
+  tabId: string,
+  mode: Parameters<typeof resolveEmbedSandbox>[0],
+): string {
+  // Lumina Design is a bundled, authenticated operator surface. It needs
+  // same-origin access to call its route-scoped Gateway API from the frame.
+  if (TRUSTED_SAME_ORIGIN_TABS.has(`${pluginId}/${tabId}`)) {
+    return `${resolveEmbedSandbox("trusted")} allow-forms`;
+  }
+  return resolveEmbedSandbox(mode);
+}
 
 // Keyed by pluginId/tabId: tab ids are only unique within their plugin.
 const BUNDLED_TAB_VIEWS: Record<string, () => Promise<BundledPluginTabView>> = {
@@ -145,13 +169,57 @@ export class PluginPage extends OpenClawLightDomContentsElement {
     this.refreshExternalTabAuth(this.externalAuthTargetKey);
   };
 
+  private readonly handlePluginFrameMessage = (event: MessageEvent) => {
+    if (this.tabKey() !== "lumina-open-design/design" || event.origin !== window.location.origin) {
+      return;
+    }
+    const frame = this.querySelector("iframe");
+    if (!frame?.contentWindow || event.source !== frame.contentWindow) {
+      return;
+    }
+    const data = event.data;
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      return;
+    }
+    const request = data as { type?: unknown; id?: unknown; action?: unknown; payload?: unknown };
+    const method = resolveLuminaDesignHostMethod(request.action);
+    if (
+      request.type !== "lumina-open-design:request" ||
+      typeof request.id !== "string" ||
+      !/^[A-Za-z0-9-]{1,80}$/u.test(request.id) ||
+      !method
+    ) {
+      return;
+    }
+    const source = frame.contentWindow;
+    const respond = (message: Record<string, unknown>) => {
+      source.postMessage(
+        { type: "lumina-open-design:response", id: request.id, ...message },
+        event.origin,
+      );
+    };
+    const client = this.context?.gateway.snapshot.client;
+    if (!client || this.context?.gateway.snapshot.phase !== "connected") {
+      respond({ ok: false, error: "Gateway unavailable" });
+      return;
+    }
+    void client
+      .request(method, request.payload ?? {}, { timeoutMs: 30_000 })
+      .then((result) => respond({ ok: true, result }))
+      .catch((error: unknown) =>
+        respond({ ok: false, error: error instanceof Error ? error.message : String(error) }),
+      );
+  };
+
   override connectedCallback() {
     super.connectedCallback();
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    window.addEventListener("message", this.handlePluginFrameMessage);
   }
 
   override disconnectedCallback() {
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    window.removeEventListener("message", this.handlePluginFrameMessage);
     this.clearExternalTabAuth();
     this.subscriptions.clear();
     this.stopBundledView();
@@ -644,7 +712,11 @@ export class PluginPage extends OpenClawLightDomContentsElement {
             class="plugin-tab-embed__frame"
             src=${info.path}
             title=${info.label}
-            sandbox=${resolveEmbedSandbox(context.config.current.embedSandboxMode)}
+            sandbox=${resolvePluginTabSandbox(
+              this.pluginId,
+              this.tabId,
+              context.config.current.embedSandboxMode,
+            )}
           ></iframe>
         </section>
       `;
