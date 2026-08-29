@@ -41,7 +41,7 @@ Lumina focus:
 - Supabase, memory-wiki, SQL, conversation archive, and health checks form the persistent operational base.
 - WhatsApp and local gateway flows are first-class Lumina surfaces.
 - Diagnostics, Prometheus/OpenTelemetry, QA lab, and workboard visibility are treated as core development concerns.
-- The authenticated **Diseño** workspace connects Lumina to local OpenDesign projects while keeping the active OpenClaw model in control.
+- The authenticated **Diseño** workspace opens in its own browser window and connects Lumina to local OpenDesign projects while keeping the active OpenClaw model in control.
 
 ### Lumina Design with OpenDesign
 

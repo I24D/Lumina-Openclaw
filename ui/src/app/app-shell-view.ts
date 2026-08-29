@@ -29,7 +29,7 @@ import { pluginTabKey, pluginTabRefFromSearch } from "../pages/plugin/route.ts";
 import type { ShellRouteState } from "./app-host-route-state.ts";
 import { renderCommandPaletteLoading } from "./app-shell-command-palette-loading.ts";
 import type { OutboxStoreRuntime, StoredOutboxScopeHost } from "./app-shell-gateway.ts";
-import { prepareTalkWindowShellClass } from "./app-shell-talk-window.ts";
+import { prepareDetachedWindowShellClass } from "./app-shell-talk-window.ts";
 import type { ApplicationRuntime } from "./bootstrap.ts";
 import type { ApplicationContext, ApplicationNavigationOptions } from "./context.ts";
 import { resolveControlUiAuthToken } from "./control-ui-auth.ts";
@@ -240,7 +240,7 @@ export function renderApplicationShell(host: ShellViewHost) {
     canCallGatewayMethod(gatewaySnapshot, "openclaw.chat", "operator.admin");
   const lazyElementState = host.lazyCustomElements.visibleState;
   const activeRoute = host.routeState.routeId ?? "chat";
-  const talkWindowClass = prepareTalkWindowShellClass(host.routeState);
+  const detachedWindowClass = prepareDetachedWindowShellClass(host.routeState);
   const sessionRoute = isSessionRouteId(activeRoute);
   // Chat has an offline outbox, New Session keeps a local draft, and Appearance
   // persists local preference intent for replay. Their server actions are
@@ -465,7 +465,7 @@ export function renderApplicationShell(host: ShellViewHost) {
         ></openclaw-keyboard-shortcuts-dialog>`
       : nothing}
     <div
-      class="shell ${chatLikeRoute ? "shell--chat" : ""}${talkWindowClass} ${navCollapsed
+      class="shell ${chatLikeRoute ? "shell--chat" : ""}${detachedWindowClass} ${navCollapsed
         ? "shell--nav-collapsed"
         : ""} ${mobileNavLayout ? "shell--mobile-nav" : ""} ${mergedChatChrome
         ? "shell--merged-chat-chrome"

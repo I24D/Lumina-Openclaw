@@ -114,6 +114,8 @@ export type PluginControlUiDescriptor = {
   group?: PluginControlUiTabGroup;
   /** Sort order among plugin tabs; lower renders first. */
   order?: number;
+  /** Open this tab in a detached Control UI window instead of replacing the current page. */
+  openInNewWindow?: boolean;
 };
 
 export type PluginSessionActionContext = {

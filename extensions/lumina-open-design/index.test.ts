@@ -21,6 +21,7 @@ describe("lumina-open-design plugin", () => {
       expect.objectContaining({
         id: "design",
         label: "Diseño",
+        openInNewWindow: true,
         path: "/plugins/lumina-open-design",
       }),
     );

@@ -1,7 +1,11 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createLuminaOpenDesignHttpHandler } from "./http.js";
+import {
+  createLuminaOpenDesignHttpHandler,
+  type GatewayRequest,
+  type GatewayRequestOptions,
+} from "./http.js";
 
 const servers: ReturnType<typeof createServer>[] = [];
 
@@ -84,7 +88,18 @@ describe("lumina-open-design HTTP surface", () => {
 
   it("creates a project and sends the brief to Lumina without delegated runs", async () => {
     const runtime = runtimeMock();
-    const gatewayRequest = vi.fn(async () => ({ runId: "run-1", status: "started" }));
+    const gatewayRequestMock = vi.fn(
+      async (
+        _method: string,
+        _params?: Record<string, unknown>,
+        _options?: GatewayRequestOptions,
+      ) => ({ runId: "run-1", status: "started" }),
+    );
+    const gatewayRequest: GatewayRequest = async <T>(
+      method: string,
+      params?: Record<string, unknown>,
+      options?: GatewayRequestOptions,
+    ) => (await gatewayRequestMock(method, params, options)) as T;
     const base = await serve(
       createLuminaOpenDesignHttpHandler({
         runtime: runtime as never,
@@ -105,7 +120,7 @@ describe("lumina-open-design HTTP surface", () => {
     });
     expect(response.status).toBe(202);
     expect(await response.json()).toMatchObject({ projectId: "launch-board", runId: "run-1" });
-    expect(gatewayRequest).toHaveBeenCalledWith(
+    expect(gatewayRequestMock).toHaveBeenCalledWith(
       "chat.send",
       expect.objectContaining({
         sessionKey: "agent:main:main",

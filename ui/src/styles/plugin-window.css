@@ -1,0 +1,40 @@
+/* Loaded only for plugin tabs intentionally opened in a detached browser window. */
+.shell--plugin-window {
+  --shell-nav-width: 0px;
+  --shell-topbar-height: 0px;
+  grid-template-columns: 0 minmax(0, 1fr);
+  grid-template-rows: 0 1fr;
+  background: var(--background);
+}
+
+.shell--plugin-window .topbar,
+.shell--plugin-window .shell-nav,
+.shell--plugin-window .shell-nav-backdrop,
+.shell--plugin-window .sidebar-resizer,
+.shell--plugin-window .shell-chrome-controls,
+.shell--plugin-window .sidebar-update-card--floating,
+.shell--plugin-window openclaw-terminal-panel,
+.shell--plugin-window openclaw-browser-panel,
+.shell--plugin-window openclaw-desktop-panel,
+.shell--plugin-window openclaw-custodian-panel {
+  display: none !important;
+}
+
+.shell--plugin-window .content {
+  grid-area: content;
+  min-width: 0;
+  min-height: 100dvh;
+  padding: 0;
+  background: var(--background);
+}
+
+.shell--plugin-window .content > openclaw-router-outlet,
+.shell--plugin-window .plugin-tab-embed,
+.shell--plugin-window .plugin-tab-embed__frame {
+  min-height: 100dvh;
+  height: 100dvh;
+}
+
+.shell--plugin-window .plugin-tab-embed__frame {
+  border-radius: 0;
+}

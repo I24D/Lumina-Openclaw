@@ -109,6 +109,7 @@ export const HelloOkSchema = closedObject({
         requiresGatewayAuth: Type.Optional(Type.Boolean()),
         group: Type.Optional(Type.Union([Type.Literal("control"), Type.Literal("agent")])),
         order: Type.Optional(Type.Number()),
+        openInNewWindow: Type.Optional(Type.Boolean()),
       }),
     ),
   ),

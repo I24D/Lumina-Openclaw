@@ -272,6 +272,52 @@ describe("AppSidebar interleaved zone", () => {
     expect(sidebar.querySelector('[data-sidebar-entry="plugin:logbook/logbook"]')).toBeNull();
   });
 
+  it("opens detached plugin tabs in a separate browser window", async () => {
+    const gateway = createGatewayHarness({} as GatewayBrowserClient);
+    const sessions = createSessionsHarness("main", ["agent:main:main"]);
+    const { sidebar } = await mountSidebar(gateway.gateway, sessions.sessions);
+    const opened = {
+      location: { href: "about:blank" },
+      focus: vi.fn(),
+      opener: window,
+    };
+    const open = vi.spyOn(window, "open").mockReturnValue(opened as unknown as Window);
+
+    gateway.publish({
+      hello: {
+        type: "hello-ok",
+        protocol: 1,
+        auth: { role: "operator", scopes: ["operator.write"] },
+        controlUiTabs: [
+          {
+            group: "control",
+            id: "design",
+            label: "Diseño",
+            openInNewWindow: true,
+            pluginId: "lumina-open-design",
+          },
+        ],
+      },
+    });
+    await sidebar.updateComplete;
+
+    const entry = sidebar.querySelector<HTMLAnchorElement>(
+      '[data-sidebar-entry="plugin:lumina-open-design/design"] > .nav-item',
+    );
+    expect(entry?.target).toBe("_blank");
+    expect(entry?.getAttribute("href")).toBe(
+      "/plugin?plugin=lumina-open-design&id=design&pluginWindow=1",
+    );
+    entry?.click();
+
+    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
+    expect(opened.opener).toBeNull();
+    expect(opened.location.href).toContain(
+      "/plugin?plugin=lumina-open-design&id=design&pluginWindow=1",
+    );
+    expect(opened.focus).toHaveBeenCalledOnce();
+  });
+
   it("routes active native plugin tabs to their app page and hides inactive tabs", async () => {
     const gateway = createGatewayHarness({} as GatewayBrowserClient);
     const sessions = createSessionsHarness("main", ["agent:main:main"]);

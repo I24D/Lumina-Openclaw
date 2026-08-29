@@ -23,6 +23,7 @@ type ControlUiPluginTab = {
   placement?: string;
   group?: "control" | "agent";
   order?: number;
+  openInNewWindow?: boolean;
   requiresGatewayAuth?: boolean;
 };
 
@@ -99,6 +100,7 @@ function projectControlUiPluginTabs(
       placement: descriptor.placement,
       group: descriptor.group,
       order: descriptor.order,
+      openInNewWindow: descriptor.openInNewWindow,
     });
   }
   // Deterministic ordering keeps hello payloads stable across connects.

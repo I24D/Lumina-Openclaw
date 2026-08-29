@@ -385,6 +385,7 @@ export function createHostRegistrars(state: PluginRegistryState) {
       typeof descriptor.order === "number" && Number.isFinite(descriptor.order)
         ? descriptor.order
         : undefined;
+    const openInNewWindow = descriptor.openInNewWindow === true ? true : undefined;
     registry.controlUiDescriptors.push({
       pluginId: record.id,
       pluginName: record.name,
@@ -402,6 +403,7 @@ export function createHostRegistrars(state: PluginRegistryState) {
         path: tabPath,
         group,
         order,
+        openInNewWindow,
       },
       source: record.source,
       rootDir: record.rootDir,

@@ -4,7 +4,7 @@ Lumina Design is the visual creation workspace maintained by **DAL NIJARUQ** for
 
 ## What the integration provides
 
-- A dedicated **Diseño** tab in the Control UI.
+- A dedicated **Diseño** entry that opens a clean, independent browser window.
 - Persistent OpenDesign projects, artifacts, files, skills, and design systems.
 - Responsive previews on desktop and mobile through the authenticated Gateway.
 - One-click access to the native OpenDesign Studio on the Gateway PC.
@@ -16,6 +16,8 @@ Lumina Design is the visual creation workspace maintained by **DAL NIJARUQ** for
 The active OpenClaw model remains the design brain. Lumina Design never changes the configured model and never starts an OpenDesign delegated agent run.
 
 The MCP server is intentionally limited to discovery, project, artifact, and file-writing tools. Delegated run and destructive operations such as `start_run`, `cancel_run`, `delete_file`, and `delete_project` are excluded. OpenDesign listens on `127.0.0.1`; remote access stays behind the Gateway authentication and Tailscale configuration already used by Lumina.
+
+The embedded workspace uses the plugin-frame cookie only for authenticated, read-only previews. Project creation and Studio launch requests cross a narrow `postMessage` allowlist and are executed by the parent Control UI through its authenticated Gateway WebSocket. The bridge accepts only the exact Lumina Design frame, origin, and methods; it does not weaken Gateway HTTP authentication or grant generic plugin calls.
 
 ## Windows setup
 
@@ -36,10 +38,10 @@ Custom paths and the design session can be configured under `plugins.entries.lum
 
 1. The plugin checks `http://127.0.0.1:7456/api/health`.
 2. If needed, it launches OpenDesign's packaged daemon with Electron's Node runtime.
-3. The Diseño tab creates or selects a persistent project.
-4. A brief is sent to the configured Lumina session with an explicit no-delegation, preserve-current-model instruction.
+3. The Diseño entry opens a detached Control UI window and selects a persistent project or asks the authenticated bridge to create one.
+4. The bridge sends the brief to the configured Lumina session with an explicit no-delegation, preserve-current-model instruction.
 5. Lumina uses the allowed `open-design` MCP tools to create or update artifacts.
-6. Generated HTML, SVG, and Markdown files appear in the authenticated preview panel.
+6. Generated HTML, SVG, and Markdown files appear in the authenticated read-only preview panel.
 
 ## Validation
 

@@ -52,6 +52,7 @@ describe("plugin registry Control UI descriptors", () => {
           icon: "kanban",
           group: "control",
           order: 5,
+          openInNewWindow: true,
           requiredScopes: ["operator.read"],
         });
       },
@@ -68,6 +69,7 @@ describe("plugin registry Control UI descriptors", () => {
           icon: "kanban",
           group: "control",
           order: 5,
+          openInNewWindow: true,
           requiredScopes: ["operator.read"],
         }),
       }),

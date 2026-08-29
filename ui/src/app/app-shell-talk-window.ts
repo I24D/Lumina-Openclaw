@@ -1,4 +1,9 @@
 import type { ShellRouteState } from "./app-host-route-state.ts";
+import { preparePluginWindowShellClass } from "./app-shell-plugin-window.ts";
+
+export function prepareDetachedWindowShellClass(routeState: ShellRouteState): string {
+  return `${prepareTalkWindowShellClass(routeState)}${preparePluginWindowShellClass(routeState)}`;
+}
 
 export function prepareTalkWindowShellClass(routeState: ShellRouteState): string {
   const active =

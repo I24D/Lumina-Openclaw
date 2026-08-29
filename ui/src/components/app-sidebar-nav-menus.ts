@@ -17,6 +17,10 @@ import {
 import { pathForRoute } from "../app-route-paths.ts";
 import { t } from "../i18n/index.ts";
 import { shouldHandleNavigationClick } from "../lib/navigation-click.ts";
+import {
+  reserveExternalWindowForDeferredNavigation,
+  resolveSafeExternalUrl,
+} from "../lib/open-external-url.ts";
 import { pluginTabSearch } from "../pages/plugin/route.ts";
 import type { SidebarWorkboardBoard, SidebarWorkboardRenderers } from "./app-sidebar-workboard.ts";
 import { icons, type IconName } from "./icons.ts";
@@ -96,12 +100,17 @@ export function renderSidebarPluginTab(params: {
   onNavigate: (search: string) => void;
 }) {
   const search = pluginTabSearch({ pluginId: params.tab.pluginId, id: params.tab.id });
+  const routeHref = `${pathForRoute("plugin", params.basePath)}${search}`;
+  const href = params.tab.openInNewWindow ? `${routeHref}&pluginWindow=1` : routeHref;
   const iconName = Object.hasOwn(icons, params.tab.icon!)
     ? (params.tab.icon as IconName)
     : "puzzle";
   return html`
     <a
-      href=${`${pathForRoute("plugin", params.basePath)}${search}`}
+      href=${href}
+      target=${params.tab.openInNewWindow ? "_blank" : nothing}
+      rel=${params.tab.openInNewWindow ? "noopener noreferrer" : nothing}
+      data-new-tab-action=${params.tab.openInNewWindow ? "" : nothing}
       class="nav-item ${params.active ? "nav-item--active" : ""}"
       aria-current=${params.active ? "page" : nothing}
       @click=${(event: MouseEvent) => {
@@ -109,6 +118,20 @@ export function renderSidebarPluginTab(params: {
           return;
         }
         event.preventDefault();
+        if (params.tab.openInNewWindow) {
+          const safeUrl = resolveSafeExternalUrl(href, window.location.href);
+          if (!safeUrl) {
+            return;
+          }
+          const opened = reserveExternalWindowForDeferredNavigation();
+          if (opened) {
+            opened.location.href = safeUrl;
+            opened.focus();
+          } else {
+            window.location.assign(safeUrl);
+          }
+          return;
+        }
         params.onNavigate(search);
       }}
     >

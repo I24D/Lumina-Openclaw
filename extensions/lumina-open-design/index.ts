@@ -71,6 +71,7 @@ export default definePluginEntry({
       icon: "palette",
       group: "control",
       order: 35,
+      openInNewWindow: true,
       path: LUMINA_OPEN_DESIGN_BASE_PATH,
       requiredScopes: ["operator.write"],
     });
