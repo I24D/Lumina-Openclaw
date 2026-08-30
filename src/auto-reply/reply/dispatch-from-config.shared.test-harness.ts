@@ -65,7 +65,7 @@ const globalMocks = vi.hoisted(() => ({
   logVerbose: vi.fn(),
 }));
 const askUserMocks = vi.hoisted(() => ({
-  isAskUserPromptPending: vi.fn(async () => true),
+  isAskUserPromptPending: vi.fn(async (_questionId: string) => true),
 }));
 const diagnosticMocks = vi.hoisted(() => ({
   logMessageDispatchCompleted: vi.fn(),
@@ -542,6 +542,8 @@ vi.mock("../../config/sessions/session-accessor.js", async (importOriginal) => {
     ...actual,
     loadSessionEntry: (...args: unknown[]) => sessionStoreMocks.loadSessionEntry(...args),
     loadSessionEntryReadOnly: (...args: unknown[]) => sessionStoreMocks.loadSessionEntry(...args),
+    patchSessionEntryCore: (...args: Parameters<typeof sessionStoreMocks.updateSessionEntry>) =>
+      sessionStoreMocks.updateSessionEntry(...args),
     updateSessionEntry: (...args: Parameters<typeof sessionStoreMocks.updateSessionEntry>) =>
       sessionStoreMocks.updateSessionEntry(...args),
   };

@@ -198,7 +198,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // -1: retire the deprecated messaging-targets subpath.
       // +2: bounded provider streams and read-only SecretRef resolution.
       // +1: read-only authoritative conversation-binding inspection for route-owner plugins.
-      147,
+      // +1: diagnostic flag checks without event, trace, or redaction initialization.
+      148,
       env,
     ),
     publicExports: readPluginSdkSurfaceBudgetEnv(
@@ -328,6 +329,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: prepared model-provider builder preserves the stable builder's return contract.
       // +1: canonical SecretRef default-alias predicate for plugin binding parity.
       // +2: strict session-agent resolution aliases preserve shipped Plugin SDK behavior.
+      // +1: manifest-owned plugin capability secret availability guard.
+      // +1: canonical diagnostic flag checker through its focused subpath.
       4355,
       env,
     ),
@@ -433,7 +436,9 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: prepared model-provider builder preserves the stable builder's return contract.
       // +1: canonical SecretRef default-alias predicate for plugin binding parity.
       // +2: strict session-agent resolution aliases preserve shipped Plugin SDK behavior.
-      2591,
+      // +1: manifest-owned plugin capability secret availability guard.
+      // +1: canonical diagnostic flag checker through its focused subpath.
+      2592,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(

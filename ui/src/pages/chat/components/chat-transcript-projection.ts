@@ -7,7 +7,6 @@ import type { ChatItem, MessageGroup } from "../../../lib/chat/chat-types.ts";
 import { extractTextCached } from "../../../lib/chat/message-extract.ts";
 import { normalizeMessage } from "../../../lib/chat/message-normalizer.ts";
 import {
-  areUiSessionKeysEquivalent,
   isUiGlobalScopeConfigured,
   parseAgentSessionKey,
   resolveUiGlobalAliasAgentId,
@@ -19,6 +18,7 @@ import {
   agentRunFrameGroups,
   assistantMessageExpansionSignature,
   buildCachedChatItems,
+  collectToolTitleCandidates,
   coalesceAgentRunFrames,
   coalesceActivityRuns,
   coalesceStreamRuns,
@@ -31,7 +31,7 @@ import {
   setExpansionState,
   syncToolCardExpansionState,
 } from "../chat-thread.ts";
-import { getToolTitlesVersion } from "../tool-titles.ts";
+import { getToolTitlesVersion, scheduleToolTitlesForTranscript } from "../tool-titles.ts";
 import { renderAgentRunFrame } from "./chat-agent-run-frame.ts";
 import { renderBackgroundTasksStatusRow } from "./chat-background-tasks-status.ts";
 import { renderChatDivider, renderChatNotice } from "./chat-divider.ts";
@@ -54,12 +54,12 @@ import {
 } from "./chat-thread-interactions.ts";
 import { renderBrowserTabPreviews } from "./chat-tool-cards.ts";
 import { latestTranscriptAnnouncement } from "./chat-transcript-announcement.ts";
-import type { ChatTranscriptSession } from "./chat-transcript-controller.ts";
 import type { TranscriptRow } from "./chat-transcript-layout.ts";
 import {
   guardChatRenderItems,
   trackTranscriptRenderDependencies,
 } from "./chat-transcript-render-guard.ts";
+import type { ChatTranscriptSession, TranscriptHeader } from "./chat-transcript-session.ts";
 import { renderChatTypingIndicator } from "./chat-typing-indicator.ts";
 import { resolveAssistantDisplayAvatar } from "./chat-welcome.ts";
 import { renderTurnRecapRow } from "./chat-working-indicator.ts";
@@ -69,7 +69,7 @@ type ChatTranscriptProjection = {
   isEmpty: boolean;
   showLoadingSkeleton: boolean;
   searchOpen: boolean;
-  renderRows: (overlay?: unknown) => TemplateResult;
+  renderRows: (overlay?: unknown, header?: TranscriptHeader | null) => TemplateResult;
 };
 
 type ChatRenderItem = ReturnType<typeof coalesceAgentRunFrames>[number];
@@ -117,15 +117,9 @@ export function projectChatTranscript(
   const requestUpdate = props.onRequestUpdate ?? (() => {});
   const displayStream = props.stream ?? null;
   const sessionHost = props.sessionHost ?? null;
-  // Equivalence, not exact match: the default session travels under alias
-  // keys ("main" vs "agent:main:main") depending on the caller.
-  const activeSession = props.sessions?.sessions?.find((row) =>
-    areUiSessionKeysEquivalent(row.key, props.sessionKey),
-  );
-  // Global-alias detection needs no session row: under configured global
-  // scope, agent:<id>:global and configured-main aliases route to the global
-  // stream even when the capped sessions list omits the canonical row (or it
-  // does not exist yet). The scope gate keeps per-sender main threads direct.
+  const activeSession = props.selectedSession;
+  // Global-alias routing ignores the capped session list, which may omit the
+  // canonical row. The scope gate keeps per-sender main threads direct.
   const isGlobalAliasKey =
     parseAgentSessionKey(props.sessionKey)?.rest === "global" ||
     (sessionHost !== null &&
@@ -165,6 +159,7 @@ export function projectChatTranscript(
     stream: displayStream,
     streamStartedAt: props.streamStartedAt,
     queue: props.queue,
+    pendingInputs: props.pendingInputs,
     showToolCalls: props.showToolCalls,
     persistCommentary: props.persistCommentary,
     runWorking: Boolean(props.runWorking),
@@ -174,6 +169,9 @@ export function projectChatTranscript(
     searchOpen: state.searchOpen,
     searchQuery: state.searchQuery,
   });
+  if (props.showToolCalls && !searchFiltering) {
+    scheduleToolTitlesForTranscript(collectToolTitleCandidates(chatItems));
+  }
   const latestBrowserTabs =
     props.browserTabPreviewsActive === false
       ? latestBrowserTabCards([], [])
@@ -645,6 +643,7 @@ export function projectChatTranscript(
     getToolTitlesVersion(),
     JSON.stringify([...latestBrowserTabs]),
     props.sessionKey,
+    props.selectedSession,
     props.boardProvider,
     props.boardProvider?.canPinWidgets,
     props.boardProvider?.canPinMcpApps,
@@ -700,13 +699,14 @@ export function projectChatTranscript(
     isEmpty,
     showLoadingSkeleton,
     searchOpen: state.searchOpen,
-    renderRows: (overlay: unknown = nothing) =>
+    renderRows: (overlay: unknown = nothing, header: TranscriptHeader | null = null) =>
       transcript.render(
         transcriptRows,
         (row) => (row.kind === "item" ? renderItem(row.item) : row.content),
         latestTranscriptAnnouncement(collapsedItems),
         props.announceTranscript !== false && !state.searchOpen && !props.loading,
         overlay,
+        header,
       ),
   };
 }

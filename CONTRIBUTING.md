@@ -75,6 +75,9 @@ Use Node.js 24.15 or newer when possible. The project also supports Node.js
 
 ### 4. Validate the change
 
+Built with Codex, Claude, or other AI tools? **Welcome!** No AI-assistance
+label or disclosure is required.
+
 Run the narrowest relevant tests while developing, then broaden validation in
 proportion to the change:
 
@@ -87,7 +90,10 @@ pnpm build
 For UI changes, include before-and-after screenshots and verify the relevant
 desktop and mobile layouts. For extension changes, run
 `pnpm test:extension <extension-name>` first. Never alter tests only to hide a
-real failure.
+real failure. Confirm you understand what the code does.
+
+AI PRs are first-class citizens here and follow the same quality and review
+standards as any other PR.
 
 ### 5. Open the pull request
 
