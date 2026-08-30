@@ -60,6 +60,40 @@ function runtimeMock() {
       return Response.json({ files: [] });
     }),
     launchDesktop: vi.fn(),
+    gatewayChatCompletions: vi.fn(async () =>
+      Response.json({
+        id: "chat-1",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              tool_calls: [
+                {
+                  id: "call-1",
+                  type: "function",
+                  function: { name: "odc_0_read", arguments: "{}" },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+      }),
+    ),
+    integrationStatus: vi.fn(() => ({
+      configured: true,
+      connected: true,
+      agentId: "opencode",
+      model: "lumina/openclaw/design",
+      baseUrl: "http://127.0.0.1:18789/plugins/lumina-open-design/openai/v1",
+    })),
+    syncGatewayAgent: vi.fn(async () => ({
+      configured: true,
+      connected: true,
+      agentId: "opencode",
+      model: "lumina/openclaw/design",
+      baseUrl: "http://127.0.0.1:18789/plugins/lumina-open-design/openai/v1",
+    })),
   };
 }
 
@@ -130,6 +164,47 @@ describe("lumina-open-design HTTP surface", () => {
         ),
       }),
       expect.objectContaining({ scopes: ["operator.write"] }),
+    );
+  });
+
+  it("bridges OpenCode tools to the dedicated OpenClaw design agent", async () => {
+    const runtime = runtimeMock();
+    const base = await serve(
+      createLuminaOpenDesignHttpHandler({
+        runtime: runtime as never,
+        sessionKey: "agent:main:main",
+        gatewayRequest: vi.fn(),
+      }),
+    );
+
+    const response = await fetch(`${base}/plugins/lumina-open-design/openai/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "ignored-by-bridge",
+        messages: [{ role: "user", content: "Inspect the project." }],
+        tools: [
+          {
+            type: "function",
+            function: { name: "read", description: "Read a file", parameters: {} },
+          },
+        ],
+      }),
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      choices?: Array<{ message?: { tool_calls?: Array<{ function?: { name?: string } }> } }>;
+    };
+    expect(body.choices?.[0]?.message?.tool_calls?.[0]?.function?.name).toBe("read");
+    expect(runtime.gatewayChatCompletions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "openclaw/design",
+        tools: [
+          expect.objectContaining({
+            function: expect.objectContaining({ name: "odc_0_read" }),
+          }),
+        ],
+      }),
     );
   });
 });

@@ -6,6 +6,7 @@ export type LuminaOpenDesignSettings = {
   cliPath: string;
   resourceRoot: string;
   dataDir: string;
+  desktopNamespace: string;
   autoStart: boolean;
   sessionKey: string;
   startupTimeoutMs: number;
@@ -36,6 +37,8 @@ export function resolveLuminaOpenDesignSettings(
   );
   const installRoot = path.join(localAppData, "Programs", "Open Design");
   const appRoot = path.join(installRoot, "resources", "app");
+  const appData = stringValue(env.APPDATA, path.join(env.USERPROFILE ?? "", "AppData", "Roaming"));
+  const desktopNamespace = stringValue(config.desktopNamespace, "release-stable-win");
   const daemonUrl = stringValue(config.daemonUrl, "http://127.0.0.1:7456");
   const parsed = new URL(daemonUrl);
   if (
@@ -55,7 +58,11 @@ export function resolveLuminaOpenDesignSettings(
       config.resourceRoot,
       path.join(installRoot, "resources", "open-design"),
     ),
-    dataDir: path.join(appRoot, "prebundled", ".od"),
+    dataDir: stringValue(
+      config.dataDir,
+      path.join(appData, "Open Design", "namespaces", desktopNamespace, "data"),
+    ),
+    desktopNamespace,
     autoStart: config.autoStart !== false,
     sessionKey: stringValue(config.sessionKey, "agent:main:main"),
     startupTimeoutMs: Math.min(

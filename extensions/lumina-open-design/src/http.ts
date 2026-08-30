@@ -5,7 +5,9 @@ import type { LuminaOpenDesignRuntime } from "./runtime.js";
 import { LUMINA_OPEN_DESIGN_BASE_PATH, renderLuminaOpenDesignUi } from "./ui.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
+const MAX_OPENAI_BODY_BYTES = 20 * 1024 * 1024;
 const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/u;
+const OPENCLAW_DESIGN_MODEL = "openclaw/design";
 
 // Mirrors the trusted plugin runtime's own options so the scope union stays
 // identical; a local `string[]` would not satisfy `OperatorScope[]`.
@@ -54,13 +56,16 @@ function sendHtml(res: ServerResponse, body: string): void {
   res.end(body);
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJsonBody(
+  req: IncomingMessage,
+  maxBytes = MAX_BODY_BYTES,
+): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > MAX_BODY_BYTES) {
+    if (size > maxBytes) {
       throw new Error("request body is too large");
     }
     chunks.push(buffer);
@@ -71,6 +76,162 @@ async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknow
     throw new Error("request body must be a JSON object");
   }
   return parsed as Record<string, unknown>;
+}
+
+type ToolNameBridge = {
+  toClient: Map<string, string>;
+  toUpstream: Map<string, string>;
+};
+
+function toolFunction(entry: unknown): Record<string, unknown> | null {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return null;
+  }
+  const fn = (entry as Record<string, unknown>).function;
+  return fn && typeof fn === "object" && !Array.isArray(fn)
+    ? (fn as Record<string, unknown>)
+    : null;
+}
+
+function bridgeToolNames(payload: Record<string, unknown>): ToolNameBridge {
+  const bridge: ToolNameBridge = { toClient: new Map(), toUpstream: new Map() };
+  const tools = Array.isArray(payload.tools) ? payload.tools : [];
+  tools.forEach((tool, index) => {
+    const fn = toolFunction(tool);
+    const clientName = typeof fn?.name === "string" ? fn.name.trim() : "";
+    if (!fn || !clientName) {
+      return;
+    }
+    const safeName = clientName.replace(/[^A-Za-z0-9_-]/gu, "_").slice(0, 48) || "tool";
+    const upstreamName = `odc_${index}_${safeName}`;
+    bridge.toClient.set(upstreamName, clientName);
+    bridge.toUpstream.set(clientName, upstreamName);
+    fn.name = upstreamName;
+  });
+
+  const rewriteFunctionName = (entry: unknown) => {
+    const fn = toolFunction(entry);
+    if (fn && typeof fn.name === "string") {
+      fn.name = bridge.toUpstream.get(fn.name) ?? fn.name;
+    }
+  };
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  for (const message of messages) {
+    if (!message || typeof message !== "object" || Array.isArray(message)) {
+      continue;
+    }
+    const record = message as Record<string, unknown>;
+    if (Array.isArray(record.tool_calls)) {
+      record.tool_calls.forEach(rewriteFunctionName);
+    }
+    if (typeof record.name === "string") {
+      record.name = bridge.toUpstream.get(record.name) ?? record.name;
+    }
+  }
+  rewriteFunctionName(payload.tool_choice);
+  payload.model = OPENCLAW_DESIGN_MODEL;
+  return bridge;
+}
+
+function restoreToolNames(payload: unknown, bridge: ToolNameBridge): void {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return;
+  }
+  const choices = Array.isArray((payload as Record<string, unknown>).choices)
+    ? ((payload as Record<string, unknown>).choices as unknown[])
+    : [];
+  for (const choice of choices) {
+    if (!choice || typeof choice !== "object" || Array.isArray(choice)) {
+      continue;
+    }
+    const choiceRecord = choice as Record<string, unknown>;
+    for (const container of [choiceRecord.message, choiceRecord.delta]) {
+      if (!container || typeof container !== "object" || Array.isArray(container)) {
+        continue;
+      }
+      const toolCalls = (container as Record<string, unknown>).tool_calls;
+      if (!Array.isArray(toolCalls)) {
+        continue;
+      }
+      for (const call of toolCalls) {
+        const fn = toolFunction(call);
+        if (fn && typeof fn.name === "string") {
+          fn.name = bridge.toClient.get(fn.name) ?? fn.name;
+        }
+      }
+    }
+  }
+}
+
+function rewriteSseLine(line: string, bridge: ToolNameBridge): string {
+  if (!line.startsWith("data:")) {
+    return line;
+  }
+  const data = line.slice(5).trimStart();
+  if (!data || data === "[DONE]") {
+    return line;
+  }
+  try {
+    const payload = JSON.parse(data) as unknown;
+    restoreToolNames(payload, bridge);
+    return `data: ${JSON.stringify(payload)}`;
+  } catch {
+    return line;
+  }
+}
+
+async function proxyOpenAiChat(
+  runtime: LuminaOpenDesignRuntime,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const payload = await readJsonBody(req, MAX_OPENAI_BODY_BYTES);
+  const bridge = bridgeToolNames(payload);
+  const upstream = await runtime.gatewayChatCompletions(payload);
+  const contentType = upstream.headers.get("content-type") ?? "application/json; charset=utf-8";
+  if (!contentType.includes("text/event-stream") || !upstream.body) {
+    const raw = await upstream.text();
+    let body = raw;
+    try {
+      const parsed = raw ? (JSON.parse(raw) as unknown) : {};
+      restoreToolNames(parsed, bridge);
+      body = JSON.stringify(parsed);
+    } catch {
+      // Preserve non-JSON upstream diagnostics.
+    }
+    res.writeHead(upstream.status, {
+      "cache-control": "no-store",
+      "content-length": Buffer.byteLength(body),
+      "content-type": contentType,
+    });
+    res.end(body);
+    return;
+  }
+
+  res.writeHead(upstream.status, {
+    "cache-control": "no-store",
+    connection: "keep-alive",
+    "content-type": contentType,
+  });
+  const reader = upstream.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = "";
+  while (true) {
+    const chunk = await reader.read();
+    pending += decoder.decode(chunk.value, { stream: !chunk.done });
+    const lines = pending.split("\n");
+    pending = chunk.done ? "" : (lines.pop() ?? "");
+    for (const line of lines) {
+      res.write(`${rewriteSseLine(line.replace(/\r$/u, ""), bridge)}\n`);
+    }
+    if (chunk.done) {
+      if (pending) {
+        res.write(rewriteSseLine(pending, bridge));
+      }
+      break;
+    }
+  }
+  res.end();
 }
 
 async function daemonJson(runtime: LuminaOpenDesignRuntime, pathname: string, init?: RequestInit) {
@@ -261,7 +422,31 @@ export function createLuminaOpenDesignHttpHandler(deps: LuminaOpenDesignDeps) {
         return true;
       }
       if (req.method === "GET" && route === "/api/status") {
-        sendJson(res, 200, await deps.runtime.ensureReady());
+        sendJson(res, 200, {
+          ...(await deps.runtime.ensureReady()),
+          integration: deps.runtime.integrationStatus(),
+        });
+        return true;
+      }
+      if (req.method === "POST" && route === "/api/integration/sync") {
+        sendJson(res, 200, await deps.runtime.syncGatewayAgent());
+        return true;
+      }
+      if (req.method === "GET" && route === "/openai/v1/models") {
+        sendJson(res, 200, {
+          object: "list",
+          data: [
+            {
+              id: OPENCLAW_DESIGN_MODEL,
+              object: "model",
+              owned_by: "lumina-openclaw",
+            },
+          ],
+        });
+        return true;
+      }
+      if (req.method === "POST" && route === "/openai/v1/chat/completions") {
+        await proxyOpenAiChat(deps.runtime, req, res);
         return true;
       }
       if (req.method === "GET" && route === "/api/projects") {
@@ -304,13 +489,36 @@ export function createLuminaOpenDesignHttpHandler(deps: LuminaOpenDesignDeps) {
         );
         return true;
       }
+      const projectConversations = route.match(/^\/api\/projects\/([^/]+)\/conversations$/u);
+      if (req.method === "GET" && projectConversations) {
+        const projectId = decodeURIComponent(projectConversations[1] ?? "");
+        if (!SAFE_ID.test(projectId)) {
+          sendJson(res, 400, { error: "invalid project id" });
+          return true;
+        }
+        sendJson(
+          res,
+          200,
+          await daemonJson(
+            deps.runtime,
+            `/api/projects/${encodeURIComponent(projectId)}/conversations`,
+          ),
+        );
+        return true;
+      }
       if (req.method === "POST" && route === "/api/design") {
         sendJson(res, 202, await submitLuminaOpenDesign(deps, await readJsonBody(req)));
         return true;
       }
       if (req.method === "POST" && route === "/api/studio") {
-        deps.runtime.launchDesktop();
-        sendJson(res, 202, { ok: true });
+        const body = await readJsonBody(req);
+        const projectId = text(body.projectId, 128) || undefined;
+        if (projectId && !SAFE_ID.test(projectId)) {
+          sendJson(res, 400, { error: "invalid project id" });
+          return true;
+        }
+        const status = await deps.runtime.launchDesktop(projectId);
+        sendJson(res, 202, { ok: true, projectId, source: status.source });
         return true;
       }
       if (req.method === "GET" && route.startsWith("/preview/")) {

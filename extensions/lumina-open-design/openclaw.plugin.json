@@ -20,6 +20,14 @@
     "resourceRoot": {
       "label": "OpenDesign resource root"
     },
+    "dataDir": {
+      "label": "OpenDesign shared data directory",
+      "help": "Persistent data directory shared with the installed OpenDesign Studio."
+    },
+    "desktopNamespace": {
+      "label": "OpenDesign desktop namespace",
+      "help": "Packaged Studio namespace used for IPC discovery."
+    },
     "autoStart": {
       "label": "Start OpenDesign with the Gateway"
     },
@@ -42,6 +50,12 @@
         "type": "string"
       },
       "resourceRoot": {
+        "type": "string"
+      },
+      "dataDir": {
+        "type": "string"
+      },
+      "desktopNamespace": {
         "type": "string"
       },
       "autoStart": {

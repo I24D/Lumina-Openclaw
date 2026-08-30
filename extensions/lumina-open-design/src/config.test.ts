@@ -7,6 +7,7 @@ describe("resolveLuminaOpenDesignSettings", () => {
     const settings = resolveLuminaOpenDesignSettings(
       {},
       {
+        APPDATA: "C:\\Users\\dal\\AppData\\Roaming",
         LOCALAPPDATA: "C:\\Users\\dal\\AppData\\Local",
         USERPROFILE: "C:\\Users\\dal",
       },
@@ -17,6 +18,16 @@ describe("resolveLuminaOpenDesignSettings", () => {
     );
     expect(settings.autoStart).toBe(true);
     expect(settings.sessionKey).toBe("agent:main:main");
+    expect(settings.dataDir).toBe(
+      path.join(
+        "C:\\Users\\dal\\AppData\\Roaming",
+        "Open Design",
+        "namespaces",
+        "release-stable-win",
+        "data",
+      ),
+    );
+    expect(settings.desktopNamespace).toBe("release-stable-win");
   });
 
   it("rejects a remote daemon URL", () => {

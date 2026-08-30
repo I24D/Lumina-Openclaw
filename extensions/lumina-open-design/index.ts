@@ -21,7 +21,21 @@ export default definePluginEntry({
   description: "OpenDesign workspace controlled by Lumina and the current OpenClaw model.",
   register(api) {
     const settings = resolveLuminaOpenDesignSettings(api.pluginConfig);
-    const runtime = new LuminaOpenDesignRuntime(settings, api.logger);
+    const liveConfig = api.runtime.config?.current?.() ?? api.config ?? {};
+    const gatewayPort = liveConfig.gateway?.port ?? 18789;
+    const configuredAuth = liveConfig.gateway?.auth;
+    const configuredSecret =
+      configuredAuth?.mode === "password" ? configuredAuth.password : configuredAuth?.token;
+    const bearerToken =
+      process.env.OPENCLAW_GATEWAY_TOKEN ??
+      process.env.OPENCLAW_GATEWAY_PASSWORD ??
+      (typeof configuredSecret === "string" ? configuredSecret : undefined);
+    const runtime = new LuminaOpenDesignRuntime(settings, api.logger, {
+      apiBaseUrl: `http://127.0.0.1:${gatewayPort}/v1`,
+      openAiProxyBaseUrl: `http://127.0.0.1:${gatewayPort}${LUMINA_OPEN_DESIGN_BASE_PATH}/openai/v1`,
+      bearerToken,
+    });
+    let integrationTimer: ReturnType<typeof setTimeout> | undefined;
     // Gateway handlers answer through `respond`; a returned value is dropped.
     const respondError = (respond: GatewayRequestHandlerOptions["respond"], err: unknown) => {
       const message = formatErrorMessage(err);
@@ -52,10 +66,14 @@ export default definePluginEntry({
     );
     api.registerGatewayMethod(
       "lumina.openDesign.studio",
-      ({ respond }) => {
+      async ({ params, respond }) => {
         try {
-          runtime.launchDesktop();
-          respond(true, { ok: true });
+          const projectId =
+            typeof params.projectId === "string" && params.projectId.trim()
+              ? params.projectId.trim()
+              : undefined;
+          const status = await runtime.launchDesktop(projectId);
+          respond(true, { ok: true, source: status.source, projectId });
         } catch (err) {
           respondError(respond, err);
         }
@@ -99,13 +117,40 @@ export default definePluginEntry({
         if (status.ready) {
           serviceHealth?.clearFailure();
           api.logger.info(`lumina-open-design: OpenDesign ${status.version ?? "unknown"} is ready`);
+          await runtime.syncGatewayAgent({ testConnection: false });
+          integrationTimer = setTimeout(() => {
+            void runtime
+              .syncGatewayAgent()
+              .then((integration) => {
+                if (integration.connected) {
+                  api.logger.info(
+                    `lumina-open-design: Studio is connected to ${integration.model} through OpenClaw`,
+                  );
+                } else {
+                  api.logger.warn(
+                    `lumina-open-design: Studio gateway integration needs attention: ${integration.error ?? "connection test failed"}`,
+                  );
+                }
+              })
+              .catch((error) => {
+                api.logger.warn(
+                  `lumina-open-design: deferred integration check failed: ${formatErrorMessage(error)}`,
+                );
+              });
+          }, 1_500);
         } else {
           const error = new Error(status.error ?? "OpenDesign is unavailable");
           serviceHealth?.reportFailure(error);
           api.logger.warn(`lumina-open-design: ${error.message}`);
         }
       },
-      stop: async () => await runtime.stop(),
+      stop: async () => {
+        if (integrationTimer) {
+          clearTimeout(integrationTimer);
+          integrationTimer = undefined;
+        }
+        await runtime.stop();
+      },
     });
   },
 });
