@@ -24,7 +24,13 @@
       "pluginApi": ">=2026.8.1"
     },
     "build": {
-      "openclawVersion": "2026.8.1"
+      "openclawVersion": "2026.8.1",
+      "staticAssets": [
+        {
+          "source": "scripts/open-design-mcp-bridge.cjs",
+          "output": "scripts/open-design-mcp-bridge.cjs"
+        }
+      ]
     }
   }
 }

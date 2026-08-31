@@ -6,6 +6,7 @@
   "activation": {
     "onStartup": true
   },
+  "skills": ["./skills"],
   "uiHints": {
     "daemonUrl": {
       "label": "OpenDesign daemon URL",

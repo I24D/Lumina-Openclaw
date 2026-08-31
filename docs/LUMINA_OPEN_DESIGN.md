@@ -1,5 +1,17 @@
 # Lumina Design and OpenDesign
 
+## Designing from the Lumina chat
+
+Lumina can create OpenDesign artifacts directly from an ordinary chat request, for example:
+
+- `Diseña una landing page para Lumina Code.`
+- `Crea un dashboard para revisar memoria y conversaciones.`
+- `Haz un poster para un negocio de tacos.`
+
+The bundled `lumina-design` skill routes these requests to the `open-design__*` MCP tools. The result is stored in the same OpenDesign Studio data directory used by the Diseño workspace, so the user can continue editing it visually.
+
+OpenDesign Studio selects a new loopback daemon port on each launch. Do not configure the MCP client with the legacy fixed port `7456`. Use `extensions/lumina-open-design/scripts/open-design-mcp-bridge.cjs`; it discovers the current daemon through the Studio IPC pipe, launches Studio when needed, and then starts the packaged MCP process with Electron's bundled Node runtime.
+
 Lumina Design is the visual creation workspace maintained by **DAL NIJARUQ** for Lumina OpenClaw. It connects the authenticated OpenClaw Control UI to a local [OpenDesign](https://github.com/nexu-io/open-design) runtime without turning OpenDesign into a second autonomous assistant.
 
 ## What the integration provides

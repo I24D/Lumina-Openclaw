@@ -71,6 +71,20 @@ function resetChatRealtimeConversation(state: ChatRealtimeState) {
   state.realtimeTalkConversation = [];
 }
 
+export function resolveRealtimeTalkSessionKey(sessionKey: string): string {
+  const normalized = sessionKey.trim() || "main";
+  const canonical = /^agent:([^:]+):(.+)$/i.exec(normalized);
+  if (!canonical) {
+    return `agent:main:talk:${normalized}`;
+  }
+  const agentId = canonical[1]!;
+  const rest = canonical[2]!;
+  if (rest.toLowerCase().startsWith("talk:")) {
+    return normalized;
+  }
+  return `agent:${agentId}:talk:${rest}`;
+}
+
 export function stopChatRealtimeTalk(state: ChatRealtimeState) {
   const session = state.realtimeTalkSession;
   // Retire callback ownership before stop() can synchronously report idle.
@@ -228,7 +242,7 @@ export function attachChatRealtimeActions(state: ChatRealtimeState) {
     state.resetRealtimeTalkConversation();
     const session = new RealtimeTalkSession(
       state.client,
-      state.sessionKey,
+      resolveRealtimeTalkSessionKey(state.sessionKey),
       {
         onStatus: (status, detail) => {
           if (state.realtimeTalkSession !== session) {

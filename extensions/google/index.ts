@@ -24,6 +24,10 @@ import {
 } from "./generation-provider-metadata.js";
 import { geminiMemoryEmbeddingProviderAdapter } from "./memory-embedding-adapter.js";
 import { registerGoogleProvider } from "./provider-registration.js";
+import {
+  GOOGLE_REALTIME_DEFAULT_MODEL,
+  GOOGLE_REALTIME_PROVIDER_CAPABILITIES,
+} from "./realtime-voice-provider-metadata.js";
 import { buildGoogleSpeechProvider } from "./speech-provider.js";
 import { createGeminiWebSearchProvider } from "./src/gemini-web-search-provider.js";
 
@@ -432,7 +436,9 @@ function createLazyGoogleRealtimeVoiceProvider(): RealtimeVoiceProviderPlugin {
   return {
     id: "google",
     label: "Google Live Voice",
+    defaultModel: GOOGLE_REALTIME_DEFAULT_MODEL,
     autoSelectOrder: 20,
+    capabilities: GOOGLE_REALTIME_PROVIDER_CAPABILITIES,
     resolveConfig: ({ cfg, rawConfig }) => resolveGoogleRealtimeProviderConfig(rawConfig, cfg),
     isConfigured: ({ cfg, providerConfig }) =>
       Boolean(

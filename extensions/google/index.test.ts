@@ -94,6 +94,21 @@ function createLazyRealtimeBridge(
   return { bridge, onError };
 }
 
+function captureLazyRealtimeProvider(): RealtimeVoiceProviderPlugin {
+  let realtimeProvider: RealtimeVoiceProviderPlugin | undefined;
+  googlePlugin.register(
+    createTestPluginApi({
+      registerRealtimeVoiceProvider(provider) {
+        realtimeProvider = provider;
+      },
+    }),
+  );
+  if (!realtimeProvider) {
+    throw new Error("expected Google realtime provider");
+  }
+  return realtimeProvider;
+}
+
 function signalRealtimeBridgeReady() {
   const request = createRealtimeBridgeMock.mock.calls.at(-1)?.[0];
   if (!request) {
@@ -113,6 +128,17 @@ function signalRealtimeBridgeClose(reason: "completed" | "error") {
 describe("google provider plugin hooks", () => {
   beforeEach(() => {
     createRealtimeBridgeMock.mockReset();
+  });
+
+  it("publishes browser video capabilities before the lazy provider loads", () => {
+    const provider = captureLazyRealtimeProvider();
+
+    expect(provider.defaultModel).toBe("gemini-3.1-flash-live-preview");
+    expect(provider.capabilities).toMatchObject({
+      transports: ["provider-websocket", "gateway-relay"],
+      supportsBrowserSession: true,
+      supportsVideoFrames: true,
+    });
   });
 
   it("owns replay policy and reasoning mode for the direct Gemini provider", async () => {

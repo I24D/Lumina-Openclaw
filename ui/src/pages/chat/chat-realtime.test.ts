@@ -5,6 +5,7 @@ import { createStorageMock } from "../../test-helpers/storage.ts";
 import {
   attachChatRealtimeActions,
   createInitialChatRealtimeState,
+  resolveRealtimeTalkSessionKey,
   type ChatRealtimeState,
 } from "./chat-realtime.ts";
 import type { RealtimeTalkCallbacks } from "./realtime-talk-shared.ts";
@@ -12,6 +13,7 @@ import { RealtimeTalkSession } from "./realtime-talk.ts";
 
 type InspectableRealtimeTalkSession = {
   callbacks: RealtimeTalkCallbacks;
+  sessionKey: string;
   options: { provider?: string; transport?: string };
   localOptions: { inputDeviceId?: string; videoDeviceId?: string };
 };
@@ -49,6 +51,25 @@ describe("chat realtime actions", () => {
     startSpy = vi.spyOn(RealtimeTalkSession.prototype, "start").mockResolvedValue(undefined);
     vi.spyOn(RealtimeTalkSession.prototype, "stop").mockImplementation(() => undefined);
     vi.spyOn(RealtimeTalkSession.prototype, "switchCamera").mockResolvedValue(undefined);
+  });
+
+  it("keeps Talk transcripts in a dedicated session for the same agent", async () => {
+    const state = createState();
+    state.sessionKey = "agent:main:main";
+
+    await state.toggleRealtimeTalk();
+
+    expect(inspectSession(state).sessionKey).toBe("agent:main:talk:main");
+  });
+
+  it("preserves the agent and source route when deriving a Talk session", () => {
+    expect(resolveRealtimeTalkSessionKey("agent:research:whatsapp:Group-ID")).toBe(
+      "agent:research:talk:whatsapp:Group-ID",
+    );
+    expect(resolveRealtimeTalkSessionKey("agent:research:talk:main")).toBe(
+      "agent:research:talk:main",
+    );
+    expect(resolveRealtimeTalkSessionKey("main")).toBe("agent:main:talk:main");
   });
 
   afterEach(() => {
