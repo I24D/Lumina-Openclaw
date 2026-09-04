@@ -17,7 +17,7 @@ import {
 import { resetClientVoiceConfirmationStateForTest } from "../../talk/client-voice-confirmation.test-support.js";
 import { REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME } from "../../talk/describe-view-tool.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
-import { buildTalkRealtimeConfig } from "./talk-shared.js";
+import { buildRealtimeInstructions, buildTalkRealtimeConfig } from "./talk-shared.js";
 import { talkHandlers } from "./talk.js";
 
 const mocks = vi.hoisted(() => ({
@@ -91,7 +91,14 @@ const mocks = vi.hoisted(() => ({
   assertClientVoiceSessionOpen: vi.fn(),
   registerClientVoiceConsultRun: vi.fn(),
   resolveOpenClientVoiceSessionId: vi.fn(),
-  consultRealtimeVoiceAgent: vi.fn(async (_params?: unknown) => ({ text: "agent answer" })),
+  consultRealtimeVoiceAgent: vi.fn(
+    async (params?: {
+      onRunStarted?: (run: { runId: string; sessionId: string; timeoutMs: number }) => void;
+    }) => {
+      params?.onRunStarted?.({ runId: "run-voice-1", sessionId: "session-voice-1", timeoutMs: 1 });
+      return { text: "agent answer" };
+    },
+  ),
   closeTalkClientGatewayControlSession: vi.fn(async () => false),
   gatewayControlActivate: vi.fn(),
   gatewayControlAdoptProvider: vi.fn(async () => undefined),
@@ -385,7 +392,11 @@ describe("talk.catalog handler", () => {
     await callTalkHandler(method, {
       params,
       respond,
-      context: { getRuntimeConfig: () => ({ talk: { realtime: { provider: "openai" } } }) },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({ talk: { realtime: { provider: "openai" } } }),
+      },
     });
     if (method === "talk.catalog") {
       expect(expectRespondOk(respond)).toMatchObject({
@@ -469,6 +480,8 @@ describe("talk.catalog handler", () => {
       client: { connect: { scopes: ["operator.read"] } },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             talk: {
@@ -608,6 +621,8 @@ describe("talk.catalog handler", () => {
       client: { connect: { scopes: ["operator.read"] } },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             talk: {
@@ -672,6 +687,8 @@ describe("talk.catalog handler", () => {
       client: { connect: { scopes: ["operator.read"] } },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             talk: {
@@ -742,6 +759,8 @@ describe("talk.catalog handler", () => {
       client: { connect: { scopes: ["operator.read"] } },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             agents: {
@@ -811,6 +830,8 @@ describe("talk.catalog handler", () => {
       client: { connect: { scopes: ["operator.read"] } },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             plugins: {
@@ -883,6 +904,8 @@ describe("talk.catalog handler", () => {
       client: { connect: { scopes: ["operator.read"] } },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             talk: {
@@ -938,7 +961,11 @@ describe("talk.catalog handler", () => {
       params: {},
       client: { connect: { scopes: ["operator.read"] } },
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     const catalog = mockCallArg(respond, 0, 1) as Record<string, Record<string, unknown>>;
@@ -974,6 +1001,8 @@ describe("talk.catalog handler", () => {
       client: { connect: { scopes: ["operator.read"] } },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             talk: { realtime: { provider: "realtime" } },
@@ -1085,7 +1114,11 @@ describe("talk.speak handler", () => {
         params: { text: "Hello from talk mode." },
         client: null,
         respond,
-        context: { getRuntimeConfig: () => runtimeConfig },
+        context: {
+          logGateway: { warn: vi.fn() },
+          chatAbortControllers: new Map(),
+          getRuntimeConfig: () => runtimeConfig,
+        },
       });
 
       if (coldOwnerId === "talk:speech") {
@@ -1135,7 +1168,11 @@ describe("talk.config handler", () => {
         params: { includeSecrets },
         client: { connect: { scopes: ["operator.read", "operator.talk.secrets"] } },
         respond,
-        context: { getRuntimeConfig: () => runtimeConfig },
+        context: {
+          logGateway: { warn: vi.fn() },
+          chatAbortControllers: new Map(),
+          getRuntimeConfig: () => runtimeConfig,
+        },
       });
 
       expect(respond.mock.calls[0]?.[0]).toBe(ok);
@@ -1178,7 +1215,11 @@ describe("talk.config handler", () => {
         ...(profileId ? { authenticatedUserProfile: { profileId } } : {}),
       },
       respond,
-      context: { getRuntimeConfig: () => runtimeConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => runtimeConfig,
+      },
     });
 
     expect(respond.mock.calls[0]?.[0]).toBe(true);
@@ -1204,6 +1245,8 @@ describe("talk.config handler", () => {
       client: { connect: { scopes: ["operator.read"] } },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             talk: {
@@ -1305,7 +1348,11 @@ describe("talk.config handler", () => {
       params: {},
       client: { connect: { scopes: ["operator.read"] } },
       respond,
-      context: { getRuntimeConfig: () => runtimeConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => runtimeConfig,
+      },
     });
 
     const response = expectRespondOk(respond) as { config?: { talk?: Record<string, unknown> } };
@@ -1411,7 +1458,11 @@ describe("talk.config handler", () => {
       params: {},
       client: { connect: { scopes: ["operator.read"] } },
       respond,
-      context: { getRuntimeConfig: () => runtimeConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => runtimeConfig,
+      },
     });
 
     const response = expectRespondOk(respond) as { config?: { talk?: Record<string, unknown> } };
@@ -1443,7 +1494,11 @@ describe("talk.config handler", () => {
       params: { includeSecrets: true },
       client: { connect: { scopes: ["operator.talk.secrets"] } },
       respond,
-      context: { getRuntimeConfig: () => runtimeConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => runtimeConfig,
+      },
     });
 
     const response = expectRespondOk(respond) as { config?: { talk?: Record<string, unknown> } };
@@ -1524,7 +1579,11 @@ describe("talk.config handler", () => {
       params: { includeSecrets: true },
       client: { connect: { scopes: ["operator.talk.secrets"] } },
       respond,
-      context: { getRuntimeConfig: () => runtimeConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => runtimeConfig,
+      },
     });
 
     const response = expectRespondOk(respond) as { config?: { talk?: Record<string, unknown> } };
@@ -1591,7 +1650,11 @@ describe("talk.config handler", () => {
       params: { includeSecrets: true },
       client: { connect: { scopes: ["operator.talk.secrets"] } },
       respond,
-      context: { getRuntimeConfig: () => runtimeConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => runtimeConfig,
+      },
     });
 
     const response = expectRespondOk(respond) as { config?: { talk?: Record<string, unknown> } };
@@ -1672,7 +1735,11 @@ describe("talk.config handler", () => {
       params: { includeSecrets: true },
       client: { connect: { scopes: ["operator.talk.secrets"] } },
       respond,
-      context: { getRuntimeConfig: () => runtimeConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => runtimeConfig,
+      },
     });
 
     const response = expectRespondOk(respond) as { config?: { talk?: Record<string, unknown> } };
@@ -1715,7 +1782,11 @@ describe("talk.config handler", () => {
       params: {},
       client: { connect: { scopes: ["operator.read"] } },
       respond,
-      context: { getRuntimeConfig: () => runtimeConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => runtimeConfig,
+      },
     });
 
     const response = expectRespondOk(respond) as { config?: { talk?: Record<string, unknown> } };
@@ -1813,6 +1884,8 @@ describe("talk.session unified handlers", () => {
       respond: createRespond,
       client: { connId: "conn-1", connect: { scopes: ["operator.talk"] } },
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             agents: {
@@ -1864,7 +1937,8 @@ describe("talk.session unified handlers", () => {
       "Additional realtime instructions:\nSpeak warmly.",
     );
     expect(relayCreateInput.forceAgentConsultOnFinalTranscript).toBe(true);
-    expect(relayCreateInput.instructions).toContain("tool-backed actions");
+    expect(relayCreateInput.instructions).toContain("Answer directly for conversation, stories");
+    expect(relayCreateInput.instructions).toContain("Every openclaw_agent_consult call");
     expect(relayCreateInput.instructions).toContain("Let me check that for you");
     expectRespondOk(createRespond, {
       sessionId: "relay-unified-1",
@@ -1879,7 +1953,10 @@ describe("talk.session unified handlers", () => {
       params: { sessionId: "relay-unified-1", audioBase64: "aGVsbG8=", timestamp: 42 },
       id: "2",
       respond: inputRespond,
-      context: {},
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+      },
     });
     expect(mocks.sendTalkRealtimeRelayAudio).toHaveBeenCalledWith({
       relaySessionId: "relay-unified-1",
@@ -1897,7 +1974,10 @@ describe("talk.session unified handlers", () => {
       params: { sessionId: "relay-unified-1", reason: "barge-in", turnId: "turn-7" },
       id: "3",
       respond: cancelRespond,
-      context: {},
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+      },
     });
     expect(mocks.cancelTalkRealtimeRelayTurn).toHaveBeenCalledWith({
       relaySessionId: "relay-unified-1",
@@ -1913,7 +1993,10 @@ describe("talk.session unified handlers", () => {
         params: { sessionId: "relay-unified-1", reason: "barge-in", turnId: "turn-old" },
         id: `3-${status}`,
         respond: nonAppliedRespond,
-        context: {},
+        context: {
+          logGateway: { warn: vi.fn() },
+          chatAbortControllers: new Map(),
+        },
       });
       expectRespondOk(nonAppliedRespond, { ok: true, status });
     }
@@ -1929,7 +2012,10 @@ describe("talk.session unified handlers", () => {
       params: { sessionId: "relay-unified-1", markName: "audio-mark-1" },
       id: "3-mark",
       respond: markRespond,
-      context: {},
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+      },
     });
     expect(mocks.acknowledgeTalkRealtimeRelayMark).toHaveBeenCalledWith({
       relaySessionId: "relay-unified-1",
@@ -1959,7 +2045,10 @@ describe("talk.session unified handlers", () => {
       client: { connId: "conn-1" } as never,
       isWebchatConnect: () => false,
       respond: toolRespond as never,
-      context: {} as never,
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+      } as never,
     });
     expect(toolRespond).not.toHaveBeenCalled();
     acceptToolResult();
@@ -1985,7 +2074,10 @@ describe("talk.session unified handlers", () => {
       },
       id: "4-rejected",
       respond: rejectedToolRespond,
-      context: {},
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+      },
     });
     expectRespondError(rejectedToolRespond, {
       code: ErrorCodes.UNAVAILABLE,
@@ -2002,7 +2094,10 @@ describe("talk.session unified handlers", () => {
       },
       id: "5",
       respond: steerRespond,
-      context: {},
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+      },
     });
     expect(mocks.steerTalkRealtimeRelayAgentRun).toHaveBeenCalledWith({
       relaySessionId: "relay-unified-1",
@@ -2022,7 +2117,10 @@ describe("talk.session unified handlers", () => {
       params: { sessionId: "relay-unified-1" },
       id: "6",
       respond: closeRespond,
-      context: {},
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+      },
     });
     expect(mocks.stopTalkRealtimeRelaySession).toHaveBeenCalledWith({
       relaySessionId: "relay-unified-1",
@@ -2080,7 +2178,11 @@ describe("talk.session unified handlers", () => {
         sessionKey: "incident-42",
       },
       respond,
-      context: { getRuntimeConfig: () => config, logGateway: { warn: vi.fn() } },
+      context: {
+        getRuntimeConfig: () => config,
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+      },
     });
 
     expect(mocks.resolveConfiguredRealtimeVoiceProvider).toHaveBeenCalledWith(
@@ -2163,6 +2265,7 @@ describe("talk.session unified handlers", () => {
             },
           }) as OpenClawConfig,
         logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
       },
     });
 
@@ -2207,6 +2310,8 @@ describe("talk.session unified handlers", () => {
       },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             talk: {
@@ -2262,6 +2367,8 @@ describe("talk.session unified handlers", () => {
       },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             talk: {
@@ -2312,6 +2419,8 @@ describe("talk.session unified handlers", () => {
       params: { mode: "transcription", provider: "openai-realtime" },
       respond: createRespond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             agents: {
@@ -2355,7 +2464,10 @@ describe("talk.session unified handlers", () => {
       params: { sessionId: "stt-unified-1", audioBase64: "aGVsbG8=" },
       id: "2",
       respond: inputRespond,
-      context: {},
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+      },
     });
     expect(mocks.sendTalkTranscriptionRelayAudio).toHaveBeenCalledWith({
       transcriptionSessionId: "stt-unified-1",
@@ -2368,7 +2480,10 @@ describe("talk.session unified handlers", () => {
       params: { sessionId: "stt-unified-1" },
       id: "3",
       respond: closeRespond,
-      context: {},
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+      },
     });
     expect(mocks.stopTalkTranscriptionRelaySession).toHaveBeenCalledWith({
       transcriptionSessionId: "stt-unified-1",
@@ -2405,6 +2520,8 @@ describe("talk.session unified handlers", () => {
       params: { mode: "transcription", transport: "gateway-relay", brain: "none" },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             plugins: {
@@ -2445,6 +2562,8 @@ describe("talk.session unified handlers", () => {
       client: { connId: "conn-1", connect: { scopes: ["operator.write"] } },
       respond: createRespond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () => ({}) as OpenClawConfig,
       },
     });
@@ -2484,7 +2603,11 @@ describe("talk.session unified handlers", () => {
       },
       client: { connId: "conn-1", connect: { scopes: ["operator.admin"] } },
       respond: createRespond,
-      context: { getRuntimeConfig: () => config },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => config,
+      },
     });
 
     expectRespondOk(createRespond, { transport: "managed-room" });
@@ -2504,6 +2627,8 @@ describe("talk.session unified handlers", () => {
       client: { connId: "conn-1", connect: { scopes: ["operator.write"] } },
       respond: createRespond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () => ({}) as OpenClawConfig,
       },
     });
@@ -2528,6 +2653,8 @@ describe("talk.session unified handlers", () => {
       client: { connId: "conn-1", connect: { scopes: ["operator.write"] } },
       respond: rejectedRespond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () => ({}) as OpenClawConfig,
       },
     });
@@ -2550,6 +2677,8 @@ describe("talk.session unified handlers", () => {
       client: { connId: "conn-1", connect: { scopes: ["operator.admin"] } },
       respond: createRespond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () => ({}) as OpenClawConfig,
       },
     });
@@ -2566,7 +2695,10 @@ describe("talk.session unified handlers", () => {
       id: "3",
       client: { connId: "conn-1", connect: { scopes: ["operator.admin"] } },
       respond: vi.fn(),
-      context: {},
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+      },
     });
   });
 
@@ -2575,7 +2707,11 @@ describe("talk.session unified handlers", () => {
     await callTalkHandler("talk.session.create", {
       params: { mode: "realtime", transport: "webrtc" },
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     const error = expectRespondError(respond, { code: ErrorCodes.INVALID_REQUEST });
@@ -2586,15 +2722,31 @@ describe("talk.session unified handlers", () => {
 describe("talk.client.toolCall handler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.chatSend.mockImplementation(
-      async ({
-        respond,
-      }: {
-        respond: (ok: boolean, result?: unknown, error?: unknown) => void;
-      }) => {
-        respond(true, { runId: "run-voice-1" }, undefined);
+  });
+
+  it("rejects provider consult calls without an auditable reason", async () => {
+    const respond = vi.fn();
+
+    await callTalkHandler("talk.client.toolCall", {
+      params: {
+        sessionKey: "main",
+        callId: "call-native-story",
+        name: "openclaw_agent_consult",
+        args: { question: "Tell me a story" },
       },
-    );
+      respond,
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
+    });
+
+    expect(mocks.consultRealtimeVoiceAgent).not.toHaveBeenCalled();
+    expectRespondError(respond, {
+      code: ErrorCodes.INVALID_REQUEST,
+      message: "Error: valid reason required",
+    });
   });
 
   it("implicitly creates a voice session for consults without a binding", async () => {
@@ -2605,10 +2757,14 @@ describe("talk.client.toolCall handler", () => {
         sessionKey: "main",
         callId: "call-unbound",
         name: "openclaw_agent_consult",
-        args: { question: "Do something" },
+        args: { question: "Do something", reason: "multi_step_orchestration" },
       },
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     expect(mocks.createOrResumeClientVoiceSession).toHaveBeenCalledWith({
@@ -2619,8 +2775,14 @@ describe("talk.client.toolCall handler", () => {
     expect(mocks.registerClientVoiceConsultRun).toHaveBeenCalledWith(
       expect.objectContaining({ voiceSessionId: "voice-test", runId: "run-voice-1" }),
     );
-    expect(mocks.chatSend).toHaveBeenCalledTimes(1);
-    expect(respond).toHaveBeenCalledWith(true, expect.anything(), undefined);
+    expect(mocks.consultRealtimeVoiceAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spawnedBy: "main",
+        contextMode: "isolated",
+        sessionEffects: "internal",
+      }),
+    );
+    expectRespondOk(respond, { result: "agent answer" });
   });
 
   it("resolves a legacy consult to the open client voice record", async () => {
@@ -2632,12 +2794,16 @@ describe("talk.client.toolCall handler", () => {
         sessionKey: "main",
         callId: "call-legacy",
         name: "openclaw_agent_consult",
-        args: { question: "Continue the call" },
+        args: { question: "Continue the call", reason: "explicit_agent_request" },
       },
       id: "legacy",
       client: { connId: "conn-legacy" },
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     expect(mocks.assertClientVoiceSessionOpen).toHaveBeenCalledWith({
@@ -2645,7 +2811,7 @@ describe("talk.client.toolCall handler", () => {
       sessionKey: "main",
       voiceSessionId: "voice-test",
     });
-    expectRespondOk(respond, { runId: "run-voice-1" });
+    expectRespondOk(respond, { result: "agent answer" });
   });
 
   it("requires relay connection ownership for relay-origin voice records", async () => {
@@ -2658,22 +2824,26 @@ describe("talk.client.toolCall handler", () => {
         voiceSessionId: "relay-secret",
         callId: "call-relay-owner",
         name: "openclaw_agent_consult",
-        args: { question: "Continue" },
+        args: { question: "Continue", reason: "explicit_agent_request" },
       },
       id: "relay-owner",
       client: { connId: "other-conn" },
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
-    expect(mocks.chatSend).not.toHaveBeenCalled();
+    expect(mocks.consultRealtimeVoiceAgent).not.toHaveBeenCalled();
     expectRespondError(respond, {
       code: ErrorCodes.INVALID_REQUEST,
       message: "Error: relay-owned voice sessions require relaySessionId and connection ownership",
     });
   });
 
-  it("starts agent consult through gateway policy instead of exposing chat.send to browser clients", async () => {
+  it("runs the isolated consult directly instead of exposing chat.send to browser clients", async () => {
     const respond = vi.fn();
 
     await callTalkHandler("talk.client.toolCall", {
@@ -2682,63 +2852,65 @@ describe("talk.client.toolCall handler", () => {
         voiceSessionId: "voice-test",
         callId: "call-1",
         name: "openclaw_agent_consult",
-        args: { question: "What is in this repo?", responseStyle: "one sentence" },
+        args: {
+          question: "What is in this repo?",
+          reason: "workspace_task",
+          responseStyle: "one sentence",
+        },
       },
       respond,
       client: { connId: "conn-1", connect: { scopes: ["operator.talk"] } },
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () => ({}) as OpenClawConfig,
       },
     });
 
-    const chatInput = mockCallArg(mocks.chatSend) as {
-      req?: Record<string, unknown>;
-      params?: Record<string, unknown>;
-    };
-    expectRecordFields(chatInput.req, { method: "chat.send" });
-    expectRecordFields(chatInput.params, { sessionKey: "main" });
-    expect(chatInput.params?.message).toContain("What is in this repo?");
-    expect(chatInput.params?.idempotencyKey).toMatch(/^talk-call-1-/);
-    expect(mockCallArg(mocks.chatSend, 0, 1)).toEqual([
-      "read",
-      "web_search",
-      "web_fetch",
-      "x_search",
-      "memory_search",
-      "memory_get",
-    ]);
-    const response = expectRespondOk(respond, { runId: "run-voice-1" }) as Record<string, unknown>;
-    expect(response.idempotencyKey).toMatch(/^talk-call-1-/);
+    const consultInput = mockCallArg(mocks.consultRealtimeVoiceAgent) as Record<string, unknown>;
+    expect(consultInput.sessionKey).toMatch(/^agent:main:talk-consult:[a-f0-9]{24}$/);
+    expectRecordFields(consultInput, {
+      spawnedBy: "main",
+      contextMode: "isolated",
+      sessionEffects: "internal",
+      toolsAllow: ["read", "web_search", "web_fetch", "x_search", "memory_search", "memory_get"],
+    });
+    expect(consultInput.args).toEqual({
+      question: "What is in this repo?",
+      reason: "workspace_task",
+      responseStyle: "one sentence",
+    });
+    expect(mocks.chatSend).not.toHaveBeenCalled();
+    expectRespondOk(respond, { result: "agent answer" });
   });
 
-  it("returns the tool-call acknowledgement while the agent run continues", async () => {
-    let finishRun: (() => void) | undefined;
-    mocks.chatSend.mockImplementationOnce(
-      ({ respond }: { respond: (ok: boolean, result?: unknown, error?: unknown) => void }) =>
-        new Promise<void>((resolve) => {
-          finishRun = resolve;
-          respond(true, { runId: "run-active" }, undefined);
-        }),
-    );
+  it("returns the isolated result without publishing a second chat run", async () => {
+    const consult = createDeferred<{ text: string }>();
+    mocks.consultRealtimeVoiceAgent.mockReturnValueOnce(consult.promise);
     const respond = vi.fn();
 
-    await callTalkHandler("talk.client.toolCall", {
+    const pending = callTalkHandler("talk.client.toolCall", {
       params: {
         sessionKey: "main",
         voiceSessionId: "voice-test",
         callId: "call-active",
         name: "openclaw_agent_consult",
-        args: { question: "What is running?" },
+        args: { question: "What is running?", reason: "current_external_data" },
       },
       respond,
       context: {
         getRuntimeConfig: () => ({}) as OpenClawConfig,
         logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
       },
     });
 
-    expectRespondOk(respond, { runId: "run-active" });
-    finishRun?.();
+    await vi.waitFor(() => expect(mocks.consultRealtimeVoiceAgent).toHaveBeenCalledOnce());
+    expect(respond).not.toHaveBeenCalled();
+    consult.resolve({ text: "The service is healthy." });
+    await pending;
+    expect(mocks.chatSend).not.toHaveBeenCalled();
+    expectRespondOk(respond, { result: "The service is healthy." });
   });
 
   it("keeps the started run registered when refusal invalidates a detached confirmation", async () => {
@@ -2764,11 +2936,9 @@ describe("talk.client.toolCall handler", () => {
       text: "yes",
       timestamp: now + 1,
     });
-    mocks.chatSend.mockImplementationOnce(
-      async ({
-        respond,
-      }: {
-        respond: (ok: boolean, result?: unknown, error?: unknown) => void;
+    mocks.consultRealtimeVoiceAgent.mockImplementationOnce(
+      async (params?: {
+        onRunStarted?: (run: { runId: string; sessionId: string; timeoutMs: number }) => void;
       }) => {
         noteClientVoiceConfirmationUtterance({
           agentId: "main",
@@ -2776,7 +2946,12 @@ describe("talk.client.toolCall handler", () => {
           text: "no",
           timestamp: now + 3,
         });
-        respond(true, { runId: "run-stale-confirmation" }, undefined);
+        params?.onRunStarted?.({
+          runId: "run-stale-confirmation",
+          sessionId: "session-stale-confirmation",
+          timeoutMs: 1,
+        });
+        return { text: "action complete" };
       },
     );
     const respond = vi.fn();
@@ -2787,10 +2962,14 @@ describe("talk.client.toolCall handler", () => {
         voiceSessionId: "voice-test",
         callId: "call-stale-confirmation",
         name: "openclaw_agent_consult",
-        args: { question: "Do it", confirmationId },
+        args: { question: "Do it", reason: "external_action", confirmationId },
       },
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     expect(mocks.registerClientVoiceConsultRun).toHaveBeenCalledWith(
@@ -2799,10 +2978,10 @@ describe("talk.client.toolCall handler", () => {
         runId: "run-stale-confirmation",
       }),
     );
-    expectRespondOk(respond, { runId: "run-stale-confirmation" });
+    expectRespondOk(respond, { result: "action complete" });
   });
 
-  it("passes configured consult thinking and fast-mode overrides to chat.send", async () => {
+  it("passes configured consult thinking and fast-mode overrides to the isolated runtime", async () => {
     const respond = vi.fn();
 
     await callTalkHandler("talk.client.toolCall", {
@@ -2811,11 +2990,13 @@ describe("talk.client.toolCall handler", () => {
         voiceSessionId: "voice-test",
         callId: "call-1",
         name: "openclaw_agent_consult",
-        args: { question: "Are the basement lights off?" },
+        args: { question: "Are the basement lights off?", reason: "device_action" },
       },
       respond,
       client: { connId: "conn-1", connect: { scopes: ["operator.write"] } },
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             talk: {
@@ -2826,13 +3007,11 @@ describe("talk.client.toolCall handler", () => {
       },
     });
 
-    const chatInput = mockCallArg(mocks.chatSend) as { params?: Record<string, unknown> };
-    expectRecordFields(chatInput.params, {
-      thinking: "low",
-      fastMode: true,
-    });
-    expect(mockCallArg(mocks.chatSend, 0, 1)).toBeUndefined();
-    expectRespondOk(respond, { runId: "run-voice-1" });
+    expect(mocks.consultRealtimeVoiceAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ thinkLevel: "low", fastMode: true, toolsAllow: undefined }),
+    );
+    expect(mocks.chatSend).not.toHaveBeenCalled();
+    expectRespondOk(respond, { result: "agent answer" });
   });
 
   it("links relay-owned agent consult runs so relay cancellation can abort them", async () => {
@@ -2845,10 +3024,12 @@ describe("talk.client.toolCall handler", () => {
         relaySessionId: "relay-1",
         callId: "call-1",
         name: "openclaw_agent_consult",
-        args: { question: "What now?" },
+        args: { question: "What now?", reason: "explicit_agent_request" },
       },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () => ({}) as OpenClawConfig,
       },
     });
@@ -2860,49 +3041,35 @@ describe("talk.client.toolCall handler", () => {
       runId: "run-voice-1",
       callId: "call-1",
     });
-    expectRespondOk(respond, { runId: "run-voice-1" });
+    expectRespondOk(respond, { result: "agent answer" });
   });
 
-  it.each([
-    ["timeout", "Realtime agent consult ended before the run started."],
-    ["error", "Realtime agent consult failed before the run started."],
-    ["ok", "Realtime agent consult completed before the tool result subscription started."],
-  ] as const)(
-    "rejects terminal agent consult chat.send ACKs with status %s",
-    async (status, message) => {
-      mocks.chatSend.mockImplementationOnce(
-        async ({
-          respond,
-        }: {
-          respond: (ok: boolean, result?: unknown, error?: unknown) => void;
-        }) => {
-          respond(true, { runId: `run-${status}`, status }, undefined);
-        },
-      );
-      const respond = vi.fn();
+  it("returns provider failures without adding chat transcript entries", async () => {
+    mocks.consultRealtimeVoiceAgent.mockRejectedValueOnce(new Error("provider unavailable"));
+    const respond = vi.fn();
 
-      await callTalkHandler("talk.client.toolCall", {
-        params: {
-          sessionKey: "main",
-          voiceSessionId: "relay-1",
-          relaySessionId: "relay-1",
-          callId: "call-1",
-          name: "openclaw_agent_consult",
-          args: { question: "What now?" },
-        },
-        respond,
-        context: {
-          getRuntimeConfig: () => ({}) as OpenClawConfig,
-        },
-      });
+    await callTalkHandler("talk.client.toolCall", {
+      params: {
+        sessionKey: "main",
+        voiceSessionId: "voice-test",
+        callId: "call-failed",
+        name: "openclaw_agent_consult",
+        args: { question: "Check the workspace", reason: "workspace_task" },
+      },
+      respond,
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
+    });
 
-      expect(mocks.registerTalkRealtimeRelayAgentRun).not.toHaveBeenCalled();
-      expectRespondError(respond, {
-        code: ErrorCodes.UNAVAILABLE,
-        message,
-      });
-    },
-  );
+    expect(mocks.chatSend).not.toHaveBeenCalled();
+    expectRespondError(respond, {
+      code: ErrorCodes.UNAVAILABLE,
+      message: "Error: provider unavailable",
+    });
+  });
 
   it("rejects client tool calls that are not the agent consult tool", async () => {
     const respond = vi.fn();
@@ -2915,11 +3082,13 @@ describe("talk.client.toolCall handler", () => {
       },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () => ({}) as OpenClawConfig,
       },
     });
 
-    expect(mocks.chatSend).not.toHaveBeenCalled();
+    expect(mocks.consultRealtimeVoiceAgent).not.toHaveBeenCalled();
     expectRespondError(respond, {
       code: ErrorCodes.INVALID_REQUEST,
       message: "unsupported realtime Talk tool: unknown_tool",
@@ -3016,7 +3185,10 @@ describe("talk.client.steer handler", () => {
         text: "",
       },
       respond,
-      context: {},
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+      },
     });
 
     expect(mocks.controlRealtimeVoiceAgentRun).not.toHaveBeenCalled();
@@ -3044,9 +3216,21 @@ describe("talk.client.create handler", () => {
         assertOpen: vi.fn(),
         control: mocks.gatewayControl,
         runAgentConsult: ({ prompt, signal }: { prompt: string; signal?: AbortSignal }) =>
-          params.runAgentConsult({ question: prompt }, signal),
+          params.runAgentConsult({ question: prompt, reason: "workspace_task" }, signal),
       }),
     );
+  });
+
+  it("keeps native voice capabilities ahead of OpenClaw escalation", () => {
+    const instructions = buildRealtimeInstructions();
+
+    expect(instructions).toContain(
+      "Answer directly for conversation, stories, creative writing, translation",
+    );
+    expect(instructions).toContain(
+      "Call openclaw_agent_consult only when the user explicitly asks for OpenClaw",
+    );
+    expect(instructions).not.toContain("or deeper reasoning");
   });
 
   it("builds realtime launch defaults from talk.realtime", () => {
@@ -3107,6 +3291,8 @@ describe("talk.client.create handler", () => {
       respond,
       client: { connId: "conn-1", connect: { scopes: ["operator.talk"] } },
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             talk: {
@@ -3148,7 +3334,8 @@ describe("talk.client.create handler", () => {
     });
     expect(createInput.instructions).toContain("Additional realtime instructions:\nSpeak warmly.");
     expect(createInput.instructions).toContain("Bounded profile context.");
-    expect(createInput.instructions).toContain("tool-backed actions");
+    expect(createInput.instructions).toContain("Answer directly for conversation, stories");
+    expect(createInput.instructions).toContain("Every openclaw_agent_consult call");
     expect(createInput.instructions).toContain("Let me check that for you");
     expect(createInput.tools).not.toContainEqual(
       expect.objectContaining({ name: REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME }),
@@ -3167,7 +3354,7 @@ describe("talk.client.create handler", () => {
         agentRuntime: mocks.agentRuntime,
         agentId: "main",
         sessionKey: "main",
-        args: { question: "Check the repository" },
+        args: { question: "Check the repository", reason: "workspace_task" },
         transcript: [
           { role: "user", text: `2:${"🙂".repeat(799)}` },
           { role: "assistant", text: `3:${"🙂".repeat(799)}` },
@@ -3234,6 +3421,8 @@ describe("talk.client.create handler", () => {
       respond,
       client: { connId: "conn-1", connect: { scopes: ["operator.write"] } },
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             talk: {
@@ -3307,6 +3496,7 @@ describe("talk.client.create handler", () => {
       context: {
         getRuntimeConfig: () => ({ talk: { realtime: { provider: "openai" } } }) as OpenClawConfig,
         logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
       },
     });
 
@@ -3352,6 +3542,8 @@ describe("talk.client.create handler", () => {
       params: { sessionKey: "main", capabilities: ["gateway-control-v1"] },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () => ({ talk: { realtime: { provider: "openai" } } }) as OpenClawConfig,
       },
     });
@@ -3372,7 +3564,11 @@ describe("talk.client.create handler", () => {
     await callTalkHandler("talk.client.close", {
       params: { sessionKey: "main", voiceSessionId: "voice-gateway" },
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     expect(mocks.closeTalkClientGatewayControlSession).toHaveBeenCalledWith({
@@ -3539,6 +3735,8 @@ describe("talk.client.create handler", () => {
       id: "codex",
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             talk: {
@@ -3581,7 +3779,11 @@ describe("talk.client.create handler", () => {
       params: { sessionKey: "main", transport: "webrtc" },
       id: "startup-failure",
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     expect(createBrowserSession).toHaveBeenCalledWith(
@@ -3617,7 +3819,11 @@ describe("talk.client.create handler", () => {
       params: { sessionKey: "main", transport: "webrtc" },
       id: "persist-failure",
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     expect(mocks.cancelInternalRealtimeVoiceBrowserSession).toHaveBeenCalledWith({
@@ -3653,7 +3859,11 @@ describe("talk.client.create handler", () => {
       params: { sessionKey: "main", transport: "webrtc" },
       id: "expired-startup",
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     expect(mocks.cancelInternalRealtimeVoiceBrowserSession).toHaveBeenCalledWith({
@@ -3691,7 +3901,11 @@ describe("talk.client.create handler", () => {
       params: { sessionKey: "main", transport: "provider-websocket" },
       id: "transport-mismatch",
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     expect(mocks.cancelInternalRealtimeVoiceBrowserSession).toHaveBeenCalledWith({
@@ -3734,7 +3948,11 @@ describe("talk.client.create handler", () => {
         capabilities: ["camera-frame"],
       },
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     const createInput = mockCallArg(createBrowserSession) as Record<string, unknown>;
@@ -3749,7 +3967,11 @@ describe("talk.client.create handler", () => {
       params: { sessionKey: "main", transport: "webrtc" },
       id: "audio",
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
     expect((mockCallArg(createBrowserSession) as Record<string, unknown>).tools).not.toContainEqual(
       expect.objectContaining({ name: REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME }),
@@ -3766,7 +3988,11 @@ describe("talk.client.create handler", () => {
       },
       id: "2",
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
     expect((mockCallArg(createBrowserSession) as Record<string, unknown>).tools).toContainEqual(
       expect.objectContaining({ name: REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME }),
@@ -3783,7 +4009,11 @@ describe("talk.client.create handler", () => {
       },
       id: "3",
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
     expect(createBrowserSession).not.toHaveBeenCalled();
     expect(respond).toHaveBeenCalledWith(
@@ -3819,6 +4049,8 @@ describe("talk.client.create handler", () => {
       params: {},
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             agents: {
@@ -3876,6 +4108,8 @@ describe("talk.client.create handler", () => {
       params: {},
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             agents: {
@@ -3940,6 +4174,8 @@ describe("talk.client.create handler", () => {
       params: {},
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             agents: {
@@ -3995,6 +4231,8 @@ describe("talk.client.create handler", () => {
       params: {},
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             agents: {
@@ -4039,6 +4277,8 @@ describe("talk.client.create handler", () => {
       params: {},
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             agents: {
@@ -4095,6 +4335,8 @@ describe("talk.client.create handler", () => {
       params: {},
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             agents: {
@@ -4126,7 +4368,11 @@ describe("talk.client.create handler", () => {
     await callTalkHandler("talk.client.create", {
       params: { sessionKey: "main", mode: "realtime", transport: "gateway-relay" },
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     expectRespondError(respond, {
@@ -4144,7 +4390,11 @@ describe("talk.client.create handler", () => {
       },
       id: "2",
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     expectRespondError(respond, {
@@ -4187,7 +4437,11 @@ describe("talk.client.create handler", () => {
     await callTalkHandler("talk.client.create", {
       params: { sessionKey: "main", mode: "realtime", capabilities: ["camera-frame"] },
       respond,
-      context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
+        getRuntimeConfig: () => ({}) as OpenClawConfig,
+      },
     });
 
     expect(createBrowserSession).toHaveBeenCalledOnce();
@@ -4203,6 +4457,8 @@ describe("talk.client.create handler", () => {
       params: { sessionKey: "main" },
       respond,
       context: {
+        logGateway: { warn: vi.fn() },
+        chatAbortControllers: new Map(),
         getRuntimeConfig: () =>
           ({
             talk: {
@@ -4285,7 +4541,11 @@ describe("role-required Talk session creation", () => {
           connect: { scopes: ["operator.talk"] },
           authenticatedUserProfile: { profileId: profile.id },
         },
-        context: { getRuntimeConfig: () => config, logGateway: { warn: vi.fn() } },
+        context: {
+          chatAbortControllers: new Map(),
+          getRuntimeConfig: () => config,
+          logGateway: { warn: vi.fn() },
+        },
       });
 
       expectRespondOk(respond);

@@ -19,10 +19,13 @@ describe("realtime voice agent consult tool", () => {
     expect(
       buildRealtimeVoiceAgentConsultChatMessage({
         question: "  What changed? ",
+        reason: "workspace_task",
         context: "  PR #123 ",
         responseStyle: " concise ",
       }),
-    ).toBe("What changed?\n\nContext:\nPR #123\n\nSpoken style:\nconcise");
+    ).toBe(
+      "What changed?\n\nDelegation reason: workspace_task\n\nContext:\nPR #123\n\nSpoken style:\nconcise",
+    );
   });
 
   it("requires a non-empty question", () => {
@@ -31,14 +34,47 @@ describe("realtime voice agent consult tool", () => {
     );
   });
 
+  it("requires a closed delegation reason at the provider tool boundary", () => {
+    expect(REALTIME_VOICE_AGENT_CONSULT_TOOL.parameters.required).toEqual(["question", "reason"]);
+    expect(REALTIME_VOICE_AGENT_CONSULT_TOOL.parameters.properties.reason).toMatchObject({
+      type: "string",
+      enum: [
+        "explicit_agent_request",
+        "private_context",
+        "current_external_data",
+        "workspace_task",
+        "external_action",
+        "device_action",
+        "multi_step_orchestration",
+      ],
+    });
+    expect(REALTIME_VOICE_AGENT_CONSULT_TOOL.description).toContain(
+      "Do not use for conversation, stories",
+    );
+    expect(REALTIME_VOICE_AGENT_CONSULT_TOOL.description).not.toContain(
+      "memory, or reasoning before speaking",
+    );
+    expect(() =>
+      parseRealtimeVoiceAgentConsultArgs({ question: "Tell me a story" }, { requireReason: true }),
+    ).toThrow("valid reason required");
+    expect(() =>
+      parseRealtimeVoiceAgentConsultArgs(
+        { question: "Tell me a story", reason: "creative_writing" },
+        { requireReason: true },
+      ),
+    ).toThrow("valid reason required");
+  });
+
   it("normalizes a server-issued spoken confirmation id", () => {
     expect(
       parseRealtimeVoiceAgentConsultArgs({
         question: "Send it now",
+        reason: "external_action",
         confirmationId: " confirm-123 ",
       }),
     ).toStrictEqual({
       question: "Send it now",
+      reason: "external_action",
       context: undefined,
       responseStyle: undefined,
       confirmationId: "confirm-123",
@@ -46,23 +82,33 @@ describe("realtime voice agent consult tool", () => {
   });
 
   it("accepts provider question aliases from realtime tool calls", () => {
-    expect(parseRealtimeVoiceAgentConsultArgs({ prompt: "  Check the repo. " })).toStrictEqual({
+    expect(
+      parseRealtimeVoiceAgentConsultArgs({
+        prompt: "  Check the repo. ",
+        reason: "workspace_task",
+      }),
+    ).toStrictEqual({
       context: undefined,
       question: "Check the repo.",
+      reason: "workspace_task",
       responseStyle: undefined,
     });
     expect(
-      parseRealtimeVoiceAgentConsultArgs({ query: "  Send a Discord message. " }),
+      parseRealtimeVoiceAgentConsultArgs({
+        query: "  Send a Discord message. ",
+        reason: "external_action",
+      }),
     ).toStrictEqual({
       context: undefined,
       question: "Send a Discord message.",
+      reason: "external_action",
       responseStyle: undefined,
     });
   });
 
   it("builds a delegated voice request prompt with recent transcript", () => {
     const prompt = buildRealtimeVoiceAgentConsultPrompt({
-      args: { question: "Do we support realtime tools?" },
+      args: { question: "Do we support realtime tools?", reason: "workspace_task" },
       transcript: [
         { role: "user", text: "Can you check the repo?" },
         { role: "assistant", text: "I'll verify." },
@@ -80,6 +126,7 @@ describe("realtime voice agent consult tool", () => {
         "When finished, return only the concise result the realtime voice agent should speak back.",
         "Do not include markdown, tool logs, or private reasoning. Include citations only when the spoken answer needs them.",
         "Recent voice transcript for context:\nParticipant: Can you check the repo?\nAgent: I'll verify.",
+        "Delegation reason: workspace_task",
         "User request:\nDo we support realtime tools?",
       ].join("\n\n"),
     );

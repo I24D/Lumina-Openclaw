@@ -168,6 +168,8 @@ async function resolveRealtimeVoiceAgentConsultSessionEntry(params: {
   sessionKey: string;
   spawnedBy?: string | null;
   contextMode?: RealtimeVoiceAgentConsultContextMode;
+  /** Keep delegated work out of the user-facing voice transcript. */
+  sessionEffects?: RunEmbeddedAgentParams["sessionEffects"];
   deliveryContext?: DeliveryContext;
   storePath: string;
   agentRuntime: RealtimeVoiceAgentConsultRuntime;
@@ -267,6 +269,8 @@ async function resolveRealtimeVoiceAgentConsultSessionEntry(params: {
  * Runs an embedded agent consult and returns concise speakable text for realtime voice playback.
  */
 export async function consultRealtimeVoiceAgent(params: {
+  /** Keep delegated work out of the user-facing voice transcript. */
+  sessionEffects?: RunEmbeddedAgentParams["sessionEffects"];
   cfg: OpenClawConfig;
   agentRuntime: RealtimeVoiceAgentConsultRuntime;
   logger: Pick<RuntimeLogger, "warn">;
@@ -449,6 +453,7 @@ export async function consultRealtimeVoiceAgent(params: {
         timeoutMs,
         runId,
         lane: params.lane,
+        sessionEffects: params.sessionEffects,
         extraSystemPrompt:
           params.extraSystemPrompt ??
           "You are the configured OpenClaw agent receiving delegated requests from a live voice bridge. Act on behalf of the user, use available tools when appropriate, and return a brief speakable result.",

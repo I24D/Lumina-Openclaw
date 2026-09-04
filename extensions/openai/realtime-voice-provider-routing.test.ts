@@ -645,7 +645,12 @@ describe("OpenAI realtime voice provider routing", () => {
       createBrowserSession.mock.calls[0]?.[0],
       "quicksilver request",
     );
-    expect(quicksilverRequest.instructions).toMatch(/^You are OpenClaw's realtime voice layer\./);
+    expect(quicksilverRequest.instructions).toMatch(
+      /^You are OpenClaw's primary realtime voice model\./,
+    );
+    expect(quicksilverRequest.instructions).toContain(
+      "Do not delegate conversation, stories, creative writing, translation",
+    );
     expect(quicksilverRequest.instructions).toContain(
       "Context on the commentary channel is silent background",
     );

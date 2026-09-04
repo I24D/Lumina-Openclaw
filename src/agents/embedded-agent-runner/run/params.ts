@@ -88,6 +88,8 @@ export type CurrentInboundPromptContext = {
 };
 
 export type RunEmbeddedAgentParams = {
+  /** "internal" keeps delegated work out of the user-facing session transcript. Mirrors the same option on agent-command opts. */
+  sessionEffects?: "visible" | "internal";
   /** Already-admitted internal execution; mutually exclusive with preparedRunAdmission. */
   admittedRunContext?: AdmittedRunContext;
   /** Host-only post-prepare continuation, removed before plugin invocation. */

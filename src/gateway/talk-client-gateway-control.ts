@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { normalizeTalkSection } from "../config/talk.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createPluginRuntime } from "../plugins/runtime/index.js";
@@ -65,6 +65,18 @@ const pendingOwners = new Set<GatewayControlOwner>();
 
 const REALTIME_VOICE_CONTEXT_MAX_UTF8_BYTES = 8_000;
 const REALTIME_CONTROL_MAX_PENDING = 8;
+
+function resolveTalkConsultSessionKey(params: {
+  agentId: string;
+  requesterSessionKey: string;
+  voiceSessionId: string;
+}): string {
+  const scope = createHash("sha256")
+    .update(`${params.requesterSessionKey}\0${params.voiceSessionId}`)
+    .digest("hex")
+    .slice(0, 24);
+  return `agent:${params.agentId}:talk-consult:${scope}`;
+}
 
 export type TalkAgentConsultAuthority = {
   senderIsOwner: boolean;
@@ -280,12 +292,20 @@ export function createTalkClientAgentConsultRunner(params: {
       ...(params.ownerConnId ? { rawSourceRef: params.ownerConnId } : {}),
     });
     const talkConfig = normalizeTalkSection(params.config.talk);
+    const consultSessionKey = resolveTalkConsultSessionKey({
+      agentId: params.agentId,
+      requesterSessionKey: params.sessionKey,
+      voiceSessionId,
+    });
     return await consultRealtimeVoiceAgent({
       cfg: params.config,
       agentRuntime,
       logger: params.context.logGateway,
       agentId: params.agentId,
-      sessionKey: params.sessionKey,
+      sessionKey: consultSessionKey,
+      spawnedBy: params.sessionKey,
+      contextMode: "isolated",
+      sessionEffects: "internal",
       messageProvider: "webchat",
       lane: "talk",
       runIdPrefix: params.runIdPrefix ?? "talk-realtime-consult",

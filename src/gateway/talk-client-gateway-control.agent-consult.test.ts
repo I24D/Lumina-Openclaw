@@ -124,7 +124,14 @@ describe("Talk client agent consult admission", () => {
       }),
     );
     expect(mocks.consultRealtimeVoiceAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ senderIsOwner: false, toolsAllow: ["read"] }),
+      expect.objectContaining({
+        senderIsOwner: false,
+        toolsAllow: ["read"],
+        sessionKey: expect.stringMatching(/^agent:researcher:talk-consult:[a-f0-9]{24}$/),
+        spawnedBy: "agent:researcher:talk",
+        contextMode: "isolated",
+        sessionEffects: "internal",
+      }),
     );
     expect(mocks.close).toHaveBeenCalledOnce();
   });

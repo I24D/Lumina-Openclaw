@@ -18,12 +18,25 @@ export const REALTIME_VOICE_AGENT_CONSULT_TOOL_POLICIES = [
   "owner",
   "none",
 ] as const;
+/** Closed reasons a realtime provider may use to escalate a turn to OpenClaw. */
+export const REALTIME_VOICE_AGENT_CONSULT_REASONS = [
+  "explicit_agent_request",
+  "private_context",
+  "current_external_data",
+  "workspace_task",
+  "external_action",
+  "device_action",
+  "multi_step_orchestration",
+] as const;
+/** Auditable reason supplied by the realtime provider for an OpenClaw escalation. */
+export type RealtimeVoiceAgentConsultReason = (typeof REALTIME_VOICE_AGENT_CONSULT_REASONS)[number];
 /** Tool exposure policy for the shared realtime voice consult tool. */
 export type RealtimeVoiceAgentConsultToolPolicy =
   (typeof REALTIME_VOICE_AGENT_CONSULT_TOOL_POLICIES)[number];
 /** Normalized tool-call arguments accepted from realtime providers. */
 export type RealtimeVoiceAgentConsultArgs = {
   question: string;
+  reason?: RealtimeVoiceAgentConsultReason;
   context?: string;
   responseStyle?: string;
   confirmationId?: string;
@@ -39,13 +52,18 @@ export const REALTIME_VOICE_AGENT_CONSULT_TOOL: RealtimeVoiceTool = {
   type: "function",
   name: REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
   description:
-    "Delegate the caller's request to the configured OpenClaw agent for normal tool-backed work, actions, context, memory, or reasoning before speaking.",
+    "Escalate only work that specifically requires OpenClaw: an explicit agent request, private OpenClaw context, current external data without a direct tool, workspace access, an external or device action, or multi-step tool orchestration. Do not use for conversation, stories, creative writing, translation, brainstorming, general knowledge, self-contained explanations, calculations, or summaries of the current voice session.",
   parameters: {
     type: "object",
     properties: {
       question: {
         type: "string",
         description: "The concrete question or task the user asked.",
+      },
+      reason: {
+        type: "string",
+        enum: [...REALTIME_VOICE_AGENT_CONSULT_REASONS],
+        description: "The single concrete reason this request cannot be answered natively.",
       },
       context: {
         type: "string",
@@ -61,7 +79,7 @@ export const REALTIME_VOICE_AGENT_CONSULT_TOOL: RealtimeVoiceTool = {
           "Server-issued confirmation id from a prior VOICE_CONFIRMATION_REQUIRED result, supplied only after the user explicitly confirms aloud.",
       },
     },
-    required: ["question"],
+    required: ["question", "reason"],
   },
 };
 
@@ -167,8 +185,10 @@ export function buildRealtimeVoiceAgentConsultPolicyInstructions(config: {
   }
   return [
     "Consult behavior:",
-    "- Answer directly for greetings, acknowledgements, simple conversational glue, and brief latency tests.",
-    "- Call openclaw_agent_consult before answering requests that need facts, memory, current information, tools, workspace state, or the user's OpenClaw-specific context.",
+    "- You are the primary voice model. Answer directly with your native conversation, language, knowledge, reasoning, audio, and vision capabilities.",
+    "- Do not consult for stories, creative writing, translation, brainstorming, general knowledge, self-contained explanations, calculations, or summaries of this voice session.",
+    "- Call openclaw_agent_consult only for an explicit OpenClaw request, private OpenClaw context, current external data without a direct tool, workspace access, an external or device action, or multi-step tool orchestration.",
+    "- Every consult call must include the single matching closed reason from the tool schema.",
     "- Keep spoken replies concise and natural.",
   ].join("\n");
 }
@@ -213,7 +233,10 @@ export function buildRealtimeVoiceSessionInstructions(params: {
 }
 
 /** Parse provider-owned consult tool arguments into the normalized contract. */
-export function parseRealtimeVoiceAgentConsultArgs(args: unknown): RealtimeVoiceAgentConsultArgs {
+export function parseRealtimeVoiceAgentConsultArgs(
+  args: unknown,
+  options: { requireReason?: boolean } = {},
+): RealtimeVoiceAgentConsultArgs {
   const question =
     readConsultStringArg(args, "question") ??
     readConsultStringArg(args, "prompt") ??
@@ -222,11 +245,23 @@ export function parseRealtimeVoiceAgentConsultArgs(args: unknown): RealtimeVoice
   if (!question) {
     throw new Error("question required");
   }
+  const rawReason = readConsultStringArg(args, "reason");
+  // Truthiness, not `!== undefined`: an empty string means "not supplied" here
+  // and must not be validated as a reason.
+  if (rawReason && !isRealtimeVoiceAgentConsultReason(rawReason)) {
+    throw new Error("valid reason required");
+  }
+  if (options.requireReason && !rawReason) {
+    throw new Error("valid reason required");
+  }
+  // Anything truthy that is not in the closed set already threw above.
+  const reason = (rawReason || undefined) as RealtimeVoiceAgentConsultReason | undefined;
   const context = readConsultStringArg(args, "context");
   const responseStyle = readConsultStringArg(args, "responseStyle");
   const confirmationId = readConsultStringArg(args, "confirmationId");
   return {
     question,
+    ...(reason ? { reason } : {}),
     context,
     responseStyle,
     ...(confirmationId ? { confirmationId } : {}),
@@ -238,6 +273,7 @@ export function buildRealtimeVoiceAgentConsultChatMessage(args: unknown): string
   const parsed = parseRealtimeVoiceAgentConsultArgs(args);
   return [
     parsed.question,
+    parsed.reason ? `Delegation reason: ${parsed.reason}` : undefined,
     parsed.context ? `Context:\n${parsed.context}` : undefined,
     parsed.responseStyle ? `Spoken style:\n${parsed.responseStyle}` : undefined,
   ]
@@ -273,6 +309,7 @@ export function buildRealtimeVoiceAgentConsultPrompt(params: {
     parsed.responseStyle ? `Spoken style: ${parsed.responseStyle}` : undefined,
     transcript ? `Recent voice transcript for context:\n${transcript}` : undefined,
     parsed.context ? `Additional realtime context:\n${parsed.context}` : undefined,
+    parsed.reason ? `Delegation reason: ${parsed.reason}` : undefined,
     `User request:\n${parsed.question}`,
   ]
     .filter(Boolean)
@@ -300,6 +337,15 @@ export function collectRealtimeVoiceAgentConsultVisibleText(
     }
   }
   return chunks.length > 0 ? chunks.join("\n\n").trim() : null;
+}
+
+function isRealtimeVoiceAgentConsultReason(
+  value: string | undefined,
+): value is RealtimeVoiceAgentConsultReason {
+  return (
+    value !== undefined &&
+    REALTIME_VOICE_AGENT_CONSULT_REASONS.includes(value as RealtimeVoiceAgentConsultReason)
+  );
 }
 
 function readConsultStringArg(args: unknown, key: string): string | undefined {

@@ -270,6 +270,14 @@ export async function startGatewayCoreRuntime(input: {
     kernel.setChannelHealthMonitor(startGatewayChannelHealthMonitor({ channelManager })),
   );
 
+  // Lumina: let Start Talk read out loud what Claude Code, Codex and the OpenClaw chat
+  // answer, plus the Windows toasts the user asked for. Self-contained and failure
+  // isolated: it owns unref'd timers and never rejects into the boot path.
+  await startupTrace.measure("runtime.lumina-read-aloud", async () => {
+    const { startLuminaReadAloud } = await import("../lumina/read-aloud/index.js");
+    startLuminaReadAloud();
+  });
+
   const { createOperatorApprovalSessionEventRuntime } =
     await import("./operator-approval-session-events.js");
   // Managers publish through this runtime, while replay routes durable

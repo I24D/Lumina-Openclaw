@@ -608,17 +608,22 @@ export async function submitRealtimeTalkConsult(params: {
     }
     // Cancellation must not hide the acknowledgement that owns the Gateway run.
     // Once the run id arrives, abortRun() can cancel the exact started consult.
-    const response = await ctx.client.request<{ runId?: string; idempotencyKey?: string }>(
-      "talk.client.toolCall",
-      {
-        sessionKey: ctx.sessionKey,
-        ...(ctx.voiceSessionId ? { voiceSessionId: ctx.voiceSessionId } : {}),
-        callId,
-        name: REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
-        args,
-        ...(params.relaySessionId ? { relaySessionId: params.relaySessionId } : {}),
-      },
-    );
+    const response = await ctx.client.request<{
+      result?: string;
+      runId?: string;
+      idempotencyKey?: string;
+    }>("talk.client.toolCall", {
+      sessionKey: ctx.sessionKey,
+      ...(ctx.voiceSessionId ? { voiceSessionId: ctx.voiceSessionId } : {}),
+      callId,
+      name: REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
+      args,
+      ...(params.relaySessionId ? { relaySessionId: params.relaySessionId } : {}),
+    });
+    if (typeof response.result === "string") {
+      await submitOnce({ result: response.result });
+      return;
+    }
     runId = response.runId ?? response.idempotencyKey;
     if (!runId) {
       throw new Error("OpenClaw realtime tool call did not return a run id");

@@ -17,17 +17,11 @@ import {
 import { controlRealtimeVoiceAgentRun } from "../../talk/agent-run-control.js";
 import { resolveTalkSessionAgentId } from "../../talk/agent-target.js";
 import {
-  authorizeClientVoiceConfirmation,
-  bindAuthorizedClientVoiceConfirmation,
-  type ClientVoiceConfirmationGrant,
-} from "../../talk/client-voice-confirmation.js";
-import {
   appendClientVoiceTranscript,
   assertClientVoiceSessionOpen,
   closeClientVoiceSession,
   createOrResumeClientVoiceSession,
   ensureClientVoiceAgentSessionEntry,
-  registerClientVoiceConsultRun,
   resolveClientVoiceSessionOrigin,
   resolveOpenClientVoiceSessionId,
 } from "../../talk/client-voice-session.js";
@@ -35,11 +29,15 @@ import {
   authorizeGatewaySessionCreation,
   resolveSandboxedSessionCreation,
 } from "../operator-role-policy.js";
-import { startTalkRealtimeAgentConsult } from "../talk-agent-consult.js";
-import { closeTalkClientGatewayControlSession } from "../talk-client-gateway-control.js";
+import {
+  closeTalkClientGatewayControlSession,
+  createTalkClientAgentConsultRunner,
+  resolveTalkAgentConsultAuthority,
+} from "../talk-client-gateway-control.js";
 import {
   ensureTalkRealtimeRelayVoiceSession,
   flushTalkRealtimeRelayVoiceWrites,
+  registerTalkRealtimeRelayAgentRun,
 } from "../talk-realtime-relay.js";
 import { formatForLog } from "../ws-log.js";
 import { createTalkClient } from "./talk-client-create.js";
@@ -98,7 +96,6 @@ export const talkClientHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    let confirmationGrant: ClientVoiceConfirmationGrant | undefined;
     let voiceSessionId: string;
     try {
       // Shipped clients may consult without ever creating a voice session (old app,
@@ -134,7 +131,9 @@ export const talkClientHandlers: GatewayRequestHandlers = {
         });
         await flushTalkRealtimeRelayVoiceWrites({ relaySessionId, connId });
       }
-      const parsedArgs = parseRealtimeVoiceAgentConsultArgs(params.args ?? {});
+      parseRealtimeVoiceAgentConsultArgs(params.args ?? {}, {
+        requireReason: true,
+      });
       const origin = assertClientVoiceSessionOpen({
         agentId,
         sessionKey: params.sessionKey,
@@ -145,53 +144,41 @@ export const talkClientHandlers: GatewayRequestHandlers = {
           "relay-owned voice sessions require relaySessionId and connection ownership",
         );
       }
-      if (parsedArgs.confirmationId) {
-        confirmationGrant = authorizeClientVoiceConfirmation({
-          agentId,
-          voiceSessionId,
-          confirmationId: parsedArgs.confirmationId,
-        });
-      }
     } catch (err) {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, formatForLog(err)));
       return;
     }
 
-    const result = await startTalkRealtimeAgentConsult({
-      context: request.context,
-      client: request.client,
-      isWebchatConnect: request.isWebchatConnect,
-      requestId: request.req.id,
-      sessionKey: params.sessionKey,
-      callId: params.callId,
-      args: params.args ?? {},
-      relaySessionId: normalizeOptionalString(params.relaySessionId),
-      connId,
-      onRunStarted: (runId) => {
-        registerClientVoiceConsultRun({
-          agentId,
-          sessionKey: params.sessionKey,
-          voiceSessionId,
-          runId,
-          config: request.context.getRuntimeConfig(),
-        });
-        if (confirmationGrant) {
-          bindAuthorizedClientVoiceConfirmation({ grant: confirmationGrant, runId });
-        }
-      },
-    });
-    if (!result.ok) {
-      respond(false, undefined, result.error);
-      return;
+    try {
+      const consultRunner = createTalkClientAgentConsultRunner({
+        config,
+        context: request.context,
+        agentId,
+        sessionKey: params.sessionKey,
+        ...(connId ? { ownerConnId: connId } : {}),
+        authority: resolveTalkAgentConsultAuthority(request.client?.connect?.scopes),
+        getVoiceSessionId: () => voiceSessionId,
+        initialItems: [],
+        runIdPrefix: "talk-client-consult",
+        surface: "a browser Start Talk session",
+        ...(relaySessionId && connId
+          ? {
+              registerRun: ({ runId }: { runId: string }) =>
+                registerTalkRealtimeRelayAgentRun({
+                  relaySessionId,
+                  connId,
+                  sessionKey: params.sessionKey,
+                  runId,
+                  callId: params.callId,
+                }),
+            }
+          : {}),
+      });
+      const result = await consultRunner.runArgs(params.args ?? {});
+      respond(true, { result: result.text }, undefined);
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
     }
-    respond(
-      true,
-      {
-        runId: result.runId,
-        idempotencyKey: result.idempotencyKey,
-      },
-      undefined,
-    );
   },
   "talk.client.transcript": async ({ params, respond, context }) => {
     if (
