@@ -82,8 +82,6 @@ const TRAIN_2026_7_METHODS = [
 
 const CURRENT_TRAIN_METHODS = [
   "diagnostics.lanes",
-  "lumina.startTalk.status",
-  "lumina.startTalk.open",
   "plugins.inspect",
   "device.pair.setupStatus",
   "exec.approval.grants.list",

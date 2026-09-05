@@ -57,8 +57,7 @@ import {
 import {
   DetachedTalkAutostartController,
   isDetachedTalkWindow,
-  openVoiceUi,
-  primeVoiceUi,
+  openDetachedTalkWindow,
 } from "./chat-talk-window-route.ts";
 import type { ChatProps } from "./chat-view.ts";
 import { getChatComposerState } from "./components/chat-composer-state.ts";
@@ -86,7 +85,6 @@ export class ChatPane extends ChatPaneLayoutRender {
     }
     const talkWindow = isDetachedTalkWindow();
     this.detachedTalkAutostart.sync(state, talkWindow, () => this.state);
-    primeVoiceUi(talkWindow, this.context.gateway);
     void this.ensureTaskSuggestionCloudProfiles();
     const selectedSession = selectedChatSessionRow(state);
     const selectedSessionArchived = this.isCurrentSessionArchived(state);
@@ -613,7 +611,7 @@ export class ChatPane extends ChatPaneLayoutRender {
           void state.toggleRealtimeTalk();
           return;
         }
-        openVoiceUi(this.context.gateway);
+        openDetachedTalkWindow();
       },
       onToggleRealtimeCamera: () => void state.toggleRealtimeTalkCamera(),
       onToggleRealtimeScreenShare: () => void state.toggleRealtimeTalkScreenShare(),

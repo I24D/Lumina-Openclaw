@@ -368,10 +368,6 @@ const CORE_GATEWAY_METHOD_SPECS = [
     { compatibilityRestored: true },
   ],
   ["gateway.restart.request", "restart", "operator.admin", "<=2026.7", { controlPlaneWrite: true }],
-  // The composer microphone opens the Lumina Start Talk desktop app through the
-  // authenticated socket; only the Gateway can start a local process for it.
-  ["lumina.startTalk.status", "lumina", "operator.read", "2026.8"],
-  ["lumina.startTalk.open", "lumina", "operator.write", "2026.8", { controlPlaneWrite: true }],
   ["system-presence", "system", "operator.read", "<=2026.7"],
   ["system-event", "system", "operator.admin", "<=2026.7"],
   ["message.action", "send", "operator.write", "<=2026.7"],

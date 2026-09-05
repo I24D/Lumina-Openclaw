@@ -1,9 +1,4 @@
 import {
-  isLuminaStartTalkAvailable,
-  launchLuminaStartTalk,
-  primeLuminaStartTalk,
-} from "../../lib/lumina-start-talk.ts";
-import {
   reserveExternalWindowForDeferredNavigation,
   resolveSafeExternalUrl,
 } from "../../lib/open-external-url.ts";
@@ -35,7 +30,7 @@ function shouldAutostartDetachedTalk(): boolean {
   return currentBrowserUrl()?.searchParams.get("autostart") === "1";
 }
 
-function openDetachedTalkWindow(): boolean {
+export function openDetachedTalkWindow(): boolean {
   const url = currentBrowserUrl();
   if (!url || typeof window === "undefined") {
     return false;
@@ -54,47 +49,6 @@ function openDetachedTalkWindow(): boolean {
   }
   window.location.assign(safeUrl);
   return true;
-}
-
-/**
- * What the Start Talk route needs from the gateway store: the authenticated
- * socket this session already holds.
- */
-type VoiceUiGateway = {
-  snapshot: { client: { request<T>(method: string, params?: unknown): Promise<T> } | null };
-};
-
-/**
- * Asks ahead of the click whether this Gateway's host can run Start Talk. The
- * answer is cached, so this is safe to call from render — and it has to be
- * known before the tap, because `openVoiceUi` cannot await.
- */
-export function primeVoiceUi(talkWindow: boolean, gateway: VoiceUiGateway): void {
-  if (!talkWindow) {
-    primeLuminaStartTalk(gateway.snapshot.client);
-  }
-}
-
-/**
- * Opens the voice UI for a microphone tap.
- *
- * Start Talk is the voice UI of the Lumina family, so it wins on any host that
- * has it, in every session. The choice is synchronous on purpose: deciding
- * inside an await would spend the click's user activation, and the fallback
- * would then navigate this tab instead of opening its own window. A host
- * without Start Talk — or a probe that has not answered yet — keeps the
- * built-in detached Talk window.
- */
-export function openVoiceUi(gateway: VoiceUiGateway): void {
-  if (isLuminaStartTalkAvailable() !== true) {
-    openDetachedTalkWindow();
-    return;
-  }
-  void launchLuminaStartTalk(gateway.snapshot.client).then((opened) => {
-    if (!opened) {
-      openDetachedTalkWindow();
-    }
-  });
 }
 
 export class DetachedTalkAutostartController {
