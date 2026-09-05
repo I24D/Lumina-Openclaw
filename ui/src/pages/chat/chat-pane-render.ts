@@ -19,11 +19,6 @@ import {
 import { formatUiError } from "../../lib/format-error.ts";
 import { isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
 import {
-  isLuminaStartTalkAvailable,
-  launchLuminaStartTalk,
-  primeLuminaStartTalk,
-} from "../../lib/lumina-start-talk.ts";
-import {
   pickFreshestObserverDigest,
   projectSessionObserverDigest,
   resolveChatPaneObserverRunId,
@@ -62,7 +57,8 @@ import {
 import {
   DetachedTalkAutostartController,
   isDetachedTalkWindow,
-  openDetachedTalkWindow,
+  openVoiceUi,
+  primeVoiceUi,
 } from "./chat-talk-window-route.ts";
 import type { ChatProps } from "./chat-view.ts";
 import { getChatComposerState } from "./components/chat-composer-state.ts";
@@ -90,11 +86,7 @@ export class ChatPane extends ChatPaneLayoutRender {
     }
     const talkWindow = isDetachedTalkWindow();
     this.detachedTalkAutostart.sync(state, talkWindow, () => this.state);
-    // Ask ahead of the click: the microphone has to decide between Start Talk
-    // and the browser Talk window without awaiting. Cached after one answer.
-    if (!talkWindow) {
-      primeLuminaStartTalk();
-    }
+    primeVoiceUi(talkWindow);
     void this.ensureTaskSuggestionCloudProfiles();
     const selectedSession = selectedChatSessionRow(state);
     const selectedSessionArchived = this.isCurrentSessionArchived(state);
@@ -621,19 +613,7 @@ export class ChatPane extends ChatPaneLayoutRender {
           void state.toggleRealtimeTalk();
           return;
         }
-        // Start Talk is the Lumina voice UI, so every session's microphone opens
-        // it. Availability is primed during render because the fallback window
-        // needs this click's user activation, which an await would spend; until
-        // the probe answers, the built-in Talk window stays the outcome.
-        if (isLuminaStartTalkAvailable() === true) {
-          void launchLuminaStartTalk().then((opened) => {
-            if (!opened) {
-              openDetachedTalkWindow();
-            }
-          });
-          return;
-        }
-        openDetachedTalkWindow();
+        openVoiceUi();
       },
       onToggleRealtimeCamera: () => void state.toggleRealtimeTalkCamera(),
       onToggleRealtimeScreenShare: () => void state.toggleRealtimeTalkScreenShare(),

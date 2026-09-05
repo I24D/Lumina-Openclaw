@@ -9,10 +9,14 @@ const LAUNCH_TIMEOUT_MS = 10_000;
 // the slot empty so the next attempt asks again.
 let available: boolean | null = null;
 let probe: Promise<void> | null = null;
+// Bumped on every gateway switch so an answer that was already in flight for
+// the previous gateway cannot land in the new one's slot.
+let generation = 0;
 
 registerAvatarGatewayReset(() => {
   available = null;
   probe = null;
+  generation += 1;
 });
 
 function gatewayRequest(method: "GET" | "POST", timeoutMs: number): Promise<Response> {
@@ -44,6 +48,7 @@ export function primeLuminaStartTalk(): void {
   if (available !== null || probe) {
     return;
   }
+  const asked = generation;
   probe = (async () => {
     try {
       const response = await gatewayRequest("GET", PROBE_TIMEOUT_MS);
@@ -51,12 +56,16 @@ export function primeLuminaStartTalk(): void {
         return;
       }
       const body = (await response.json()) as { available?: unknown };
-      available = body?.available === true;
+      if (asked === generation) {
+        available = body?.available === true;
+      }
     } catch {
       // Not an answer, just an unreachable gateway — stay unknown and retry.
     }
   })().finally(() => {
-    probe = null;
+    if (asked === generation) {
+      probe = null;
+    }
   });
 }
 
@@ -69,11 +78,14 @@ export function primeLuminaStartTalk(): void {
  * keeps the built-in behaviour.
  */
 export async function launchLuminaStartTalk(): Promise<boolean> {
+  const asked = generation;
   try {
     const response = await gatewayRequest("POST", LAUNCH_TIMEOUT_MS);
     if (response.status === 503) {
       // The app went missing since the probe; stop claiming this host has it.
-      available = false;
+      if (asked === generation) {
+        available = false;
+      }
       return false;
     }
     return response.ok;
