@@ -99,9 +99,6 @@ const getControlUiModule = createLazyRuntimeModule(() => import("./control-ui.js
 const getCanvasServeModule = createLazyRuntimeModule(() => import("../canvas/serve.runtime.js"));
 const getBoardHttpModule = createLazyRuntimeModule(() => import("./board-http.js"));
 const getEmbeddingsHttpModule = createLazyRuntimeModule(() => import("./embeddings-http.js"));
-const getLuminaStartTalkHttpModule = createLazyRuntimeModule(
-  () => import("./lumina-start-talk-http.js"),
-);
 const getManagedMediaAttachmentsModule = createLazyRuntimeModule(
   () => import("./managed-image-attachments.js"),
 );
@@ -469,15 +466,6 @@ export function createGatewayHttpServer(opts: {
       );
       addAdmittedStage(openAiCompatEnabled && scopedRequestPath === "/v1/embeddings", async () =>
         (await getEmbeddingsHttpModule()).handleOpenAiEmbeddingsHttpRequest(req, res, routeAuth),
-      );
-      // The composer microphone hands voice to the Lumina Start Talk desktop
-      // app; only the gateway can start a local process for it.
-      addAdmittedStage(scopedRequestPath === "/lumina/start-talk", async () =>
-        (await getLuminaStartTalkHttpModule()).handleLuminaStartTalkHttpRequest(
-          req,
-          res,
-          routeAuth,
-        ),
       );
       addAdmittedStage(scopedRequestPath === "/tools/invoke", async () =>
         (await getToolsInvokeHttpModule()).handleToolsInvokeHttpRequest(req, res, routeAuth),

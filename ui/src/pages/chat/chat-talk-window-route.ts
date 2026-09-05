@@ -57,13 +57,21 @@ function openDetachedTalkWindow(): boolean {
 }
 
 /**
- * Asks ahead of the click whether this Gateway's host can run Start Talk. The
- * answer is cached after one round trip, so this is safe to call from render —
- * and it has to be known before the tap, because `openVoiceUi` cannot await.
+ * What the Start Talk route needs from the gateway store: the authenticated
+ * socket this session already holds.
  */
-export function primeVoiceUi(talkWindow: boolean): void {
+type VoiceUiGateway = {
+  snapshot: { client: { request<T>(method: string, params?: unknown): Promise<T> } | null };
+};
+
+/**
+ * Asks ahead of the click whether this Gateway's host can run Start Talk. The
+ * answer is cached, so this is safe to call from render — and it has to be
+ * known before the tap, because `openVoiceUi` cannot await.
+ */
+export function primeVoiceUi(talkWindow: boolean, gateway: VoiceUiGateway): void {
   if (!talkWindow) {
-    primeLuminaStartTalk();
+    primeLuminaStartTalk(gateway.snapshot.client);
   }
 }
 
@@ -77,12 +85,12 @@ export function primeVoiceUi(talkWindow: boolean): void {
  * without Start Talk — or a probe that has not answered yet — keeps the
  * built-in detached Talk window.
  */
-export function openVoiceUi(): void {
+export function openVoiceUi(gateway: VoiceUiGateway): void {
   if (isLuminaStartTalkAvailable() !== true) {
     openDetachedTalkWindow();
     return;
   }
-  void launchLuminaStartTalk().then((opened) => {
+  void launchLuminaStartTalk(gateway.snapshot.client).then((opened) => {
     if (!opened) {
       openDetachedTalkWindow();
     }

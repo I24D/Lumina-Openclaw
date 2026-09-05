@@ -1,72 +1,63 @@
-import { readAvatarGatewayContext, registerAvatarGatewayReset } from "./identity-avatar-context.ts";
-
-const PROBE_TIMEOUT_MS = 5_000;
-const LAUNCH_TIMEOUT_MS = 10_000;
+type GatewayRequester = {
+  request<T>(method: string, params?: unknown): Promise<T>;
+};
 
 // Whether Start Talk exists is a property of the host the Gateway runs on, so
-// the answer is cached per gateway context and dropped when the UI switches
-// gateways. Only a definitive answer is cached: an unreachable gateway leaves
-// the slot empty so the next attempt asks again.
+// the answer is cached rather than asked again on every render. It is asked
+// over the Control UI's own socket: this deployment authenticates that socket
+// by tailnet identity, while an HTTP route would demand a bearer token the
+// browser never stored, and every probe would come back 401.
 let available: boolean | null = null;
 let probe: Promise<void> | null = null;
-// Bumped on every gateway switch so an answer that was already in flight for
-// the previous gateway cannot land in the new one's slot.
+// Bumped whenever the client changes so an answer already in flight for the
+// previous gateway cannot land in the new one's slot.
 let generation = 0;
-
-registerAvatarGatewayReset(() => {
-  available = null;
-  probe = null;
-  generation += 1;
-});
-
-function gatewayRequest(method: "GET" | "POST", timeoutMs: number): Promise<Response> {
-  const { origin, authHeader } = readAvatarGatewayContext();
-  return fetch(`${origin ?? ""}/lumina/start-talk`, {
-    method,
-    credentials: "include",
-    ...(authHeader ? { headers: { Authorization: authHeader } } : {}),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-}
+let probedClient: GatewayRequester | null = null;
 
 /**
- * What a microphone click reads synchronously; `null` while the first probe is
- * still in flight. The answer has to be known before the click, because
- * choosing inside an await spends the user activation the fallback window
- * needs.
+ * What a microphone click reads synchronously; `null` until the first answer
+ * arrives. The answer has to be known before the click, because choosing inside
+ * an await spends the user activation the fallback window needs.
  */
 export function isLuminaStartTalkAvailable(): boolean | null {
   return available;
 }
 
 /**
- * Asks the Gateway once whether the Lumina Start Talk desktop app is installed
- * on its host. Safe to call from render: the answer is cached and concurrent
- * callers share one request.
+ * Asks the Gateway whether the Lumina Start Talk desktop app is installed on
+ * its host. Safe to call from render: at most one request is in flight, and the
+ * question is asked again only when the connection changes.
  */
-export function primeLuminaStartTalk(): void {
-  if (available !== null || probe) {
+export function primeLuminaStartTalk(client: GatewayRequester | null): void {
+  if (!client) {
+    return;
+  }
+  if (client !== probedClient) {
+    // A new socket may reach a different host; the previous answer is not
+    // evidence about this one.
+    available = null;
+    probedClient = client;
+    generation += 1;
+  } else if (probe || available !== null) {
     return;
   }
   const asked = generation;
-  probe = (async () => {
-    try {
-      const response = await gatewayRequest("GET", PROBE_TIMEOUT_MS);
-      if (!response.ok) {
-        return;
-      }
-      const body = (await response.json()) as { available?: unknown };
+  probe = client
+    .request<{ available?: unknown }>("lumina.startTalk.status")
+    .then((result) => {
       if (asked === generation) {
-        available = body?.available === true;
+        available = result?.available === true;
       }
-    } catch {
-      // Not an answer, just an unreachable gateway — stay unknown and retry.
-    }
-  })().finally(() => {
-    if (asked === generation) {
-      probe = null;
-    }
-  });
+    })
+    .catch(() => {
+      // An unadvertised method or a dropped socket is not an answer; leave the
+      // slot empty so the next render can ask again.
+    })
+    .finally(() => {
+      if (asked === generation) {
+        probe = null;
+      }
+    });
 }
 
 /**
@@ -77,18 +68,19 @@ export function primeLuminaStartTalk(): void {
  * start a local process; `false` means this host could not, and the caller
  * keeps the built-in behaviour.
  */
-export async function launchLuminaStartTalk(): Promise<boolean> {
+export async function launchLuminaStartTalk(client: GatewayRequester | null): Promise<boolean> {
+  if (!client) {
+    return false;
+  }
   const asked = generation;
   try {
-    const response = await gatewayRequest("POST", LAUNCH_TIMEOUT_MS);
-    if (response.status === 503) {
+    const result = await client.request<{ opened?: unknown }>("lumina.startTalk.open");
+    const opened = result?.opened === true;
+    if (!opened && asked === generation) {
       // The app went missing since the probe; stop claiming this host has it.
-      if (asked === generation) {
-        available = false;
-      }
-      return false;
+      available = false;
     }
-    return response.ok;
+    return opened;
   } catch {
     return false;
   }
