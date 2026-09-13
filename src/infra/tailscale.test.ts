@@ -15,6 +15,8 @@ const {
   hasTailscaleFunnelRouteForPort,
   releaseStaleTailscaleListener,
   staleTailscaleListenerPort,
+  tailscaleBackendNotReadyState,
+  waitForTailscaleBackendRunning,
 } = tailscale;
 const tailscaleBin = "tailscale";
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -299,6 +301,65 @@ describe("tailscale helpers", () => {
     const exec = vi.fn().mockResolvedValue({ stdout: "" });
     await releaseStaleTailscaleListener("serve", 443, exec);
     expectExecCall(exec, 1, tailscaleBin, ["serve", "--https=443", "off"], { timeoutMs: 10_000 });
+  });
+
+  it.each([
+    { state: "NoState", err: { stderr: "sending serve config: unexpected state: NoState" } },
+    { state: "Starting", err: new Error("unexpected state: Starting") },
+  ])("reads the transient $state backend state out of a claim failure", ({ state, err }) => {
+    expect(tailscaleBackendNotReadyState(err)).toBe(state);
+  });
+
+  it.each([
+    { label: "a stopped daemon", err: new Error("unexpected state: Stopped") },
+    { label: "a daemon that needs a login", err: new Error("unexpected state: NeedsLogin") },
+    { label: "an unrelated failure", err: new Error("Funnel is not enabled on your tailnet.") },
+    { label: "an empty failure", err: {} },
+  ])("does not wait on $label", ({ err }) => {
+    expect(tailscaleBackendNotReadyState(err)).toBeNull();
+  });
+
+  it("waits for tailscaled to report Running before letting the claim retry", async () => {
+    let clock = 0;
+    const exec = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("failed to connect to local tailscale service"))
+      .mockResolvedValueOnce({ stdout: JSON.stringify({ BackendState: "NoState" }) })
+      .mockResolvedValueOnce({ stdout: JSON.stringify({ BackendState: "Running" }) });
+    const sleep = vi.fn(async (ms: number) => {
+      clock += ms;
+    });
+
+    await expect(
+      waitForTailscaleBackendRunning({
+        exec,
+        sleep,
+        now: () => clock,
+        pollMs: 1_000,
+        timeoutMs: 60_000,
+      }),
+    ).resolves.toBe(true);
+    expect(exec).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up waiting on tailscaled once the deadline passes", async () => {
+    let clock = 0;
+    const exec = vi.fn().mockResolvedValue({ stdout: JSON.stringify({ BackendState: "NoState" }) });
+    const sleep = vi.fn(async (ms: number) => {
+      clock += ms;
+    });
+
+    await expect(
+      waitForTailscaleBackendRunning({
+        exec,
+        sleep,
+        now: () => clock,
+        pollMs: 1_000,
+        timeoutMs: 3_000,
+      }),
+    ).resolves.toBe(false);
+    expect(exec).toHaveBeenCalledTimes(4);
   });
 
   it("hasTailscaleFunnelRouteForPort accepts noisy JSON status output", async () => {

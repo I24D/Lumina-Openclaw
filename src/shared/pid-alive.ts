@@ -3,6 +3,9 @@ import childProcess from "node:child_process";
 import fsSync from "node:fs";
 
 const PROCESS_START_TIMEOUT_MS = 1000;
+// Proving this process's own identity must not fail, and it happens once per
+// process (the answer is cached), so it can afford PowerShell's slow cold start.
+const SELF_PROCESS_START_TIMEOUT_MS = 10_000;
 
 function isValidPid(pid: number): boolean {
   return Number.isInteger(pid) && pid > 0;
@@ -56,7 +59,10 @@ export function isPidDefinitelyDead(pid: number): boolean {
   return isZombieProcess(pid);
 }
 
-function getPlatformProcessStartTime(pid: number): number | null {
+function getPlatformProcessStartTime(
+  pid: number,
+  timeoutMs = PROCESS_START_TIMEOUT_MS,
+): number | null {
   try {
     const windows = process.platform === "win32";
     const command = windows ? `(Get-Process -Id ${pid}).StartTime.ToString('o')` : String(pid);
@@ -68,7 +74,7 @@ function getPlatformProcessStartTime(pid: number): number | null {
         encoding: "utf8",
         env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
         stdio: ["ignore", "pipe", "ignore"],
-        timeout: PROCESS_START_TIMEOUT_MS,
+        timeout: timeoutMs,
         killSignal: "SIGKILL",
         windowsHide: windows,
       })
@@ -105,10 +111,31 @@ export function getProcessStartTime(pid: number): number | null {
   }
 }
 
+// Windows has no procfs or ps(1), so start times come from PowerShell, which takes
+// most of a second to answer on a warm machine and longer while the Gateway boots.
+// For other owners a timeout is harmless: null is the conservative "cannot prove
+// it is stale" answer. For this process it is fatal: cron cannot claim a durable
+// fence without its own identity, so every tick fails. Resolve self once, with
+// room to wait, and cache it. PowerShell stays the first choice so the value
+// matches what other processes read for this pid; process.uptime() lands a Node
+// bootstrap delay later and would make a live owner look like PID reuse. It is
+// only the fallback for a PowerShell that never answers at all.
+let selfWindowsProcessStartTime: number | null = null;
+
+function getSelfWindowsProcessStartTime(): number {
+  selfWindowsProcessStartTime ??=
+    getPlatformProcessStartTime(process.pid, SELF_PROCESS_START_TIMEOUT_MS) ??
+    Math.floor(Date.now() - process.uptime() * 1000);
+  return selfWindowsProcessStartTime;
+}
+
 /** Read a cross-platform process identity for filesystem lock ownership. */
 export function getFileLockProcessStartTime(pid: number): number | null {
   if (!isValidPid(pid)) {
     return null;
+  }
+  if (process.platform === "win32" && pid === process.pid) {
+    return getSelfWindowsProcessStartTime();
   }
   return process.platform === "darwin" || process.platform === "win32"
     ? getPlatformProcessStartTime(pid)

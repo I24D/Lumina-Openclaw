@@ -246,6 +246,45 @@ describe("process start times", () => {
     });
   });
 
+  it("proves its own Windows identity once, with room for a slow PowerShell start", async () => {
+    vi.resetModules();
+    const { getFileLockProcessStartTime: freshStartTime } = await import("./pid-alive.js");
+    const execSpy = vi
+      .spyOn(childProcess, "execFileSync")
+      .mockReturnValue("2026-07-06T12:34:56.7890000Z");
+
+    await withMockedPlatform("win32", async () => {
+      const first = freshStartTime(process.pid);
+      expect(first).toBe(Date.UTC(2026, 6, 6, 12, 34, 56, 789));
+      expect(freshStartTime(process.pid)).toBe(first);
+    });
+
+    expect(execSpy).toHaveBeenCalledTimes(1);
+    expect(execSpy).toHaveBeenCalledWith(
+      "powershell.exe",
+      expect.any(Array),
+      expect.objectContaining({ timeout: 10_000 }),
+    );
+  });
+
+  it("never loses its own Windows identity when PowerShell cannot answer", async () => {
+    vi.resetModules();
+    const { getFileLockProcessStartTime: freshStartTime } = await import("./pid-alive.js");
+    const execSpy = vi.spyOn(childProcess, "execFileSync").mockImplementation(() => {
+      throw Object.assign(new Error("spawnSync powershell.exe ETIMEDOUT"), { code: "ETIMEDOUT" });
+    });
+
+    await withMockedPlatform("win32", async () => {
+      const first = freshStartTime(process.pid);
+      expect(first).toEqual(expect.any(Number));
+      expect(freshStartTime(process.pid)).toBe(first);
+      // Other owners keep the conservative answer.
+      expect(freshStartTime(42)).toBeNull();
+    });
+
+    expect(execSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("returns null on unsupported platforms", () => {
     return withMockedPlatform("freebsd", async () => {
       expect(getProcessStartTime(process.pid)).toBeNull();

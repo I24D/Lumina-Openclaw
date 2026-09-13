@@ -436,7 +436,7 @@ async function startTailscaleRouteOwner(argv: string[]): Promise<TailscaleRouteC
 export async function claimTailscaleRoute(
   mode: "serve" | "funnel",
   target: number | string,
-  options: { onStaleListenerReclaimed?: (listenerPort: number) => void } = {},
+  options: TailscaleRouteClaimOptions = {},
 ): Promise<TailscaleRouteClaim> {
   const tailscaleBin = await getTailscaleBinary();
   const args = [mode, "--yes", "--bg=false", `${target}`];
@@ -465,16 +465,96 @@ export async function claimTailscaleRoute(
     // leftover listener for the port this claim is about to own anyway, then retry
     // exactly once. Unrelated failures still surface untouched.
     const listenerPort = staleTailscaleListenerPort(error);
-    if (listenerPort === null) {
+    if (listenerPort !== null) {
+      try {
+        await releaseStaleTailscaleListener(mode, listenerPort);
+      } catch {
+        throw error;
+      }
+      options.onStaleListenerReclaimed?.(listenerPort);
+      return await claimRoute();
+    }
+    // The Gateway's logon task can start before tailscaled has finished coming up,
+    // and Serve then answers "unexpected state: NoState". The Gateway treats that as
+    // fatal and exits with nothing left to restart it. The state is transient, so
+    // wait for the daemon to report Running and retry exactly once. A daemon that is
+    // stopped or needs a login is not transient and still fails immediately.
+    const backendState = tailscaleBackendNotReadyState(error);
+    if (backendState === null) {
       throw error;
     }
-    try {
-      await releaseStaleTailscaleListener(mode, listenerPort);
-    } catch {
+    options.onBackendNotReady?.(backendState);
+    if (!(await waitForTailscaleBackendRunning())) {
       throw error;
     }
-    options.onStaleListenerReclaimed?.(listenerPort);
     return await claimRoute();
+  }
+}
+
+type TailscaleRouteClaimOptions = {
+  /** Called after a leftover listener for the port was dropped so the claim could retry. */
+  onStaleListenerReclaimed?: (listenerPort: number) => void;
+  /** Called when tailscaled was still starting and the claim is waiting for it. */
+  onBackendNotReady?: (backendState: string) => void;
+};
+
+const TAILSCALE_BACKEND_READY_TIMEOUT_MS = 60_000;
+const TAILSCALE_BACKEND_READY_POLL_MS = 2_000;
+
+// tailscaled answers route changes with this while its backend is still coming up.
+// NeedsLogin and Stopped are deliberately absent: waiting cannot fix either.
+const TAILSCALE_BACKEND_NOT_READY_PATTERN = /unexpected state:\s*(NoState|Starting)\b/i;
+
+/** Transient tailscaled backend state named by a route claim failure, or null. */
+export function tailscaleBackendNotReadyState(err: unknown): string | null {
+  const { stdout, stderr, message } = extractExecErrorText(err);
+  for (const text of [stderr, stdout, message]) {
+    const state = TAILSCALE_BACKEND_NOT_READY_PATTERN.exec(text)?.[1];
+    if (state) {
+      return state;
+    }
+  }
+  return null;
+}
+
+/** Poll tailscaled until it reports Running; false when it never does in time. */
+export async function waitForTailscaleBackendRunning(
+  options: {
+    exec?: typeof runExec;
+    timeoutMs?: number;
+    pollMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+    now?: () => number;
+  } = {},
+): Promise<boolean> {
+  const exec = options.exec ?? runExec;
+  const pollMs = options.pollMs ?? TAILSCALE_BACKEND_READY_POLL_MS;
+  const sleep =
+    options.sleep ??
+    ((ms: number) =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+      }));
+  const now = options.now ?? Date.now;
+  const deadline = now() + (options.timeoutMs ?? TAILSCALE_BACKEND_READY_TIMEOUT_MS);
+  const tailscaleBin = await getTailscaleBinary();
+  for (;;) {
+    try {
+      const { stdout } = await exec(tailscaleBin, ["status", "--json"], {
+        timeoutMs: 5_000,
+        maxBuffer: 400_000,
+        logOutput: false,
+      });
+      if (stdout && parsePossiblyNoisyJsonObject(stdout).BackendState === "Running") {
+        return true;
+      }
+    } catch {
+      // The daemon may not be answering yet; keep polling until the deadline.
+    }
+    if (now() >= deadline) {
+      return false;
+    }
+    await sleep(pollMs);
   }
 }
 

@@ -10,7 +10,10 @@ const mocks = vi.hoisted(() => {
       async (
         _mode: "serve" | "funnel",
         _target: number | string,
-        _options?: { onStaleListenerReclaimed?: (listenerPort: number) => void },
+        _options?: {
+          onStaleListenerReclaimed?: (listenerPort: number) => void;
+          onBackendNotReady?: (backendState: string) => void;
+        },
       ) => ({
         exited: new Promise<void>(() => {}),
         isActive: (): boolean => true,
@@ -37,8 +40,11 @@ import { getMcpAppChannelOrigin, prepareMcpAppChannelOrigin } from "./mcp-app-ch
 import { startGatewayTailscaleExposure as startGatewayTailscaleExposureBase } from "./server-tailscale.js";
 
 const MANAGED_BACKEND_PORT = 19_000;
-// Every claim now carries the stale-listener reclaim hook.
-const RECLAIM_OPTIONS = { onStaleListenerReclaimed: expect.any(Function) };
+// Every claim now carries the stale-listener reclaim and backend-readiness hooks.
+const RECLAIM_OPTIONS = {
+  onStaleListenerReclaimed: expect.any(Function),
+  onBackendNotReady: expect.any(Function),
+};
 function startGatewayTailscaleExposure(
   params: Omit<Parameters<typeof startGatewayTailscaleExposureBase>[0], "backend">,
 ) {
@@ -88,6 +94,24 @@ describe("startGatewayTailscaleExposure", () => {
 
     expect(logTailscale.warn).toHaveBeenCalledWith(
       expect.stringContaining("reclaimed port 443 from a leftover serve listener"),
+    );
+  });
+
+  it("warns while it waits for tailscaled to finish starting", async () => {
+    mocks.claimTailscaleRoute.mockImplementationOnce(async (_mode, _target, options) => {
+      options?.onBackendNotReady?.("NoState");
+      return {
+        exited: new Promise<void>(() => {}),
+        isActive: (): boolean => true,
+        stop: mocks.stopRouteClaim,
+      };
+    });
+    const logTailscale = createLogger();
+
+    await startGatewayTailscaleExposure({ tailscaleMode: "serve", port: 18789, logTailscale });
+
+    expect(logTailscale.warn).toHaveBeenCalledWith(
+      expect.stringContaining("tailscaled was still NoState; waiting for it to reach Running"),
     );
   });
 
