@@ -40,10 +40,11 @@ import {
   createRealtimeVoiceAudioQueue,
   mulawToPcm,
   REALTIME_VOICE_AUDIO_FORMAT_G711_ULAW_8KHZ,
+  REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ,
   REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
   realtimeVoiceAudioDurationMs,
   resamplePcm,
-} from "openclaw/plugin-sdk/realtime-voice";
+} from "openclaw/plugin-sdk/realtime-voice-provider";
 import { warn } from "openclaw/plugin-sdk/runtime-env";
 import { normalizeResolvedSecretInputString } from "openclaw/plugin-sdk/secret-input";
 import {
@@ -56,12 +57,9 @@ import {
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { canonicalizeGoogleProviderBase64 } from "./base64.js";
 import { createGoogleGenAI } from "./google-genai-runtime.js";
-import {
-  GOOGLE_REALTIME_DEFAULT_MODEL,
-  GOOGLE_REALTIME_PROVIDER_CAPABILITIES,
-} from "./realtime-voice-provider-metadata.js";
 import { resolveGoogleGemini3ThinkingLevel } from "./thinking-api.js";
 
+const GOOGLE_REALTIME_DEFAULT_MODEL = "gemini-3.1-flash-live-preview";
 const GOOGLE_REALTIME_DEFAULT_VOICE = "Kore";
 const GOOGLE_REALTIME_DEFAULT_API_VERSION = "v1beta";
 const GOOGLE_REALTIME_INPUT_SAMPLE_RATE = 16_000;
@@ -394,24 +392,6 @@ function buildGoogleLiveConnectConfig(
       ? { enableAffectiveDialog: config.enableAffectiveDialog }
       : {}),
     ...(thinkingConfig ? { thinkingConfig } : {}),
-    ...buildGoogleLiveSessionContinuity(config),
-  };
-}
-
-/**
- * Session continuity, on unless explicitly disabled. Without compression Live
- * caps a session at 15 minutes of audio (2 with video) and then terminates it;
- * without resumption the server issues no handle, so nothing can be recovered.
- */
-function buildGoogleLiveSessionContinuity(
-  config: Pick<GoogleRealtimeLiveConfig, "sessionResumption" | "contextWindowCompression">,
-  handle?: string,
-) {
-  return {
-    ...(config.sessionResumption === false ? {} : { sessionResumption: handle ? { handle } : {} }),
-    ...(config.contextWindowCompression === false
-      ? {}
-      : { contextWindowCompression: { slidingWindow: {} } }),
   };
 }
 
@@ -419,10 +399,7 @@ function toGoogleModelResource(model: string): string {
   return model.startsWith("models/") ? model : `models/${model}`;
 }
 
-function buildBrowserInitialSetup(
-  model: string,
-  config: Pick<GoogleRealtimeLiveConfig, "sessionResumption" | "contextWindowCompression">,
-) {
+function buildBrowserInitialSetup(model: string) {
   return {
     setup: {
       model: toGoogleModelResource(model),
@@ -431,9 +408,6 @@ function buildBrowserInitialSetup(
       },
       inputAudioTranscription: {},
       outputAudioTranscription: {},
-      // Must mirror the token's liveConnectConstraints: the ephemeral token
-      // pins the session config, so a setup that drifts from it is rejected.
-      ...buildGoogleLiveSessionContinuity(config),
     },
   };
 }
@@ -504,6 +478,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   private sessionReadyFired = false;
   private consecutiveSilenceMs = 0;
   private audioStreamEnded = false;
+  private responseInterrupted = false;
   private pendingFunctionNames = new Map<string, string>();
   private seenFunctionCallIds = new Set<string>();
   private pendingToolResponses: GooglePendingToolResponse[] = [];
@@ -575,6 +550,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
       this.config.sessionResumption !== false && Boolean(this.resumptionHandle);
     this.resumingSession = resumesExistingSession;
     if (!resumesExistingSession) {
+      this.responseInterrupted = false;
       this.resetToolCallOwnership();
     }
     const ai = createGoogleGenAI({
@@ -897,12 +873,16 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   }
 
   private handleMessage(message: LiveServerMessage): void {
+    const owner = this.connectionOwner;
     this.captureSessionLifecycle(message);
     if (message.setupComplete) {
       this.handleSetupComplete();
     }
     if (message.serverContent) {
       this.handleServerContent(message.serverContent);
+      if (this.connectionOwner !== owner) {
+        return;
+      }
     }
     if (message.toolCall) {
       this.handleToolCall(message.toolCall);
@@ -969,6 +949,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   private handleServerContent(content: LiveServerContent): void {
     const owner = this.connectionOwner;
     if (content.interrupted) {
+      this.responseInterrupted = true;
       this.config.onClearAudio("barge-in");
       if (this.connectionOwner !== owner) {
         return;
@@ -1016,6 +997,13 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
     // is independently ordered and must not be finalized by an assistant turn.
     if (content.generationComplete || content.interrupted || content.turnComplete) {
       this.flushPendingTranscript("assistant");
+    }
+    if (content.turnComplete && this.connectionOwner === owner) {
+      // Google finishes interrupted turns with turnComplete too. generationComplete
+      // can precede playback completion, so only the native turn boundary releases output.
+      const status = this.responseInterrupted ? "cancelled" : "completed";
+      this.responseInterrupted = false;
+      this.config.onResponseDone?.({ status });
     }
   }
 
@@ -1077,6 +1065,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   }
 
   private resetPendingTranscripts(): void {
+    this.responseInterrupted = false;
     this.pendingTranscripts.user = { text: "", byteCount: 0 };
     this.pendingTranscripts.assistant = { text: "", byteCount: 0 };
   }
@@ -1117,6 +1106,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
       return;
     }
     this.clearPendingAudio();
+    this.responseInterrupted = false;
     this.closeNotified = true;
     this.config.onClose?.(reason);
   }
@@ -1391,7 +1381,7 @@ async function createGoogleRealtimeBrowserSession(
       outputEncoding: "pcm16",
       outputSampleRateHz: 24_000,
     },
-    initialMessage: buildBrowserInitialSetup(model, config),
+    initialMessage: buildBrowserInitialSetup(model),
     model,
     voice,
     expiresAt: newSessionExpiresAtMs,
@@ -1404,7 +1394,23 @@ export function buildGoogleRealtimeVoiceProvider(): RealtimeVoiceProviderPlugin 
     label: "Google Live Voice",
     defaultModel: GOOGLE_REALTIME_DEFAULT_MODEL,
     autoSelectOrder: 20,
-    capabilities: GOOGLE_REALTIME_PROVIDER_CAPABILITIES,
+    capabilities: {
+      transports: ["provider-websocket", "gateway-relay"],
+      inputAudioFormats: [
+        REALTIME_VOICE_AUDIO_FORMAT_G711_ULAW_8KHZ,
+        REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ,
+      ],
+      outputAudioFormats: [
+        REALTIME_VOICE_AUDIO_FORMAT_G711_ULAW_8KHZ,
+        REALTIME_VOICE_AUDIO_FORMAT_PCM16_24KHZ,
+      ],
+      supportsBrowserSession: true,
+      supportsBargeIn: true,
+      handlesInputAudioBargeIn: true,
+      supportsToolCalls: true,
+      supportsVideoFrames: true,
+      supportsSessionResumption: true,
+    },
     resolveConfig: ({ cfg, rawConfig }) => normalizeProviderConfig(rawConfig, cfg),
     isConfigured: ({ providerConfig }) =>
       Boolean(normalizeProviderConfig(providerConfig).apiKey || resolveEnvApiKey()),

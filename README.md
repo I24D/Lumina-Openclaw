@@ -59,7 +59,7 @@ curl -fsSL https://openclaw.ai/install.sh | bash
 iwr -useb https://openclaw.ai/install.ps1 | iex
 ```
 
-Already manage Node.js? Install the published package instead (Node 22.22.3+, 24.15+, or 25.9+):
+Already manage Node.js? Install the published package instead (Node 24.16+ or 26.1+; Node 26 recommended):
 
 ```bash
 npm install -g openclaw@latest --allow-scripts=openclaw
@@ -160,7 +160,9 @@ OpenClaw was built for **Molty**, a space lobster AI assistant, by Peter Steinbe
 
 Special thanks to [Mario Zechner](https://mariozechner.at/) for his support and for [pi](https://github.com/earendil-works/pi), and to Adam Doppelt for the lobster.bot domain.
 
-## Sponsors
+## Donors and sponsors
+
+The Foundation is funded by donors including Amazon, Lobster Computer Company, Offline Holdings, OpenAI, Red Hat, and the University of Michigan, with infrastructure support from Blacksmith, Convex, GitHub, NVIDIA, and Vercel.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, maintainers, and how to submit PRs.
 Use the [Lumina OpenClaw issue chooser](https://github.com/I24D/Lumina-Openclaw/issues/new/choose) for bugs, docs bugs, and feature requests;

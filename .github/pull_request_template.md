@@ -20,11 +20,11 @@ Describe the concrete user, product, or operational problem.
 Explain who is affected and when the problem occurs.
 -->
 
-## Why This Change Was Made
+## User Impact
 
 <!-- Explain the complete solution and any important non-goals. -->
 
-## User Impact
+## Why This Change Was Made
 
 <!-- What can users or operators now do or expect? -->
 

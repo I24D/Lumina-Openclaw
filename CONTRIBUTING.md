@@ -47,7 +47,87 @@ Good starting points are issues labeled
 or
 [`help wanted`](https://github.com/I24D/Lumina-Openclaw/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
 
-### 2. Fork and create a branch
+## PR Limits
+
+We cap at **20 open PRs per author**. If you exceed this, the `r: too-many-prs` label is added and your PR is auto-closed. This is a hard limit.
+
+For coordinated change sets that genuinely need more than 20 PRs, join the **#clawtributors** channel in Discord and talk to maintainers first.
+
+## Source dependencies
+
+Run `pnpm install --frozen-lockfile` from the workspace root. Source checkouts use
+pnpm's isolated linker, which keeps dependencies in `node_modules/.pnpm` and links
+them into each workspace package. On supported macOS volumes, this also lets pnpm
+reuse whole-package APFS clones instead of importing every file separately.
+
+Give each source checkout its own physical dependency installation. Tooling does
+not automatically link a missing `node_modules` to another checkout. Existing
+borrowed installs can still serve direct Node tooling. Normal pnpm install checks
+the checkout-root `node_modules`, the explicitly configured root module directory,
+and their `.pnpm` directories before reconciliation, refusing borrowed links there.
+Preserve that donor and create an independently owned install instead of removing
+or reinstalling through its link. Explicit hydrated module directories remain
+supported when the workspace link points to the configured physical directory.
+This admission check runs through `pnpm:devPreinstall`; `--ignore-scripts` skips
+it. The check does not lock paths against concurrent replacement, inspect every
+workspace package's dependencies, or validate every alternate pnpm directory setting.
+
+When updating a checkout that used the hoisted layout, stop builds, tests, and
+watchers using that checkout's dependencies before running the install command.
+Do not change the linker while other jobs are using the same `node_modules`.
+Declare dependencies in the package that imports them; root tooling and tests
+must declare their own development dependencies rather than rely on hoisting.
+
+## Before You PR
+
+- Use **Node 24.16+ LTS** or **Node 26.1+** for source checkouts. Older Node releases can truncate SQLite TEXT reads; Node 22, 23, and 25 are unsupported. See [Node install guidance](docs/install/node.md) if your local version is too old.
+- Run the Vitest 5 suite on Node 24.16+ or Node 26.1+, matching the packaged runtime floor.
+- Test locally with your OpenClaw instance
+- An explicit maintainer repair-and-land request covers internal database scheduling, admission, and lifecycle decisions. The implementer owns the design and its verification. Get separate design acceptance when changing public contracts, schemas, durability, retention, or permissions; see the [database schema review checkpoint](docs/reference/database-schemas.md#review-checkpoint-for-material-changes).
+- External PRs must describe the user, product, or operational problem in **What Problem This Solves** and include useful validation in **Evidence**. Focused tests, CI results, screenshots, recordings, terminal output, live observations, redacted logs, and artifact links all count. Reviewers will inspect the code, tests, and CI; use the PR body to explain intent and make validation easy to understand.
+- Follow the [PR template](.github/pull_request_template.md): lead with the plain-language problem and concrete user impact, then a brief explanation and useful evidence. Keep technical inventories in the diff or optional details, not the opening summary. Keep important risks, migrations, required actions, and evidence gaps visible; do not invent a user benefit for internal-only work.
+- When ClawSweeper, Barnacle, or a maintainer asks for more context or evidence, edit the PR description instead of only replying in a new comment. Keep **What Problem This Solves**, **User Impact**, **Why This Change Was Made**, and **Evidence** current; a short comment can point reviewers to the update, but the PR body should remain the durable explanation for maintainers and bots.
+- Keep PRs takeover-ready: open them from a branch maintainers can push to. For fork PRs, leave GitHub's **Allow edits by maintainers** option enabled so maintainers can finish urgent fixes or merge prep when needed. If GitHub shows **Allow edits and access to secrets by maintainers**, enable it only when that workflow/secrets access is acceptable and say so in the PR.
+- Do not edit the generated `CHANGELOG.md` index or release-owned `CHANGELOG/**` entries and contribution records in normal PRs or at merge. Initial changelogs are generated at release time from merged PRs and commits; keep release-note context in PR bodies or commit messages until then. Explicit release-docs publication changes follow the [release artifact procedure](docs/reference/RELEASING.md#release-changelog-artifacts).
+- Run tests: `pnpm build && pnpm check && pnpm test`
+- For iterative local commits after running equivalent targeted validation for the touched surface, `git commit --no-verify` skips commit hooks.
+- For extension/plugin changes, run the fast local lane first:
+  - `pnpm test:extension <extension-name>`
+  - `pnpm test:extension --list` to see valid extension ids
+  - If you changed shared plugin or channel surfaces, run `pnpm test:contracts`
+  - For targeted shared-surface work, use `pnpm test:contracts:channels` or `pnpm test:contracts:plugins`
+  - These commands also cover the shared seam/smoke files that the default unit lane skips
+  - If you changed broader runtime behavior, still run the relevant wider lanes (`pnpm test:extensions`, `pnpm test:channels`, or `pnpm test`) before asking for review
+- If you touched bundled-plugin boundaries in shared code, run the matching inventories:
+  - `node --import tsx scripts/check-src-extension-import-boundary.mts --json` for `src/**`
+  - `node --import tsx scripts/check-sdk-package-extension-import-boundary.mts --json` for `src/plugin-sdk/**` and `packages/**`
+  - `node --import tsx scripts/check-test-helper-extension-import-boundary.mts --json` for `test/helpers/**`
+- Shared test helpers must use `src/test-utils/bundled-plugin-public-surface.ts` instead of repo-relative `extensions/**` imports. Keep plugin-local deep mocks inside the owning bundled plugin package.
+- If you are using an AI coding agent with OpenClaw skills available, run the `autoreview` skill before opening or updating your PR. Address accepted/actionable findings before asking for review.
+- Do not submit refactor-only PRs unless a maintainer explicitly requested that refactor for an active fix or deliverable.
+- Do not submit test or CI-config fixes for failures already red on `main` CI. If a failure is already visible in the [main branch CI runs](https://github.com/openclaw/openclaw/actions), it's a known issue the Maintainer team is tracking, and a PR that only addresses those failures will be closed automatically. If you spot a _new_ regression not yet shown in main CI, report it as an issue first.
+- Do not submit test-only PRs that just try to make known `main` CI failures pass. Test changes are acceptable when they are required to validate a new fix or cover new behavior in the same PR.
+- Ensure CI checks pass
+- Keep PRs focused (one thing per PR; do not mix unrelated concerns)
+- Describe what & why
+- **Include screenshots** — one showing the problem/before, one showing the fix/after (for UI or visual changes)
+- Use American English spelling and grammar in code, comments, docs, and UI strings
+- Do not edit files covered by `CODEOWNERS` security ownership unless a listed owner authored or explicitly requested the change, or is already reviewing it with you. For governance changes to ownership/review policy itself, explicit direction from an organization owner is also sufficient only when live GitHub organization membership shows `state: active` and `role: admin`; repository `ADMIN`, `viewerCanAdminister`, or bypass permission alone never qualifies. Neither route waives a GitHub-enforced approval rule. Treat those paths as restricted review surfaces, not opportunistic cleanup targets.
+
+## Local commit hook
+
+The normal `pnpm install` setup enables the repository's pre-commit formatting hook
+when `core.hooksPath` is unset. Existing hook selections, including an explicitly
+empty value, are preserved. Git scopes initialization to the current checkout.
+With multiple worktrees, automatic setup requires `extensions.worktreeConfig`;
+otherwise Git reports a warning and installation continues without changing hook
+settings. The repository owner can enable per-worktree configuration following
+[Git's configuration guidance](https://git-scm.com/docs/git-worktree#_configuration_file).
+
+The hook's optional content guard reads a private UTF-8 file selected by
+the native Git setting `hooks.blockedLiteralsFile`. Keep one literal per nonempty
+line in a file outside the checkout, such as
+`~/.config/openclaw/blocked-literals.txt`, then configure this checkout:
 
 ```bash
 git clone https://github.com/YOUR-USER/Lumina-Openclaw.git

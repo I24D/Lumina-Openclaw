@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { isMainThread } from "node:worker_threads";
 
@@ -32,6 +33,34 @@ const logNames = [
   "systemctl-shim-gateway.log.bootstrap.log",
   "gateway-restart.log",
 ];
+// Candidate observations select one declared RPC pair, never an arbitrary private path.
+const rpcLogNames = new Set([
+  "channels-status-before",
+  "wizard-start",
+  "wizard-status",
+  "wizard-next",
+  "wizard-duplicate-start",
+  "wizard-cancel",
+  "wizard-cancelled-status",
+  "wizard-replacement-start",
+  "wizard-replacement-cancel",
+  "wizard-replacement-status",
+  "update-rpc",
+  "update-status.candidate",
+  "target-wizard-status-start",
+  "target-wizard-status",
+  "target-wizard-status-retained",
+  "target-wizard-status-cancel",
+  "target-wizard-status-purged",
+  "target-wizard-active-start",
+  "target-wizard-next",
+  "target-wizard-duplicate-start",
+  "target-wizard-cancel",
+  "target-wizard-replacement-start",
+  "target-wizard-replacement-cancel",
+  "target-wizard-purged-status",
+  "channels-status",
+]);
 const reasons = [
   "missing or unsafe file",
   "input exceeds cap; omitted whole",
@@ -215,6 +244,184 @@ export function readPostCoreSnapshot(artifactRoot) {
     throw new Error("Post-core snapshot does not belong to this update observation");
   }
   return { childExitCode: snapshot.childExitCode, result: postCoreResult(snapshot.result) };
+}
+
+// The published updater discards unknown IPC fields and deletes the file after
+// its child exits. Observe the child's existing receipt without changing its lifetime.
+function readDoctorResult() {
+  try {
+    const resultPath = process.env.OPENCLAW_UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH;
+    if (!resultPath || !path.isAbsolute(resultPath)) {
+      return undefined;
+    }
+    const directory = path.dirname(resultPath);
+    const uid = process.getuid?.();
+    const fallback = path.join(tmpdir(), uid === undefined ? "openclaw" : `openclaw-${uid}`);
+    if (
+      ![...(process.platform === "win32" ? [] : ["/tmp/openclaw"]), fallback].includes(directory) ||
+      !/^openclaw-update-doctor-\d+-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.json$/iu.test(
+        path.basename(resultPath),
+      )
+    ) {
+      return undefined;
+    }
+    // Mirror only the temp owner's read boundary, never its mkdir/chmod behavior.
+    const stat = fs.lstatSync(directory);
+    if (
+      !stat.isDirectory() ||
+      stat.isSymbolicLink() ||
+      (uid !== undefined && (stat.uid !== uid || (stat.mode & 0o022) !== 0))
+    ) {
+      return undefined;
+    }
+    return doctorResult(JSON.parse(readOwned(directory, path.basename(resultPath), "Doctor IPC")));
+  } catch {
+    return undefined;
+  }
+}
+
+function doctorResult(value, sanitize = (text) => text) {
+  if (
+    !["ok", "error", "advisory"].includes(value?.status) ||
+    !Array.isArray(value.failureFacts ?? []) ||
+    (value.failureFacts?.length ?? 0) > 5
+  ) {
+    throw new Error();
+  }
+  return {
+    status: value.status,
+    failureFacts: (value.failureFacts ?? []).map((fact) => {
+      for (const [key, limit] of [
+        ["check", 128],
+        ["code", 80],
+        ["message", 200],
+      ]) {
+        if (key === "message" && fact?.[key] === undefined) {
+          continue;
+        }
+        if (typeof fact?.[key] !== "string" || !fact[key].trim() || fact[key].length > limit) {
+          throw new Error();
+        }
+      }
+      return textFields(fact, ["check", "code", "message"], sanitize);
+    }),
+  };
+}
+
+function doctorObservation({ started, exited }, sanitize = (text) => text) {
+  if (
+    started?.role !== "doctor" ||
+    started.event !== "started" ||
+    exited?.role !== "doctor" ||
+    exited.event !== "exited" ||
+    !Number.isSafeInteger(started.pid) ||
+    started.pid <= 0 ||
+    !Number.isSafeInteger(started.parentPid) ||
+    started.parentPid <= 0 ||
+    typeof started.packageVersion !== "string" ||
+    !/^\d{4}\.\d{1,2}\.\d{1,3}(?:-(?:\d+|(?:alpha|beta)\.\d+))?$/.test(started.packageVersion) ||
+    ["pid", "parentPid", "packageVersion"].some((key) => started[key] !== exited[key]) ||
+    !Number.isInteger(exited.exitCode) ||
+    exited.exitCode < 0 ||
+    exited.exitCode > 255
+  ) {
+    throw new Error();
+  }
+  return {
+    pid: started.pid,
+    parentPid: started.parentPid,
+    packageVersion: started.packageVersion,
+    exitCode: exited.exitCode,
+    ...doctorResult(exited.doctorResult, sanitize),
+  };
+}
+
+function readDoctorResults(root) {
+  const pairs = [];
+  for (const name of boundedList(fs.readdirSync(ownedPath(root, "diagnostics")))) {
+    const match = /^process-(\d+)-exited\.json$/.exec(name);
+    if (!match) {
+      continue;
+    }
+    const exited = JSON.parse(readOwned(root, `diagnostics/${name}`, "Doctor exit"));
+    if (exited?.doctorResult === undefined) {
+      continue;
+    }
+    const started = JSON.parse(
+      readOwned(root, `diagnostics/process-${match[1]}-started.json`, "Doctor start"),
+    );
+    const pair = { started, exited };
+    doctorObservation(pair);
+    if (started.pid !== Number(match[1])) {
+      throw new Error();
+    }
+    pairs.push(pair);
+  }
+  return pairs;
+}
+
+function armUpgradeProcessCapture() {
+  const command = process.argv[2];
+  const artifactRoot = process.env.OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT;
+  if (!isMainThread || !artifactRoot || !["update", "doctor"].includes(command)) {
+    return;
+  }
+  try {
+    let directory = path.dirname(fs.realpathSync(process.argv[1]));
+    let version;
+    // CLI entrypoints live at the package root or in dist. Do not resolve the
+    // version again at exit: an old updater can have replaced its own files.
+    for (let depth = 0; depth < 3; depth++) {
+      try {
+        const raw = readOwned(directory, "package.json", "process identity");
+        const manifest = JSON.parse(raw);
+        if (manifest?.name === "openclaw") {
+          version = manifest.version;
+          break;
+        }
+      } catch {}
+      directory = path.dirname(directory);
+    }
+    if (
+      typeof version !== "string" ||
+      !/^\d{4}\.\d{1,2}\.\d{1,3}(?:-(?:\d+|(?:alpha|beta)\.\d+))?$/.test(version)
+    ) {
+      return;
+    }
+    const identity = {
+      role:
+        command === "update" && process.env.OPENCLAW_UPDATE_POST_CORE === "1"
+          ? "post-core"
+          : command,
+      packageVersion: version,
+      pid: process.pid,
+      parentPid: process.ppid,
+    };
+    const destination = path.join(artifactRoot, "diagnostics");
+    writeReport(
+      artifactRoot,
+      destination,
+      `process-${process.pid}-started.json`,
+      { ...identity, event: "started" },
+      1024,
+    );
+    process.once("exit", (exitCode) => {
+      try {
+        const result = identity.role === "doctor" ? readDoctorResult() : undefined;
+        writeReport(
+          artifactRoot,
+          destination,
+          `process-${process.pid}-exited.json`,
+          { ...identity, event: "exited", exitCode, ...(result ? { doctorResult: result } : {}) },
+          outputLimit,
+        );
+      } catch {
+        // Missing exit evidence stays unknown; never alter the observed process.
+      }
+    });
+  } catch {
+    // No argv, environment values, paths, or candidate-provided error text.
+  }
 }
 
 function armPostCoreCapture() {
@@ -527,6 +734,20 @@ async function capture(artifactRoot, phase, exitStatus, signal = "", observation
         ? readOwned(process.env.OPENCLAW_STATE_DIR, "logs/gateway-restart.log", name)
         : readOwned(artifactRoot, name, name);
   }
+  const rpcName = readOwned(artifactRoot, "diagnostics/last-rpc", "last RPC")?.trim();
+  if (rpcLogNames.has(rpcName)) {
+    report.lastRpc = {
+      name: rpcName,
+      stdout: readOwned(artifactRoot, `${rpcName}.json`, "RPC stdout"),
+      stderr: readOwned(
+        artifactRoot,
+        `${rpcName === "update-status.candidate" ? "update-status" : rpcName}.err`,
+        "RPC stderr",
+      ),
+    };
+  } else if (rpcName) {
+    omissions["last RPC"] = reasons[3];
+  }
   const stateRoot = process.env.OPENCLAW_STATE_DIR;
   report.pluginIdentity = await pluginIdentities(stateRoot, artifactRoot);
   report.postCore = {
@@ -540,6 +761,12 @@ async function capture(artifactRoot, phase, exitStatus, signal = "", observation
     }
   } catch {
     omissions["post-core"] = reasons[3];
+  }
+  report.doctorResults = [];
+  try {
+    report.doctorResults = readDoctorResults(observationRoot || artifactRoot);
+  } catch {
+    // Missing, interrupted, or mismatched observations remain unknown.
   }
   const configPath = process.env.OPENCLAW_CONFIG_PATH;
   if (stateRoot && configPath) {
@@ -592,7 +819,127 @@ async function capture(artifactRoot, phase, exitStatus, signal = "", observation
   );
 }
 
-export function publishDiagnostics(artifactRoot, destination, redactSensitiveText) {
+function publishedPostCore(snapshot, sanitize) {
+  if (snapshot?.availability === "captured") {
+    try {
+      const code = snapshot.childExitCode;
+      if (!Number.isInteger(code) || code < 0 || code > 255) {
+        throw new Error();
+      }
+      return {
+        availability: "captured",
+        childExitCode: code,
+        result: postCoreResult(snapshot.result, sanitize),
+      };
+    } catch {
+      omissions["post-core"] = reasons[3];
+    }
+  }
+  return {
+    availability: "unavailable",
+    reason: "No complete exit snapshot; original outcome unknown",
+  };
+}
+
+function publishedSuccessSummary(artifactRoot, sanitize) {
+  const raw = readOwned(artifactRoot, "summary.json", "summary");
+  if (raw === null) {
+    throw new Error();
+  }
+  const snapshot = JSON.parse(raw);
+  if (snapshot.status !== "passed") {
+    throw new Error();
+  }
+  for (const value of [
+    snapshot.baseline?.spec,
+    snapshot.baseline?.version,
+    snapshot.candidate?.kind,
+    snapshot.candidate?.version,
+    snapshot.scenario,
+    snapshot.installedVersion,
+    snapshot.candidateInstallMode,
+    snapshot.updateRestartMode,
+    snapshot.updateOutcome,
+  ]) {
+    if (typeof value !== "string" || value.length === 0) {
+      throw new Error();
+    }
+  }
+  const timings = {};
+  for (const key of [
+    "startupSeconds",
+    "updateRestartSeconds",
+    "idempotenceSeconds",
+    "healthzSeconds",
+    "readyzSeconds",
+    "statusSeconds",
+  ]) {
+    const value = snapshot.timings?.[key] ?? null;
+    if (value !== null && (typeof value !== "number" || !Number.isFinite(value))) {
+      throw new Error();
+    }
+    timings[key] = value;
+  }
+  return {
+    status: "passed",
+    baseline: textFields(snapshot.baseline, ["spec", "version"], sanitize),
+    candidate: textFields(snapshot.candidate, ["kind", "version"], sanitize),
+    ...textFields(
+      snapshot,
+      [
+        "scenario",
+        "installedVersion",
+        "candidateInstallMode",
+        "updateRestartMode",
+        "updateOutcome",
+      ],
+      sanitize,
+    ),
+    updateRecovery: sanitize(snapshot.updateRecovery, "summary"),
+    updateRestartSource: sanitize(snapshot.updateRestartSource, "summary"),
+    firstHopPostCore: publishedPostCore(snapshot.firstHopPostCore, sanitize),
+    timings,
+    phases: boundedList(snapshot.phases).map((event) => {
+      if (
+        !["started", "passed", "failed"].includes(event?.status) ||
+        typeof event.phase !== "string" ||
+        !/^[a-z0-9-]{1,80}$/.test(event.phase) ||
+        typeof event.at !== "string" ||
+        !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(event.at)
+      ) {
+        throw new Error();
+      }
+      return { phase: sanitize(event.phase, "phase"), status: event.status, at: event.at };
+    }),
+    logs: Object.fromEntries(
+      ["update.json", "repair.json", "recovery-update.json"].map((name) => [
+        name,
+        sanitize(readOwned(artifactRoot, name, name), name),
+      ]),
+    ),
+    omissions,
+  };
+}
+
+export function publishDiagnostics(
+  artifactRoot,
+  destination,
+  redactSensitiveText,
+  outcome = "failed",
+) {
+  if (outcome === "passed") {
+    writeReport(
+      artifactRoot,
+      destination,
+      "summary.json",
+      publishedSuccessSummary(artifactRoot, sanitize),
+      publicLimit,
+    );
+    return;
+  }
+  if (outcome !== "failed") {
+    throw new Error();
+  }
   const raw = readOwned(artifactRoot, "diagnostics/raw.json", "private snapshot", privateLimit);
   if (raw === null) {
     throw new Error();
@@ -617,6 +964,9 @@ export function publishDiagnostics(artifactRoot, destination, redactSensitiveTex
   // arbitrary omission text. Redact every permitted free-text field on the host.
   for (const label of [
     ...logNames,
+    "last RPC",
+    "RPC stdout",
+    "RPC stderr",
     "config",
     "service unit",
     "service environment",
@@ -649,6 +999,17 @@ export function publishDiagnostics(artifactRoot, destination, redactSensitiveTex
   for (const name of logNames) {
     report.logs[name] = sanitize(snapshot.logs?.[name], name);
   }
+  if (snapshot.lastRpc !== undefined) {
+    if (rpcLogNames.has(snapshot.lastRpc?.name)) {
+      report.lastRpc = {
+        name: snapshot.lastRpc.name,
+        stdout: sanitize(snapshot.lastRpc.stdout, "RPC stdout"),
+        stderr: sanitize(snapshot.lastRpc.stderr, "RPC stderr"),
+      };
+    } else {
+      omissions["last RPC"] = reasons[3];
+    }
+  }
   for (const field of ["ExecStart", "WorkingDirectory", "supervisorWorkingDirectory"]) {
     report.service[field] = sanitize(snapshot.service?.[field], field);
   }
@@ -670,24 +1031,17 @@ export function publishDiagnostics(artifactRoot, destination, redactSensitiveTex
     }
     report.config.sha256 = snapshot.config.sha256;
   }
-  report.postCore = {
-    availability: "unavailable",
-    reason: "No complete exit snapshot; original outcome unknown",
-  };
-  if (snapshot.postCore?.availability === "captured") {
-    try {
-      const code = snapshot.postCore.childExitCode;
-      if (!Number.isInteger(code) || code < 0 || code > 255) {
-        throw new Error();
-      }
-      report.postCore = {
-        availability: "captured",
-        childExitCode: code,
-        result: postCoreResult(snapshot.postCore.result, sanitize),
-      };
-    } catch {
-      omissions["post-core"] = reasons[3];
+  report.postCore = publishedPostCore(snapshot.postCore, sanitize);
+  report.doctorResults = { availability: "unknown", observations: [] };
+  try {
+    const observations = boundedList(snapshot.doctorResults).map((pair) =>
+      doctorObservation(pair, sanitize),
+    );
+    if (observations.length > 0) {
+      report.doctorResults = { availability: "captured", observations };
     }
+  } catch {
+    // Do not promote a partial or unbound receipt into a reported Doctor outcome.
   }
   report.pluginIdentity = {
     availability: "unknown",
@@ -755,5 +1109,6 @@ if (import.meta.main) {
     process.exitCode = 1;
   }
 } else {
+  armUpgradeProcessCapture();
   armPostCoreCapture();
 }

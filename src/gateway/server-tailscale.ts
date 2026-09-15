@@ -9,7 +9,7 @@ import {
 } from "../infra/tailscale.js";
 import { resolveTailscalePublishedHost } from "../shared/tailscale-status.js";
 import type { GatewayTailscaleIngressEndpoint } from "./ingress-attribution.js";
-import { prepareMcpAppChannelOrigin } from "./mcp-app-channel-origin.js";
+import { prepareTailscalePublishedOrigin } from "./tailscale-published-origin.js";
 
 export async function startGatewayTailscaleExposure(params: {
   tailscaleMode: "off" | "serve" | "funnel";
@@ -43,7 +43,7 @@ export async function startGatewayTailscaleExposure(params: {
         `external Tailscale Funnel for port ${params.port} remains active only for plugin-authenticated webhook routes; Gateway-authenticated routes reject its unattributable ingress. ` +
           "First configure a durable gateway password (gateway.auth.password or OPENCLAW_GATEWAY_PASSWORD) and set gateway.auth.mode=password, " +
           "then run `openclaw config set gateway.tailscale.mode funnel` and `openclaw config unset gateway.tailscale.preserveFunnel`; " +
-          "see https://docs.openclaw.ai/gateway/tailscale#public-internet-funnel--shared-password",
+          "see https://docs.openclaw.ai/gateway/tailscale#public-internet-funnel-%2B-shared-password",
       );
       return null;
     }
@@ -51,16 +51,12 @@ export async function startGatewayTailscaleExposure(params: {
 
   let claim: Awaited<ReturnType<typeof claimTailscaleRoute>> | undefined;
   try {
-    claim = await claimTailscaleRoute(params.tailscaleMode, backendTarget, {
-      onStaleListenerReclaimed: (listenerPort) =>
-        params.logTailscale.warn(
-          `reclaimed port ${listenerPort} from a leftover ${params.tailscaleMode} listener; a previous Gateway exited without releasing its route`,
-        ),
-      onBackendNotReady: (backendState) =>
-        params.logTailscale.warn(
-          `tailscaled was still ${backendState}; waiting for it to reach Running before claiming the ${params.tailscaleMode} route`,
-        ),
-    });
+    claim = await claimTailscaleRoute(
+      params.tailscaleMode,
+      backendTarget,
+      params.port,
+      params.logTailscale.info,
+    );
     const host = await (
       params.tailscaleMode === "serve" ? getTailnetHostnameAfterServe() : getTailnetHostname()
     ).catch(() => null);
@@ -74,9 +70,9 @@ export async function startGatewayTailscaleExposure(params: {
         tailnetHost: host,
       });
       if (publicHost) {
-        clearPublishedOrigin = prepareMcpAppChannelOrigin({
+        clearPublishedOrigin = prepareTailscalePublishedOrigin({
           origin: `https://${publicHost}`,
-          reachability: effectiveMode === "funnel" ? "internet" : "tailnet",
+          mode: effectiveMode,
         });
         params.logTailscale.info(
           `${params.tailscaleMode} enabled: https://${publicHost}${uiPath} (WS via wss://${publicHost})`,

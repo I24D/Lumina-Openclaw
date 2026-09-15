@@ -1,5 +1,10 @@
-import type { ChatAttachment, ChatComposerMemoryFallback } from "../lib/chat/chat-types.ts";
+import type {
+  ChatAttachment,
+  ChatComposerMemoryFallback,
+  HumanMention,
+} from "../lib/chat/chat-types.ts";
 import { releaseChatAttachmentPayloads } from "../pages/chat/attachment-payload-store.ts";
+import type { NewSessionDraftHandoff } from "../pages/new-session/draft-persistence.ts";
 import type { ApplicationChatAttachmentHandoff } from "./context.ts";
 
 const MAX_PENDING_CHAT_ATTACHMENT_ENTRIES = 32;
@@ -13,6 +18,8 @@ type PendingChatAttachmentHandoff = {
   attachments: ChatAttachment[];
   fallbacks: Record<string, ChatComposerMemoryFallback>;
   message: string;
+  mentions?: readonly HumanMention[];
+  newSessionDraft?: NewSessionDraftHandoff;
   preparedAt: number;
 };
 
@@ -50,7 +57,16 @@ export function createChatAttachmentHandoff(): ApplicationChatAttachmentHandoff 
   };
 
   return {
-    prepare: ({ owner, paneId, scopeKey, attachments, fallbacks, message = "" }) => {
+    prepare: ({
+      owner,
+      paneId,
+      scopeKey,
+      attachments,
+      fallbacks,
+      message = "",
+      mentions,
+      newSessionDraft,
+    }) => {
       const key = entryKey(paneId, scopeKey);
       const previous = take(key);
       const fallbackEntries = Object.entries(fallbacks);
@@ -78,7 +94,9 @@ export function createChatAttachmentHandoff(): ApplicationChatAttachmentHandoff 
         paneId,
         scopeKey,
         attachments: [...attachments],
+        ...(newSessionDraft ? { newSessionDraft } : {}),
         message,
+        ...(mentions?.length ? { mentions: mentions.map((mention) => ({ ...mention })) } : {}),
         fallbacks: Object.fromEntries(
           fallbackEntries.map(([fallbackKey, fallback]) => [
             fallbackKey,
@@ -103,7 +121,9 @@ export function createChatAttachmentHandoff(): ApplicationChatAttachmentHandoff 
         return {
           attachments: match.attachments,
           fallbacks: match.fallbacks,
+          ...(match.newSessionDraft ? { newSessionDraft: match.newSessionDraft } : {}),
           ...(match.message ? { message: match.message } : {}),
+          ...(match.mentions ? { mentions: match.mentions } : {}),
         };
       }
       releaseHandoff(match);
