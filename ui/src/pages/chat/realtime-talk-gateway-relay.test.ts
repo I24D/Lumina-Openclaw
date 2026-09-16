@@ -488,7 +488,7 @@ describe("GatewayRelayRealtimeTalkTransport", () => {
     transport.stop();
   });
 
-  it("cancels overflowing playback and ignores late audio until provider clear", async () => {
+  it("holds playback backpressure without cancelling the provider turn", async () => {
     const client = createClient();
     const transport = await createTransport({ client });
 
@@ -501,36 +501,10 @@ describe("GatewayRelayRealtimeTalkTransport", () => {
       });
     }
 
-    await waitForFast(() =>
-      expect(requestCallsFor(client, "talk.session.cancelOutput")).toEqual([
-        [
-          "talk.session.cancelOutput",
-          {
-            sessionId: "relay-1",
-            reason: "playback-overflow",
-            turnId: "turn-1",
-          },
-        ],
-      ]),
-    );
-    expect(createdSources).toHaveLength(320);
-    expect(createdSources.every((source) => source.stop.mock.calls.length === 1)).toBe(true);
-
-    emitTalkEvent({
-      relaySessionId: "relay-1",
-      type: "audio",
-      audioBase64: "AAAA",
-    });
-    expect(createdSources).toHaveLength(320);
-
-    emitTalkEvent({ relaySessionId: "relay-1", type: "clear" });
-    emitTalkEvent({
-      relaySessionId: "relay-1",
-      type: "audio",
-      audioBase64: "AAAA",
-    });
-    expect(createdSources).toHaveLength(321);
-    expect(createdSources.at(-1)?.start).toHaveBeenCalledOnce();
+    await waitForFast(() => expect(createdSources).toHaveLength(320));
+    // The 321st chunk waits for graph capacity instead of cancelling the turn.
+    expect(requestCallsFor(client, "talk.session.cancelOutput")).toHaveLength(0);
+    expect(createdSources.every((source) => source.stop.mock.calls.length === 0)).toBe(true);
 
     transport.stop();
   });

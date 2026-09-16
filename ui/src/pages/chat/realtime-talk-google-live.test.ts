@@ -286,7 +286,7 @@ describe("GoogleLiveRealtimeTalkTransport", () => {
     expect(cancelledEvent?.payload).toStrictEqual({ reason: "provider-interrupted" });
   });
 
-  it("closes an overflowing playback response and ignores late provider audio", async () => {
+  it("holds playback backpressure without cancelling the voice session", async () => {
     const onStatus = vi.fn();
     const onTalkEvent = vi.fn();
     const transport = await createTransport({ onStatus, onTalkEvent });
@@ -304,38 +304,18 @@ describe("GoogleLiveRealtimeTalkTransport", () => {
       }),
     );
 
-    await waitForFast(() =>
-      expect(onStatus).toHaveBeenCalledWith(
-        "error",
-        "Realtime Talk playback exceeded the browser audio buffer limit",
-      ),
-    );
-    expect(createdSources).toHaveLength(320);
-    expect(createdSources.every((source) => source.stop.mock.calls.length === 1)).toBe(true);
-    expect(ws.readyState).toBe(3);
-    expect(
-      onTalkEvent.mock.calls.some(
-        ([event]) =>
-          event.type === "turn.cancelled" &&
-          event.final === true &&
-          event.payload?.reason === "playback-overflow",
-      ),
-    ).toBe(true);
-
-    ws.emitMessage(
-      encodeJsonFrame({
-        serverContent: {
-          modelTurn: {
-            parts: [{ inlineData: { data: "AAAA", mimeType: "audio/pcm;rate=24000" } }],
-          },
-        },
-      }),
-    );
+    await waitForFast(() => expect(createdSources).toHaveLength(320));
     await flushMicrotasks();
-    expect(createdSources).toHaveLength(320);
+    // The 321st chunk waits for graph capacity; nothing is stopped or dropped.
+    expect(createdSources.every((source) => source.stop.mock.calls.length === 0)).toBe(true);
+    expect(ws.readyState).toBe(1);
+    expect(onStatus.mock.calls.some(([status]) => status === "error")).toBe(false);
+    expect(onTalkEvent.mock.calls.some(([event]) => event.type === "turn.cancelled")).toBe(false);
+
+    transport.stop();
   });
 
-  it("rejects an oversized first frame before decoding provider audio", async () => {
+  it("drops an oversized frame without decoding it or ending the session", async () => {
     const onStatus = vi.fn();
     const transport = await createTransport({ onStatus });
     const ws = await startTransport(transport);
@@ -359,12 +339,14 @@ describe("GoogleLiveRealtimeTalkTransport", () => {
 
     await waitForFast(() =>
       expect(onStatus).toHaveBeenCalledWith(
-        "error",
-        "Realtime Talk playback exceeded the browser audio buffer limit",
+        "listening",
+        "Skipped the rest of that reply: audio playback fell too far behind",
       ),
     );
     expect(createdSources).toHaveLength(0);
-    expect(ws.readyState).toBe(3);
+    expect(ws.readyState).toBe(1);
+
+    transport.stop();
   });
 
   it("emits common Talk events for Google Live transcript and audio frames", async () => {

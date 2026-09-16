@@ -168,19 +168,45 @@ describe("RealtimeTalkPcmOutputQueue", () => {
     expect(queue.isPlaying).toBe(true);
   });
 
-  it("bounds a frozen AudioContext by queued seconds before allocating another source", () => {
+  it("defers audio past the scheduling lead instead of dropping it", () => {
+    vi.useFakeTimers();
     const context = new MockOutputAudioContext();
     const queue = new RealtimeTalkPcmOutputQueue();
 
-    expect(queue.play(silentPcmBase64(600), context as unknown as AudioContext, 100)).toBe(
+    for (const sampleCount of [600, 500, 300]) {
+      expect(
+        queue.play(silentPcmBase64(sampleCount), context as unknown as AudioContext, 100),
+      ).toBe("queued");
+    }
+
+    // 11s is already scheduled, past the 8s lead, so the last chunk waits as bytes.
+    expect(context.sources).toHaveLength(2);
+    expect(queue.queuedUntil).toBe(14);
+
+    context.currentTime = 11;
+    vi.advanceTimersByTime(1_000);
+
+    expect(context.sources).toHaveLength(3);
+    expect(context.sources[2]?.start.mock.calls[0]?.[0]).toBe(11);
+    expect(queue.queuedUntil).toBe(14);
+
+    queue.stop(context as unknown as AudioContext);
+    vi.useRealTimers();
+  });
+
+  it("resumes a suspended AudioContext instead of dropping its audio", () => {
+    const context = Object.assign(new MockOutputAudioContext(), {
+      state: "suspended",
+      resume: vi.fn(async () => undefined),
+    });
+    const queue = new RealtimeTalkPcmOutputQueue();
+
+    expect(queue.play(silentPcmBase64(100), context as unknown as AudioContext, 100)).toBe(
       "queued",
     );
-    expect(queue.play(silentPcmBase64(500), context as unknown as AudioContext, 100)).toBe(
-      "overflow",
-    );
 
+    expect(context.resume).toHaveBeenCalledOnce();
     expect(context.sources).toHaveLength(1);
-    expect(queue.queuedUntil).toBe(6);
   });
 
   it("rejects an oversized frame before base64 decoding", () => {
@@ -200,7 +226,8 @@ describe("RealtimeTalkPcmOutputQueue", () => {
     expect(context.sources).toHaveLength(0);
   });
 
-  it("hard-caps source ownership across ten thousand suspended-context chunks", () => {
+  it("hard-caps graph ownership across ten thousand chunks without dropping any", () => {
+    vi.useFakeTimers();
     const context = new MockOutputAudioContext();
     const queue = new RealtimeTalkPcmOutputQueue();
     let queued = 0;
@@ -215,25 +242,52 @@ describe("RealtimeTalkPcmOutputQueue", () => {
       }
     }
 
-    expect(queued).toBe(320);
-    expect(overflowed).toBe(9_680);
+    expect(queued).toBe(10_000);
+    expect(overflowed).toBe(0);
     expect(context.sources).toHaveLength(320);
+
+    queue.stop(context as unknown as AudioContext);
+    vi.useRealTimers();
   });
 
-  it("releases source ownership on ended", () => {
+  it("schedules backlog audio as sources report ended", () => {
+    vi.useFakeTimers();
     const context = new MockOutputAudioContext();
     const queue = new RealtimeTalkPcmOutputQueue();
     const chunk = silentPcmBase64(1);
 
-    for (let index = 0; index < 320; index += 1) {
+    for (let index = 0; index < 321; index += 1) {
       expect(queue.play(chunk, context as unknown as AudioContext, 48_000)).toBe("queued");
     }
-    expect(queue.play(chunk, context as unknown as AudioContext, 48_000)).toBe("overflow");
+    expect(context.sources).toHaveLength(320);
 
     context.sources[0]?.emitEnded();
 
-    expect(queue.play(chunk, context as unknown as AudioContext, 48_000)).toBe("queued");
     expect(context.sources).toHaveLength(321);
+
+    queue.stop(context as unknown as AudioContext);
+    vi.useRealTimers();
+  });
+
+  it("reports overflow only past the backlog ceiling", () => {
+    vi.useFakeTimers();
+    const context = new MockOutputAudioContext();
+    const queue = new RealtimeTalkPcmOutputQueue();
+    const tenSecondChunk = silentPcmBase64(1_000);
+    let queued = 0;
+    let result = queue.play(tenSecondChunk, context as unknown as AudioContext, 100);
+
+    while (result === "queued" && queued < 200) {
+      queued += 1;
+      result = queue.play(tenSecondChunk, context as unknown as AudioContext, 100);
+    }
+
+    expect(result).toBe("overflow");
+    expect(queued).toBe(61);
+    expect(context.sources).toHaveLength(1);
+
+    queue.stop(context as unknown as AudioContext);
+    vi.useRealTimers();
   });
 
   it("stops idempotently and isolates late ended events from replacement playback", () => {

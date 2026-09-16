@@ -221,21 +221,40 @@ export function estimateBase64DecodedByteLength(value: string): number {
   return Math.max(0, Math.floor((value.length * 3) / 4) - padding);
 }
 
-const REALTIME_TALK_PCM_OUTPUT_MAX_QUEUED_SECONDS = 10;
+// How far ahead of the audio clock the graph is allowed to run. A provider streams
+// one turn's speech faster than realtime, so the excess waits as bytes instead of
+// as scheduled nodes.
+const REALTIME_TALK_PCM_OUTPUT_SCHEDULE_AHEAD_SECONDS = 8;
 const REALTIME_TALK_PCM_OUTPUT_MAX_SOURCES = 320;
+// Backlog ceiling, held as PCM16: ten minutes of speech costs ~29 MB at 24 kHz.
+// Normal playback never approaches it; a dead output device eventually does.
+const REALTIME_TALK_PCM_OUTPUT_MAX_PENDING_SECONDS = 600;
+// A provider frame carries a fraction of a second of speech; a larger one is
+// rejected before base64 decoding allocates for it.
+const REALTIME_TALK_PCM_OUTPUT_MAX_FRAME_SECONDS = 10;
+const REALTIME_TALK_PCM_OUTPUT_DRAIN_MIN_DELAY_MS = 50;
+const REALTIME_TALK_PCM_OUTPUT_DRAIN_MAX_DELAY_MS = 1_000;
 
 type RealtimeTalkPcmOutputQueuePlayResult = "queued" | "ignored" | "overflow";
+
+type RealtimeTalkPendingPcmChunk = {
+  bytes: Uint8Array;
+  sampleRateHz: number;
+};
 
 export class RealtimeTalkPcmOutputQueue {
   private playhead = 0;
   private readonly sources = new Set<AudioBufferSourceNode>();
+  private readonly pending: RealtimeTalkPendingPcmChunk[] = [];
+  private pendingSeconds = 0;
+  private drainTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
 
   get queuedUntil(): number {
-    return this.playhead;
+    return this.playhead + this.pendingSeconds;
   }
 
   get isPlaying(): boolean {
-    return this.sources.size > 0;
+    return this.sources.size > 0 || this.pending.length > 0;
   }
 
   play(
@@ -246,47 +265,35 @@ export class RealtimeTalkPcmOutputQueue {
     if (!outputContext) {
       return "ignored";
     }
-    const startAt = Math.max(outputContext.currentTime, this.playhead);
-    const queuedSeconds = Math.max(0, startAt - outputContext.currentTime);
-    const remainingSeconds = REALTIME_TALK_PCM_OUTPUT_MAX_QUEUED_SECONDS - queuedSeconds;
-    const decodedByteLength = estimateBase64DecodedByteLength(base64);
-    const sampleCount = Math.floor(decodedByteLength / 2);
+    const frameSeconds =
+      Math.floor(estimateBase64DecodedByteLength(base64) / 2) / outputSampleRateHz;
     if (
-      this.sources.size >= REALTIME_TALK_PCM_OUTPUT_MAX_SOURCES ||
-      remainingSeconds <= 0 ||
-      sampleCount / outputSampleRateHz > remainingSeconds
+      frameSeconds > REALTIME_TALK_PCM_OUTPUT_MAX_FRAME_SECONDS ||
+      this.pendingSeconds + frameSeconds > REALTIME_TALK_PCM_OUTPUT_MAX_PENDING_SECONDS
     ) {
       return "overflow";
     }
-    let samples: Float32Array;
+    let bytes: Uint8Array;
     try {
-      samples = pcm16ToFloat(base64ToBytes(base64));
+      bytes = base64ToBytes(base64);
     } catch {
       // Malformed base64 in a relayed frame must not throw back into the
       // realtime event path; drop it like any other ignorable frame.
       return "ignored";
     }
-    if (samples.length === 0) {
+    if (bytes.byteLength < 2) {
       return "ignored";
     }
-    const duration = samples.length / outputSampleRateHz;
-    const nextPlayhead = startAt + duration;
-    if (nextPlayhead - outputContext.currentTime > REALTIME_TALK_PCM_OUTPUT_MAX_QUEUED_SECONDS) {
-      return "overflow";
-    }
-    const buffer = outputContext.createBuffer(1, samples.length, outputSampleRateHz);
-    buffer.getChannelData(0).set(samples);
-    const source = outputContext.createBufferSource();
-    this.sources.add(source);
-    source.addEventListener("ended", () => this.sources.delete(source));
-    source.buffer = buffer;
-    source.connect(outputContext.destination);
-    source.start(startAt);
-    this.playhead = nextPlayhead;
+    this.pending.push({ bytes, sampleRateHz: outputSampleRateHz });
+    this.pendingSeconds += Math.floor(bytes.byteLength / 2) / outputSampleRateHz;
+    this.drain(outputContext);
     return "queued";
   }
 
   stop(outputContext: AudioContext | null): void {
+    this.clearDrainTimer();
+    this.pending.length = 0;
+    this.pendingSeconds = 0;
     // Release ownership first so synchronous or late `ended` events from stopped
     // sources cannot affect audio queued by a replacement playback turn.
     const sources = [...this.sources];
@@ -296,6 +303,77 @@ export class RealtimeTalkPcmOutputQueue {
       try {
         source.stop();
       } catch {}
+    }
+  }
+
+  private drain(outputContext: AudioContext): void {
+    this.clearDrainTimer();
+    // A suspended context (tab throttling, output device switch, machine sleep)
+    // freezes currentTime. Resuming it is what keeps a long session audible;
+    // dropping the audio instead would end playback for good.
+    if (outputContext.state === "suspended" && typeof outputContext.resume === "function") {
+      void outputContext.resume().catch(() => {});
+    }
+    while (this.pending.length > 0) {
+      const chunk = this.pending[0];
+      if (
+        !chunk ||
+        this.sources.size >= REALTIME_TALK_PCM_OUTPUT_MAX_SOURCES ||
+        this.playhead - outputContext.currentTime >= REALTIME_TALK_PCM_OUTPUT_SCHEDULE_AHEAD_SECONDS
+      ) {
+        break;
+      }
+      this.pending.shift();
+      this.pendingSeconds = Math.max(
+        0,
+        this.pendingSeconds - Math.floor(chunk.bytes.byteLength / 2) / chunk.sampleRateHz,
+      );
+      this.schedule(chunk, outputContext);
+    }
+    if (this.pending.length > 0) {
+      this.scheduleDrain(outputContext);
+    }
+  }
+
+  private schedule(chunk: RealtimeTalkPendingPcmChunk, outputContext: AudioContext): void {
+    const samples = pcm16ToFloat(chunk.bytes);
+    const startAt = Math.max(outputContext.currentTime, this.playhead);
+    const buffer = outputContext.createBuffer(1, samples.length, chunk.sampleRateHz);
+    buffer.getChannelData(0).set(samples);
+    const source = outputContext.createBufferSource();
+    this.sources.add(source);
+    source.addEventListener("ended", () => {
+      this.sources.delete(source);
+      if (this.pending.length > 0) {
+        // Freed graph capacity moves the backlog without waiting for more audio.
+        this.drain(outputContext);
+      }
+    });
+    source.buffer = buffer;
+    source.connect(outputContext.destination);
+    source.start(startAt);
+    this.playhead = startAt + samples.length / chunk.sampleRateHz;
+  }
+
+  private scheduleDrain(outputContext: AudioContext): void {
+    const leadMs = Math.ceil((this.playhead - outputContext.currentTime) * 1000);
+    const delayMs = Math.min(
+      REALTIME_TALK_PCM_OUTPUT_DRAIN_MAX_DELAY_MS,
+      Math.max(
+        REALTIME_TALK_PCM_OUTPUT_DRAIN_MIN_DELAY_MS,
+        leadMs - (REALTIME_TALK_PCM_OUTPUT_SCHEDULE_AHEAD_SECONDS * 1000) / 2,
+      ),
+    );
+    this.drainTimer = globalThis.setTimeout(() => {
+      this.drainTimer = null;
+      this.drain(outputContext);
+    }, delayMs);
+  }
+
+  private clearDrainTimer(): void {
+    if (this.drainTimer !== null) {
+      globalThis.clearTimeout(this.drainTimer);
+      this.drainTimer = null;
     }
   }
 }

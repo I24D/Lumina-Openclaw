@@ -88,6 +88,7 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
   private readonly inputPump = new RealtimeTalkPcmInputPump();
   private closed = false;
   private interruptedTurn = false;
+  private playbackOverflowed = false;
   private readonly camera: RealtimeTalkCameraController;
   private readonly lifecycle = new GoogleLiveConnectionLifecycle();
   private cameraPublished = false;
@@ -262,6 +263,7 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
   private releaseResources(): void {
     this.clearSetupTimeout();
     this.interruptedTurn = false;
+    this.playbackOverflowed = false;
     this.pendingTranscripts.user = { text: "", byteCount: 0 };
     this.pendingTranscripts.assistant = { text: "", byteCount: 0 };
     const inputMeter = this.inputMeter;
@@ -409,6 +411,7 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
       }
     }
     if (content?.interrupted) {
+      this.playbackOverflowed = false;
       this.emitTalkEvent({
         type: "turn.cancelled",
         final: true,
@@ -421,6 +424,7 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
     // arrive in between and must not have its new Talk turn closed by that frame.
     if (content?.turnComplete) {
       this.interruptedTurn = false;
+      this.playbackOverflowed = false;
     }
     if (this.closed) {
       return;
@@ -502,7 +506,7 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
   }
 
   private playPcm16(base64: string): void {
-    if (this.closed) {
+    if (this.closed || this.playbackOverflowed) {
       return;
     }
     const result = this.outputQueue.play(
@@ -513,6 +517,11 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
     if (result !== "overflow") {
       return;
     }
+    // Google Live exposes server-driven interruption but no client response-cancel
+    // frame, so this turn's remaining audio is dropped locally until the provider
+    // ends it. Playback backpressure is not a session failure: the voice session
+    // stays open so only the user ends Talk.
+    this.playbackOverflowed = true;
     this.stopOutput();
     this.emitTalkEvent({
       type: "turn.cancelled",
@@ -520,12 +529,9 @@ export class GoogleLiveRealtimeTalkTransport implements RealtimeTalkTransport {
       payload: { reason: "playback-overflow" },
     });
     this.ctx.callbacks.onStatus?.(
-      "error",
-      "Realtime Talk playback exceeded the browser audio buffer limit",
+      "listening",
+      "Skipped the rest of that reply: audio playback fell too far behind",
     );
-    // Google Live exposes server-driven interruption but no client response-cancel
-    // frame, so closing the session is the only deterministic provider-side stop.
-    this.stop();
   }
 
   private stopOutput(): void {
