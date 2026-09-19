@@ -34,7 +34,10 @@ const MAX_CATALOG_DISCOVERY_FILES = 10_000;
 const MAX_CATALOG_DISCOVERY_CACHE_ENTRIES = 20_000;
 const MAX_CLAUDE_SESSION_SCAN_CACHE_ENTRIES = 8;
 const MAX_CATALOG_METADATA_SCAN_BYTES = 64 * 1024 * 1024;
-const CLI_ENTRYPOINTS = new Set(["cli", "sdk-cli"]);
+// Claude Code's VS Code extension writes the same resumable JSONL format as the
+// standalone CLI, but identifies the producer explicitly. Treat it as a native
+// Claude Code entrypoint so editor-created conversations are discoverable too.
+const CLI_ENTRYPOINTS = new Set(["cli", "sdk-cli", "claude-vscode"]);
 
 type CatalogDiscoveryCacheEntry = {
   // The module-global cache is keyed by canonical transcript path, so an entry must also record the

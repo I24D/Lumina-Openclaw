@@ -301,11 +301,12 @@ export const SETTINGS_SEARCH_TARGETS = {
       "configView.sessionSources.hint",
       "configView.sessionSources.claude",
       "configView.sessionSources.codex",
+      "configView.sessionSources.cline",
       "configView.sessionSources.opencode",
       "configView.sessionSources.pi",
     ],
     aliases:
-      "automatic auto discover discovery native external conversations show hide sidebar claude sessions",
+      "automatic auto discover discovery native external conversations show hide sidebar claude cline sessions",
   },
   appearanceChat: {
     routeId: "appearance",

@@ -1012,6 +1012,7 @@ const enSettings = {
       scope: "Applies to everyone on this Gateway. Changes require a Gateway restart.",
       claude: "Show Claude Code sessions",
       codex: "Show Codex sessions",
+      cline: "Show Cline sessions",
       opencode: "Show OpenCode sessions",
       pi: "Show Pi sessions",
       sourceHint:

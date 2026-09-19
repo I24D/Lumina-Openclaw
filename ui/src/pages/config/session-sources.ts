@@ -24,6 +24,13 @@ const SESSION_SOURCES = [
     labelKey: "configView.sessionSources.codex",
   },
   {
+    pluginId: "cline",
+    plugin: "Cline",
+    icon: "cline",
+    key: "sessionCatalog",
+    labelKey: "configView.sessionSources.cline",
+  },
+  {
     pluginId: "opencode",
     plugin: "OpenCode",
     icon: "opencode",

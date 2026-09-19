@@ -1709,6 +1709,14 @@ describe("Claude session catalog", () => {
             version: "2.1.204",
           },
         ],
+        "vscode-session": [
+          {
+            ...message("vscode-session", "user", "VS Code prompt", 1),
+            entrypoint: "claude-vscode",
+            cwd: "/work/vscode",
+            version: "2.1.276",
+          },
+        ],
         "cli-sidechain-session": [
           {
             ...message("cli-sidechain-session", "user", "interactive sidechain", 1),
@@ -1756,6 +1764,7 @@ describe("Claude session catalog", () => {
     expect(sessions.map((session) => session.threadId).toSorted()).toEqual([
       "cli-session",
       "sdk-cli-session",
+      "vscode-session",
     ]);
     expect(sessions).toEqual(
       expect.arrayContaining([
@@ -1769,11 +1778,17 @@ describe("Claude session catalog", () => {
           name: "Headless CLI prompt",
           source: "claude-cli",
         }),
+        expect.objectContaining({
+          threadId: "vscode-session",
+          name: "VS Code prompt",
+          source: "claude-cli",
+        }),
       ]),
     );
     for (const [threadId, text] of [
       ["cli-session", "Interactive CLI prompt"],
       ["sdk-cli-session", "Headless CLI prompt"],
+      ["vscode-session", "VS Code prompt"],
     ] as const) {
       await expect(readLocalClaudeTranscriptPage({ threadId, limit: 1 }, home)).resolves.toEqual(
         expect.objectContaining({ items: [expect.objectContaining({ text })] }),

@@ -965,6 +965,10 @@ export async function prepareAcpxCodexAuthConfig(params: {
     ...params.pluginConfig,
     agents: {
       ...params.pluginConfig.agents,
+      // Cline ships a native ACP endpoint. Register it by default so an
+      // adopted native Cline conversation can receive turns from OpenClaw;
+      // an explicit operator command still wins through the spread above.
+      cline: params.pluginConfig.agents.cline ?? ["cline", "--acp"],
       codex: buildWrapperCommand(
         wrapperPath,
         codexLaunch?.args ?? [

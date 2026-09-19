@@ -1,0 +1,34 @@
+{
+  "id": "cline",
+  "categories": ["agent-runtimes"],
+  "name": "Cline",
+  "description": "Native Cline session discovery and continuation through ACP.",
+  "activation": { "onStartup": true },
+  "enabledByDefault": true,
+  "setup": {
+    "nativeSessionCatalog": {
+      "label": "Cline",
+      "legacyDefaultEnabled": true,
+      "description": "Existing Cline conversations on this Gateway."
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sessionCatalog": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": true }
+        }
+      }
+    }
+  },
+  "uiHints": {
+    "sessionCatalog.enabled": {
+      "label": "Discover Cline Sessions",
+      "help": "List native Cline sessions in the sidebar and continue them through Cline ACP."
+    }
+  }
+}

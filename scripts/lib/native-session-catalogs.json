@@ -11,6 +11,12 @@
     ]
   },
   {
+    "pluginId": "cline",
+    "label": "Cline",
+    "legacyDefaultEnabled": true,
+    "description": "Existing Cline conversations on this Gateway."
+  },
+  {
     "pluginId": "codex",
     "label": "Codex",
     "legacyDefaultEnabled": true,

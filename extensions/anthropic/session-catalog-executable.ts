@@ -111,6 +111,41 @@ function resolveClaudeDesktopExecutable(
   return undefined;
 }
 
+function resolveClaudeVsCodeExecutable(homeDir: string): string | undefined {
+  if (process.platform !== "win32") {
+    return undefined;
+  }
+  const extensionsRoot = path.join(homeDir, ".vscode", "extensions");
+  let extensions: fs.Dirent[];
+  try {
+    extensions = fs.readdirSync(extensionsRoot, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  const versions = extensions
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("anthropic.claude-code-"))
+    .toSorted((left, right) =>
+      right.name.localeCompare(left.name, undefined, { numeric: true, sensitivity: "base" }),
+    );
+  for (const version of versions) {
+    const executable = path.join(
+      extensionsRoot,
+      version.name,
+      "resources",
+      "native-binary",
+      "claude.exe",
+    );
+    try {
+      if (fs.statSync(executable).isFile()) {
+        return executable;
+      }
+    } catch {
+      // Keep searching older installed extension versions.
+    }
+  }
+  return undefined;
+}
+
 function resolveNativeReplacement(env: NodeJS.ProcessEnv): string | undefined {
   const homeDir = resolveClaudeCatalogHomeDir(env);
   const cacheKey = `${process.platform}\0${homeDir}`;
@@ -121,6 +156,7 @@ function resolveNativeReplacement(env: NodeJS.ProcessEnv): string | undefined {
   // catalog requests do not poll the filesystem; installs take effect on restart.
   const executable =
     resolveExecutableFromDirectory(path.join(homeDir, ".local", "bin"), env) ??
+    resolveClaudeVsCodeExecutable(homeDir) ??
     resolveClaudeDesktopExecutable(homeDir, env);
   cachedNativeReplacement = { key: cacheKey, executable: executable ?? null };
   return executable;

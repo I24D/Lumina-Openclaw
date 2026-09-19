@@ -811,6 +811,12 @@ importers:
         specifier: workspace:*
         version: link:../..
 
+  extensions/cline:
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
   extensions/cloudflare-ai-gateway:
     devDependencies:
       '@openclaw/plugin-sdk':
