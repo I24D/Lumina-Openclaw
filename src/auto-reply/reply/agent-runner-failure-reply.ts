@@ -39,6 +39,7 @@ import { buildProviderAuthRecoveryHint } from "../../agents/provider-auth-recove
 import { resolveSilentReplyPolicy } from "../../config/silent-reply.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+import { isExternalContactChannel } from "../../lumina/contact-channels.js";
 import { extractErrorHttpStatus } from "../../shared/assistant-error-format.js";
 import { buildProviderLoginRecovery } from "../provider-login-recovery.js";
 import {
@@ -176,7 +177,15 @@ export function resolveExternalRunFailureTextForConversation(params: {
   visibleReplyDelivered?: boolean;
 }): string {
   // Group silence must not strand an already-visible partial without its terminal failure.
-  if (params.visibleReplyDelivered || !isNonDirectConversationContext(params.sessionCtx)) {
+  if (params.visibleReplyDelivered) {
+    return params.text;
+  }
+  // Lumina: a third-party contact never receives internal failure text. The
+  // failure itself is still recorded by the caller's reply operation and log.
+  if (isExternalContactChannel([params.sessionCtx.Surface, params.sessionCtx.Provider])) {
+    return SILENT_REPLY_TOKEN;
+  }
+  if (!isNonDirectConversationContext(params.sessionCtx)) {
     return params.text;
   }
   if (!params.isGenericRunnerFailure && !params.text.includes(AGENT_FAILED_BEFORE_REPLY_TEXT)) {

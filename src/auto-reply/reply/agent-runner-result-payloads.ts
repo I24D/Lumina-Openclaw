@@ -20,6 +20,7 @@ import {
   createChildDiagnosticTraceContext,
   freezeDiagnosticTraceContext,
 } from "../../infra/diagnostic-trace-context.js";
+import { isExternalContactChannel } from "../../lumina/contact-channels.js";
 import { isSubagentSessionKey } from "../../routing/session-key.js";
 import { estimateAggregateUsageCost } from "../../utils/usage-format.js";
 import {
@@ -304,6 +305,14 @@ export async function prepareReplyAgentPayloads(state: {
       accountId: sessionCtx.AccountId,
       normalizeMediaPaths: replyMediaContext.normalizePayload,
     });
+  // Lumina: model-fallback diagnostics are operator-facing, so they never
+  // reach a third-party contact's channel. See src/lumina/contact-channels.ts.
+  const deliversToExternalContact = isExternalContactChannel([
+    replyToChannel,
+    sessionCtx.OriginatingChannel,
+    sessionCtx.Provider,
+    sessionCtx.Surface,
+  ]);
   const returnPreparedFallbackPayload = async (
     payload: ReplyPayload,
   ): Promise<ReplyPayload | undefined> => {
@@ -338,6 +347,11 @@ export async function prepareReplyAgentPayloads(state: {
       ),
     );
     opts?.onAgentRunTerminalOutcome?.("failed");
+    if (deliversToExternalContact) {
+      // The run failure stays in the reply operation and the run log; the
+      // contact gets silence instead of an internal backend diagnostic.
+      return undefined;
+    }
     return returnPreparedFallbackPayload(silentFallbackFailurePayload);
   };
   const providerPolicyRetry = runResult.meta?.executionTrace?.providerPolicyRetry;
@@ -359,14 +373,17 @@ export async function prepareReplyAgentPayloads(state: {
       ? normalizeChatType(sessionCtx.ChatType)
       : undefined;
   const shouldDeliverFallbackNotice =
-    fallbackNoticeChatType !== "group" && fallbackNoticeChatType !== "channel";
-  let fallbackNoticeText: string | null = successfulProviderPolicyRetry
-    ? buildProviderPolicyRetryNotice({
-        provider: successfulProviderPolicyRetry.provider,
-        model: successfulProviderPolicyRetry.model,
-        cfg,
-      })
-    : null;
+    fallbackNoticeChatType !== "group" &&
+    fallbackNoticeChatType !== "channel" &&
+    !deliversToExternalContact;
+  let fallbackNoticeText: string | null =
+    successfulProviderPolicyRetry && !deliversToExternalContact
+      ? buildProviderPolicyRetryNotice({
+          provider: successfulProviderPolicyRetry.provider,
+          model: successfulProviderPolicyRetry.model,
+          cfg,
+        })
+      : null;
   if (fallbackNoticeChanged && fallbackTransition.fallbackTransitioned) {
     emitAgentEvent({
       runId,
