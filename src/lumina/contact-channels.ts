@@ -52,3 +52,24 @@ export function isExternalContactChannel(
     return normalized ? channels.has(normalized) : false;
   });
 }
+
+/**
+ * True when a payload carries runtime diagnostics rather than assistant content.
+ *
+ * These are the notices OpenClaw shows its operator: fallback and status
+ * notices, compaction notes, and anything the runtime marked as an error. A
+ * third-party contact gets none of them.
+ */
+export function isRuntimeNoticePayload(payload: {
+  isError?: boolean;
+  isFallbackNotice?: boolean;
+  isStatusNotice?: boolean;
+  isCompactionNotice?: boolean;
+}): boolean {
+  return (
+    payload.isError === true ||
+    payload.isFallbackNotice === true ||
+    payload.isStatusNotice === true ||
+    payload.isCompactionNotice === true
+  );
+}

@@ -1,6 +1,10 @@
 /** Tests the Lumina guard that keeps internal notices out of contact channels. */
 import { describe, expect, it } from "vitest";
-import { isExternalContactChannel, resolveContactChannels } from "./contact-channels.js";
+import {
+  isExternalContactChannel,
+  isRuntimeNoticePayload,
+  resolveContactChannels,
+} from "./contact-channels.js";
 
 const GUARDED = { LUMINA_CONTACT_CHANNELS: "whatsapp" };
 
@@ -36,5 +40,19 @@ describe("isExternalContactChannel", () => {
 
   it("stays inert while the guard lists no channel", () => {
     expect(isExternalContactChannel(["whatsapp"], {})).toBe(false);
+  });
+});
+
+describe("isRuntimeNoticePayload", () => {
+  it("flags every runtime notice kind", () => {
+    expect(isRuntimeNoticePayload({ isError: true })).toBe(true);
+    expect(isRuntimeNoticePayload({ isFallbackNotice: true })).toBe(true);
+    expect(isRuntimeNoticePayload({ isStatusNotice: true })).toBe(true);
+    expect(isRuntimeNoticePayload({ isCompactionNotice: true })).toBe(true);
+  });
+
+  it("leaves assistant content alone", () => {
+    expect(isRuntimeNoticePayload({})).toBe(false);
+    expect(isRuntimeNoticePayload({ isError: false, isFallbackNotice: false })).toBe(false);
   });
 });

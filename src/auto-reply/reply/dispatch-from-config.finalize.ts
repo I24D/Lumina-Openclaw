@@ -3,6 +3,7 @@ import { recordAgentRunTerminalOutcome } from "../../channels/turn/agent-run-ter
 import { logVerbose } from "../../globals.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { settlePendingFinalDelivery } from "../../infra/outbound/delivery-completion.js";
+import { isExternalContactChannel, isRuntimeNoticePayload } from "../../lumina/contact-channels.js";
 import { cleanDeferredFinalText } from "../../tts/captioned-final.js";
 import { resolveConfiguredTtsMode } from "../../tts/tts-config.js";
 import { registerReplyDispatcherSettledTask } from "../dispatch-dispatcher.js";
@@ -63,6 +64,15 @@ export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState)
     waitForPendingDirectBlockReplyDelivery,
   } = state;
   const heartbeat = state.replyOperationRunState.heartbeat;
+  // Lumina: this turn answers a third-party contact, so runtime notices and
+  // failure text are withheld and an empty turn stays silent instead of
+  // sending a placeholder. See src/lumina/contact-channels.ts.
+  const deliversToExternalContact = isExternalContactChannel([
+    deliveryChannel,
+    ctx.OriginatingChannel,
+    ctx.Provider,
+    ctx.Surface,
+  ]);
   const pendingFinalOptions = { preserveActivity: heartbeat !== undefined };
   throwIfDispatchOperationAborted();
   const heartbeatReply = await heartbeat?.prepareReply(replyResult, state.replyOperationRunState);
@@ -131,6 +141,14 @@ export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState)
         continue;
       }
       if (reply.isCommentary === true && !state.commentaryPayloadsEnabled) {
+        await suppressPendingFinalDelivery(reply, pendingFinalOptions);
+        await heartbeatReply?.settle?.("cancelled");
+        continue;
+      }
+      if (deliversToExternalContact && isRuntimeNoticePayload(reply)) {
+        logVerbose(
+          `dispatch-from-config: runtime notice withheld from contact channel (provider=${ctx.Provider ?? "unknown"})`,
+        );
         await suppressPendingFinalDelivery(reply, pendingFinalOptions);
         await heartbeatReply?.settle?.("cancelled");
         continue;
@@ -386,6 +404,7 @@ export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState)
     replyAdmission?.status === "skipped" && replyAdmission.reason === "queue-cap";
   const noVisibleReplyFallbackAllowed = () =>
     !heartbeat &&
+    !deliversToExternalContact &&
     noVisibleReplyFallbackDirected &&
     !suppressDelivery &&
     !sendPolicyDenied &&
