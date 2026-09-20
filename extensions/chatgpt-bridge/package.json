@@ -1,0 +1,15 @@
+{
+  "name": "@openclaw/chatgpt-bridge",
+  "version": "2026.9.4",
+  "private": true,
+  "description": "OpenClaw ChatGPT relay bridge: forwards marked orders from a ChatGPT tab into an OpenClaw chat session",
+  "type": "module",
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
