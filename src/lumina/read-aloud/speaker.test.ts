@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { relaySessions, type RelaySession } from "../../gateway/talk-realtime-relay-state.js";
+import { relaySessions, type RelaySession } from "../../gateway/talk/relay/state.js";
 import { hasLiveTalkSession, speakToLiveTalkSessions } from "./speaker.js";
 
 function registerSession(params: {

@@ -3,7 +3,7 @@
 // The realtime relay already owns a "speak this exact answer" protocol, used by the
 // Discord and meeting surfaces. Reusing it keeps the user's hard rule intact: the
 // voice reads the delivered text in full instead of summarizing it.
-import { relaySessions, type RelaySession } from "../../gateway/talk-realtime-relay-state.js";
+import { relaySessions, type RelaySession } from "../../gateway/talk/relay/state.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { buildRealtimeVoiceSpeakExactMessage } from "../../talk/exact-speech-protocol.js";

@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -121,7 +122,7 @@ export async function listLocalClineSessionPage(params: {
   cursor?: string;
 }): Promise<{ sessions: SessionCatalogSession[]; nextCursor?: string }> {
   const root = sessionsRoot();
-  let entries: Awaited<ReturnType<typeof fs.readdir>>;
+  let entries: Dirent[];
   try {
     entries = await fs.readdir(root, { withFileTypes: true });
   } catch {

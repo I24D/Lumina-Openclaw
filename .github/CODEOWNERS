@@ -5,8 +5,6 @@
 
 # Keep project governance and security-sensitive surfaces under explicit review.
 /.github/ @I24D
-/.github/workflows/dependency-guard.yml @I24D
-/.github/workflows/security-sensitive-guard.yml @I24D
 /SECURITY.md @I24D
 /security/ @I24D
 /src/security/ @I24D
@@ -19,6 +17,20 @@
 /scripts/github/dependency-guard.mjs @I24D
 /scripts/github/security-sensitive-guard.mjs @I24D
 /scripts/github/guard-shared.mjs @I24D
-/test/scripts/dependency-guard-workflow.test.ts @I24D
-/test/scripts/security-sensitive-guard-workflow.test.ts @I24D
 /test/scripts/security-sensitive-guard-script.test.ts @I24D
+
+# Security-review surfaces adopted from upstream OpenClaw 2026.9.5.
+/.github/CODEOWNERS @I24D
+/.github/codeql/ @I24D
+/.github/workflows/codeql*.yml @I24D
+/.github/dependabot.yml @I24D
+/.github/zizmor.yml @I24D
+/.github/workflows/security-review.yml @I24D
+/scripts/github/security-review.mjs @I24D
+/scripts/github/security-review-event.mjs @I24D
+/scripts/github/security-review-rollout.mjs @I24D
+/.github/security-review-policy.yml @I24D
+/.github/actions/setup-security-review/ @I24D
+/scripts/github/security-review-policy.mjs @I24D
+/scripts/github/guard-review.mjs @I24D
+/scripts/lib/bounded-response.mjs @I24D
