@@ -18,7 +18,6 @@ const REQUIRED_PLUGINS = [
   "memory-wiki",
   "diagnostics-otel",
   "diagnostics-prometheus",
-  "qa-lab",
   "workboard",
 ];
 // coding-agent stays off on purpose: Dal's 2026-09-19 order routes coding agents
