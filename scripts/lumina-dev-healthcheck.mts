@@ -21,12 +21,12 @@ const REQUIRED_PLUGINS = [
   "qa-lab",
   "workboard",
 ];
+// coding-agent stays off on purpose: Dal's 2026-09-19 order routes coding agents
+// through the session catalogs instead. session-logs was removed upstream.
 const REQUIRED_SKILLS = [
-  "coding-agent",
   "github",
   "gh-issues",
   "healthcheck",
-  "session-logs",
   "skill-creator",
   "taskflow",
   "spike",
@@ -43,6 +43,17 @@ const REQUIRED_ENV = [
   "LUMINA_SUPABASE_SCHEMA",
   "I24D_GITHUB",
 ];
+// Recall tools registered by each memory slot owner
+// (docs/concepts/active-memory/memory-tools.md). Active Memory skips recall
+// silently when its tools do not match the provider that owns the slot.
+const MEMORY_SLOT_RECALL_TOOLS: Record<string, readonly string[]> = {
+  "memory-core": ["memory_search", "memory_get"],
+  "memory-lancedb": ["memory_recall"],
+};
+// Channels where Lumina answers other people. Private recall must never reach them.
+const CONTACT_CHANNELS = new Set(["whatsapp"]);
+// Upstream default for agents.defaults.bootstrapMaxChars (embedded-agent-helpers/bootstrap.ts).
+const DEFAULT_BOOTSTRAP_MAX_CHARS = 20_000;
 
 type HealthCheck = { ok: boolean; name: string; detail: string };
 
@@ -58,10 +69,22 @@ type PluginEntry = {
     vaultMode?: string;
     bridge?: { enabled?: boolean };
     search?: { corpus?: string };
+    embedding?: Record<string, unknown>;
+    agents?: string[];
+    toolsAllow?: string[];
   };
 };
 type HealthConfig = {
-  plugins?: { allow?: string[]; entries?: Record<string, PluginEntry | undefined> };
+  agents?: {
+    defaults?: { workspace?: string; bootstrapMaxChars?: number };
+    entries?: Record<string, { workspace?: string } | undefined>;
+  };
+  bindings?: Array<{ match?: { channel?: string }; agentId?: string }>;
+  plugins?: {
+    allow?: string[];
+    slots?: { memory?: string };
+    entries?: Record<string, PluginEntry | undefined>;
+  };
   skills?: { entries?: Record<string, { enabled?: boolean } | undefined> };
   diagnostics?: {
     enabled?: boolean;
@@ -272,7 +295,92 @@ function checkConfig(configPath: string): HealthConfig | null {
     fail("memory-wiki search corpus", "not all");
   }
 
+  checkMemoryCoherence(cfg, allow);
   return cfg;
+}
+
+/**
+ * The memory plugins can each look healthy on their own while recall is dead:
+ * a slot owner that never loads, or Active Memory asking for tools the owner
+ * does not register. Both fail silently at runtime, so they are checked here.
+ */
+function checkMemoryCoherence(cfg: HealthConfig, allow: string[]): void {
+  const entries = cfg.plugins?.entries ?? {};
+  const slot = cfg.plugins?.slots?.memory ?? "memory-core";
+  if (!allow.includes(slot) || entries[slot]?.enabled === false) {
+    fail("memory slot owner", `${slot} is not allowed or is disabled`);
+  } else if (slot === "memory-lancedb" && !entries[slot]?.config?.embedding) {
+    // memory-lancedb refuses to load without an embedding config.
+    fail(
+      "memory slot owner",
+      "memory-lancedb has no embedding config, so no recall provider loads",
+    );
+  } else {
+    pass("memory slot owner", slot);
+  }
+
+  const activeMemory = entries["active-memory"];
+  if (!activeMemory || activeMemory.enabled === false) {
+    return;
+  }
+  const agentIds = Object.keys(cfg.agents?.entries ?? {});
+  const targeted = activeMemory.config?.agents ?? [];
+  const unknown = targeted.filter((id) => !agentIds.includes(id));
+  if (targeted.length === 0) {
+    fail("active-memory agents", "config.agents is empty, so deep recall never runs");
+  } else if (unknown.length > 0) {
+    fail("active-memory agents", `unknown agent ids: ${unknown.join(", ")}`);
+  } else {
+    pass("active-memory agents", targeted.join(", "));
+  }
+
+  const slotTools = MEMORY_SLOT_RECALL_TOOLS[slot];
+  const toolsAllow = activeMemory.config?.toolsAllow;
+  const foreignTools = slotTools && toolsAllow?.filter((tool) => !slotTools.includes(tool));
+  if (foreignTools && foreignTools.length > 0) {
+    fail("active-memory tools", `${foreignTools.join(", ")} not registered by ${slot}`);
+  } else {
+    pass(
+      "active-memory tools",
+      toolsAllow ? toolsAllow.join(", ") : `provider default for ${slot}`,
+    );
+  }
+
+  const contactAgents = new Set(
+    (cfg.bindings ?? [])
+      .filter((binding) => CONTACT_CHANNELS.has(binding.match?.channel ?? ""))
+      .map((binding) => binding.agentId),
+  );
+  const exposed = targeted.filter((id) => contactAgents.has(id));
+  if (exposed.length > 0) {
+    fail("active-memory privacy", `contact-facing agents targeted: ${exposed.join(", ")}`);
+  } else {
+    pass("active-memory privacy", "no contact-facing agent targeted");
+  }
+
+  checkCuratedMemoryBudget(cfg);
+}
+
+/** A MEMORY.md over the bootstrap budget is silently cut in the middle every session. */
+function checkCuratedMemoryBudget(cfg: HealthConfig): void {
+  const workspace = cfg.agents?.defaults?.workspace;
+  if (!workspace) {
+    return;
+  }
+  const memoryPath = path.join(workspace, "MEMORY.md");
+  if (!fs.existsSync(memoryPath)) {
+    return;
+  }
+  const budget = cfg.agents?.defaults?.bootstrapMaxChars ?? DEFAULT_BOOTSTRAP_MAX_CHARS;
+  const length = fs.readFileSync(memoryPath, "utf8").trim().length;
+  if (length > budget) {
+    fail(
+      "MEMORY.md budget",
+      `${length} chars > bootstrapMaxChars ${budget}; the middle is truncated`,
+    );
+  } else {
+    pass("MEMORY.md budget", `${length}/${budget} chars`);
+  }
 }
 
 function checkEnv(envPath: string): Record<string, string> {
@@ -312,6 +420,52 @@ async function checkGateway(port: number): Promise<void> {
     }
   } catch (err) {
     fail("gateway chat route", errorMessage(err));
+  }
+}
+
+/**
+ * A coherent config can still recall nothing: a stale index or an embedding
+ * provider out of credits both answer with an empty result set. Only a real
+ * query through the running gateway shows it.
+ */
+function checkMemorySearch(): void {
+  const openclawEntry = path.join(path.dirname(import.meta.dirname), "openclaw.mjs");
+  try {
+    const output = execFileSync(
+      process.execPath,
+      [
+        openclawEntry,
+        "gateway",
+        "call",
+        "memory.search",
+        "--params",
+        JSON.stringify({ query: "Dal", agentId: "main", maxResults: 1 }),
+        "--json",
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120_000 },
+    );
+    const response = JSON.parse(output.slice(output.indexOf("{"))) as {
+      provider?: string;
+      searchMode?: string;
+      results?: unknown[];
+      stale?: boolean;
+      warning?: string;
+    };
+    if (response.stale) {
+      fail("memory search", response.warning ?? "index stale");
+    } else if (!response.results?.length) {
+      fail("memory search", "no results for a query the memory must answer");
+    } else {
+      pass("memory search", `${response.provider ?? "?"}, ${response.searchMode ?? "?"}`);
+    }
+  } catch (err) {
+    // `gateway call --json` reports request errors on stdout with a non-zero exit.
+    const stdout =
+      err && typeof err === "object" && "stdout" in err
+        ? String((err as { stdout?: unknown }).stdout)
+        : "";
+    const gatewayError = /"message":\s*"([^"]+)"/u.exec(stdout)?.[1];
+    fail("memory search", gatewayError ?? execFailureDetail(err).split(/\r?\n/u)[0] ?? "failed");
   }
 }
 
@@ -367,5 +521,6 @@ const luminaEnvPath =
 const env = checkEnv(luminaEnvPath);
 runOpenClawConfigValidate();
 await checkGateway(Number(process.env.OPENCLAW_GATEWAY_PORT || 18789));
+checkMemorySearch();
 await checkSupabase(env);
 printReport();

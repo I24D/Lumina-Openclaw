@@ -85,6 +85,19 @@ describe("concept vocabulary", () => {
     expect(tags).not.toContain("your");
   });
 
+  it("drops Spanish assistant filler from derived concept tags", () => {
+    const tags = deriveConceptTags({
+      path: "memory/.dreams/session-corpus/2026-09-16.txt",
+      snippet: "Assistant: Voy a revisar. Déjame ver ahora la configuración del gateway.",
+    });
+
+    expect(tags).toContain("configuración");
+    expect(tags).toContain("gateway");
+    expect(tags).not.toContain("voy");
+    expect(tags).not.toContain("déjame");
+    expect(tags).not.toContain("ahora");
+  });
+
   it("ignores project and recall annotations when deriving concept tags", () => {
     const tags = deriveConceptTags({
       path: "memory/2026-07-28.md",
