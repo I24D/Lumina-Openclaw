@@ -1767,6 +1767,7 @@
     "dev": "node scripts/run-node.mjs",
     "lumina:health": "node --import ./scripts/tsx.mjs scripts/lumina-dev-healthcheck.mts",
     "lumina:memory-eval": "node --import ./scripts/tsx.mjs scripts/lumina-memory-eval.ts",
+    "lumina:procedural-memory": "node --import ./scripts/tsx.mjs scripts/lumina-procedural-memory.ts",
     "dev:ui:mock": "node --import ./scripts/tsx.mjs scripts/control-ui-mock-dev.ts",
     "docs:check-config-examples": "node scripts/check-docs-config-examples.mjs",
     "docs:check-i18n-glossary": "node --import ./scripts/tsx.mjs scripts/check-docs-i18n-glossary.mts",

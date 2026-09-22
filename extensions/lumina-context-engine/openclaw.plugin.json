@@ -1,0 +1,31 @@
+{
+  "id": "lumina-context-engine",
+  "categories": ["memory"],
+  "activation": {
+    "onStartup": true
+  },
+  "enabledByDefault": false,
+  "name": "Lumina Context Engine",
+  "description": "Context engine that keeps legacy message assembly and adds Lumina's recall routing and abstention rules to every run.",
+  "contracts": {
+    "contextEngines": ["lumina-context-engine"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "abstention": {
+        "type": "boolean",
+        "description": "Tell the model to say it does not know instead of guessing when recall returns nothing."
+      },
+      "wikiRouting": {
+        "type": "boolean",
+        "description": "Point the model at the Memory Wiki (entities, concepts, procedures) for curated knowledge."
+      },
+      "promptAppend": {
+        "type": "string",
+        "description": "Extra guidance appended to every run's system prompt."
+      }
+    }
+  }
+}

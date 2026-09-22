@@ -1486,6 +1486,12 @@ importers:
         specifier: 1.3.30
         version: 1.3.30
 
+  extensions/lumina-context-engine:
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
   extensions/lumina-open-design:
     devDependencies:
       '@openclaw/plugin-sdk':
