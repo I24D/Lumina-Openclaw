@@ -6,6 +6,7 @@ import { ACT_MAX_CLICK_DELAY_MS, resolveActInteractionTimeoutMs } from "./act-po
 import type { BrowserFormField } from "./client-actions.types.js";
 import { normalizeBrowserEvaluateFunctionSource } from "./evaluate-source.js";
 import { DEFAULT_FILL_FIELD_TYPE } from "./form-fields.js";
+import { movePointerWithMinimumJerk } from "./pointer-motion.js";
 import {
   ensurePageState,
   forceDisconnectPlaywrightForTarget,
@@ -94,6 +95,11 @@ export async function clickCoordsViaPlaywright(
 ): Promise<void> {
   const page = await getRestoredPageForTarget(opts);
   await runGuardedPageInteraction(page, opts, async () => {
+    await movePointerWithMinimumJerk({
+      page,
+      target: { x: opts.x, y: opts.y },
+      signal: opts.signal,
+    });
     await page.mouse.click(opts.x, opts.y, {
       button: opts.button,
       clickCount: opts.doubleClick ? 2 : 1,
