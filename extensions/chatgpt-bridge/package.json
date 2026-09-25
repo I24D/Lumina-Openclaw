@@ -1,8 +1,8 @@
 {
   "name": "@openclaw/chatgpt-bridge",
-  "version": "2026.9.4",
+  "version": "2026.9.5",
   "private": true,
-  "description": "OpenClaw ChatGPT relay bridge: forwards marked orders from a ChatGPT tab into an OpenClaw chat session",
+  "description": "Durable ChatGPT Voice bridge for OpenClaw with recoverable long-running tasks",
   "type": "module",
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*"
@@ -10,6 +10,19 @@
   "openclaw": {
     "extensions": [
       "./index.ts"
-    ]
+    ],
+    "build": {
+      "openclawVersion": "2026.9.5",
+      "staticAssets": [
+        {
+          "source": "scripts/lumina-mcp-server.mjs",
+          "output": "scripts/lumina-mcp-server.mjs"
+        },
+        {
+          "source": "scripts/lumina-task-cli.mjs",
+          "output": "scripts/lumina-task-cli.mjs"
+        }
+      ]
+    }
   }
 }

@@ -2,7 +2,7 @@
   "id": "chatgpt-bridge",
   "categories": ["integrations"],
   "name": "ChatGPT Bridge",
-  "description": "Relays marked orders from a ChatGPT tab in the managed browser into an OpenClaw chat session.",
+  "description": "Connects ChatGPT Voice to Lumina through durable local MCP jobs and retains the legacy marked-order browser relay.",
   "activation": { "onStartup": true },
   "enabledByDefault": false,
   "configSchema": {
@@ -23,6 +23,16 @@
       "agentId": {
         "type": "string",
         "description": "Agent that handles the relayed orders. Defaults to the session's own agent."
+      },
+      "mcpSessionKey": {
+        "type": "string",
+        "default": "agent:main:chatgpt-voice",
+        "description": "Dedicated OpenClaw session used by the local ChatGPT MCP server."
+      },
+      "mcpAgentId": {
+        "type": "string",
+        "default": "main",
+        "description": "Agent that executes orders received through the local ChatGPT MCP server."
       },
       "marker": {
         "type": "string",
@@ -75,6 +85,10 @@
     "sessionKey": {
       "label": "Target session",
       "help": "Session key that receives the orders, e.g. agent:main:main for the main dashboard chat."
+    },
+    "mcpSessionKey": {
+      "label": "ChatGPT Voice session",
+      "help": "Dedicated session that receives orders from the local MCP server."
     }
   }
 }

@@ -109,15 +109,19 @@ export function createChatGptBridgeService(api: OpenClawPluginApi): OpenClawPlug
         return;
       }
       try {
-        await api.runtime.gateway.request("chat.send", {
-          sessionKey: config.sessionKey,
-          ...(config.agentId ? { agentId: config.agentId } : {}),
-          message: decision.order,
-          idempotencyKey: `chatgpt-bridge:${candidate.messageId}`,
-          // Relayed text is authored by a model that reads untrusted pages, so it
-          // enters under the same restricted policy as any external requester.
-          systemInputProvenance: { kind: "external_user", sourceChannel: "chatgpt-bridge" },
-        });
+        await api.runtime.gateway.request(
+          "chat.send",
+          {
+            sessionKey: config.sessionKey,
+            ...(config.agentId ? { agentId: config.agentId } : {}),
+            message: decision.order,
+            idempotencyKey: `chatgpt-bridge:${candidate.messageId}`,
+            // Relayed text is authored by a model that reads untrusted pages, so it
+            // enters under the same restricted policy as any external requester.
+            systemInputProvenance: { kind: "external_user", sourceChannel: "chatgpt-bridge" },
+          },
+          { scopes: ["operator.admin"] },
+        );
         gate.commit(candidate, candidate.observedAt);
         ctx.logger.info(`chatgpt-bridge relayed an order (${decision.order.length} chars)`);
       } catch (error) {

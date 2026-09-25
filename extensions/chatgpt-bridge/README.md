@@ -1,5 +1,80 @@
 # ChatGPT Bridge
 
+The preferred integration is the local MCP server in
+`scripts/lumina-mcp-server.mjs`. It lets the ChatGPT desktop app delegate work
+to Lumina and receive the result without an OpenAI API key, a public listener,
+or browser-page scraping.
+
+## Local MCP for ChatGPT Voice
+
+Configure the ChatGPT desktop app with this stdio server:
+
+```toml
+[mcp_servers.lumina_openclaw]
+command = "C:\\nvm4w\\nodejs\\node.exe"
+args = ["C:\\I24D_WhatsApp\\openclaw-main\\extensions\\chatgpt-bridge\\scripts\\lumina-mcp-server.mjs"]
+startup_timeout_sec = 20
+tool_timeout_sec = 620
+```
+
+The server exposes:
+
+- `lumina_status` — verify the local Gateway and connected channels.
+- `lumina_ask` — send an order and wait for one short, recoverable interval.
+- `lumina_delegate` — start durable work and immediately return a `runId`.
+- `lumina_wait` — poll for at most 25 seconds without cancelling the run.
+- `lumina_tasks` — list the durable inbox and recover a lost `runId`.
+- `lumina_cancel` — stop the active or named run.
+- `lumina_capabilities` — describe the supported work categories.
+
+### Long-running tasks
+
+ChatGPT and Remote Desktop Commander can stop waiting after about one minute,
+so the bridge never holds one request open for the whole task. Long work uses a
+durable handoff:
+
+1. `lumina_delegate` submits the task once and returns its `runId`.
+2. Lumina continues independently with an unlimited OpenClaw run window.
+3. A Gateway-side observer records the terminal answer in plugin state even if
+   ChatGPT disconnects or its tool request times out.
+4. `lumina_wait` performs short polls. A `pending` result is not a failure and
+   never cancels Lumina.
+5. `lumina_tasks` recovers recent running or completed jobs after a new chat,
+   application restart, or lost `runId`.
+
+The durable inbox retains up to 10,000 jobs and survives MCP/Desktop Commander
+disconnects and Gateway restarts. Only an explicit `lumina_cancel` call aborts a
+run; losing the caller no longer sends an implicit cancellation.
+
+For Remote Desktop Commander, use the short-lived CLI instead of launching the
+stdio MCP server as an ordinary process:
+
+```powershell
+node C:\I24D_WhatsApp\openclaw-main\extensions\chatgpt-bridge\scripts\lumina-task-cli.mjs delegate-watch --instruction "Revisa el estado del Gateway"
+```
+
+`delegate-watch` prints the `runId` immediately, then remains as a background
+process until the durable result is available. Desktop Commander can read that
+process later. If it loses the process id, recover through `list` and `wait`:
+
+```powershell
+node C:\I24D_WhatsApp\openclaw-main\extensions\chatgpt-bridge\scripts\lumina-task-cli.mjs list --limit 20
+node C:\I24D_WhatsApp\openclaw-main\extensions\chatgpt-bridge\scripts\lumina-task-cli.mjs wait --run-id RUN_ID --timeout-seconds 20
+```
+
+All orders use the dedicated `agent:main:chatgpt-voice` session and enter
+OpenClaw with `external_user` provenance. Existing OpenClaw tool policies and
+approval requirements still apply. Override the fixed target only in the host
+environment with `OPENCLAW_CHATGPT_AGENT_ID` and
+`OPENCLAW_CHATGPT_SESSION_KEY`.
+
+After changing the MCP configuration, restart the ChatGPT desktop app. Start a
+new chat with the MCP server enabled, then say, for example:
+
+> Conecta con Lumina y pídele que revise el estado del Gateway.
+
+## Legacy browser relay
+
 Relays orders from a ChatGPT tab into an OpenClaw chat session, so the operator
 can drive OpenClaw by talking to ChatGPT with their voice.
 
