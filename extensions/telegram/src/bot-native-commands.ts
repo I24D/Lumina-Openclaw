@@ -79,6 +79,15 @@ export const registerTelegramNativeCommands = ({
       : [];
   const pluginCommandRuntime = createPluginCommandRuntime();
   const pluginCommandSpecs = pluginCommandRuntime.listNativeCandidates("telegram");
+  // Lumina fork (upstream #142336, PR #142532): the core /dashboard native command
+  // shadowed the Telegram Mini App's own /dashboard, so its launcher never registered.
+  // When a plugin /dashboard is present, Telegram's native surface yields to it; the
+  // core /dashboard stays on every other channel and here when no plugin owns it.
+  const pluginOwnsDashboard = pluginCommandSpecs.some(
+    (spec) => normalizeTelegramCommandName(spec.name) === "dashboard",
+  );
+  const keepCoreNativeCommand = (command: { name: string }) =>
+    !pluginOwnsDashboard || normalizeTelegramCommandName(command.name) !== "dashboard";
   // Telegram is the channel here: resolve native names from the loaded registry
   // only. The bundled fallback would jiti-load this whole plugin from source in
   // dev/test checkouts (minutes of transpile) to call a hook Telegram never defines.
@@ -87,12 +96,12 @@ export const registerTelegramNativeCommands = ({
         skillCommands,
         provider: "telegram",
         includeBundledChannelFallback: false,
-      })
+      }).filter(keepCoreNativeCommand)
     : [];
   const reservedCommands = new Set(
-    listNativeCommandSpecs({ provider: "telegram", includeBundledChannelFallback: false }).map(
-      (command) => normalizeTelegramCommandName(command.name),
-    ),
+    listNativeCommandSpecs({ provider: "telegram", includeBundledChannelFallback: false })
+      .filter(keepCoreNativeCommand)
+      .map((command) => normalizeTelegramCommandName(command.name)),
   );
   for (const command of skillCommands) {
     reservedCommands.add(normalizeTelegramCommandName(command.name));
@@ -112,10 +121,11 @@ export const registerTelegramNativeCommands = ({
   for (const issue of pluginCatalog.issues) {
     runtime.error?.(danger(issue));
   }
+  // Filtered like nativeCommands so the skill block still starts right after the builtins.
   const builtinCommands = listNativeCommandSpecsForConfig(cfg, {
     provider: "telegram",
     includeBundledChannelFallback: false,
-  });
+  }).filter(keepCoreNativeCommand);
   const firstSkillCommandIndex = nativeEnabled ? builtinCommands.length : 0;
   const nativeMenuCommands = nativeCommands
     .map((command, index): TelegramMenuCommand | null => {

@@ -322,4 +322,45 @@ describe("registerTelegramNativeCommands real plugin registry", () => {
     expectLastDeliveredReplyText("paired:now");
     expect(sendMessage).not.toHaveBeenCalled();
   });
+
+  it("yields the core /dashboard to the Telegram Mini App plugin command (#142336)", async () => {
+    const { bot, commandHandlers, setMyCommands } = createCommandBot();
+    const miniAppHandler = vi.fn(async () => ({ text: "mini-app-dashboard" }));
+    expect(
+      registerPluginCommand("telegram", {
+        name: "dashboard",
+        description: "Open the OpenClaw dashboard",
+        channels: ["telegram"],
+        requireAuth: false,
+        handler: miniAppHandler,
+      }),
+    ).toEqual({ ok: true });
+    const error = vi.fn();
+
+    registerTelegramNativeCommands({
+      ...createNativeCommandTestParams({}, { runtime: { error } as never }),
+      bot,
+    });
+
+    const registered = await waitForRegisteredCommands(setMyCommands);
+    expect(registered.filter((command) => command.command === "dashboard")).toEqual([
+      { command: "dashboard", description: "Open the OpenClaw dashboard" },
+    ]);
+    expect(error).not.toHaveBeenCalled();
+    await requireCommandHandler(commandHandlers, "dashboard")(createPrivateCommandContext());
+    expectLastDeliveredReplyText("mini-app-dashboard");
+    expect(miniAppHandler).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the core /dashboard when no plugin owns it on Telegram", async () => {
+    const { bot, setMyCommands } = createCommandBot();
+
+    registerTelegramNativeCommands({ ...createNativeCommandTestParams({}), bot });
+
+    const registered = await waitForRegisteredCommands(setMyCommands);
+    expect(registered.filter((command) => command.command === "dashboard")).toHaveLength(1);
+    expect(registered.find((command) => command.command === "dashboard")?.description).not.toBe(
+      "Open the OpenClaw dashboard",
+    );
+  });
 });

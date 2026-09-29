@@ -175,7 +175,8 @@ async function main(): Promise<void> {
       searchMode = response.searchMode;
       results.push(scoreCase(testCase, response, topK, abstainBelow));
     } catch (err) {
-      const detail = err instanceof Error ? err.message.split("\n")[0] : String(err);
+      const detail =
+        err instanceof Error ? (err.message.split("\n")[0] ?? err.message) : String(err);
       results.push({ id: testCase.id, category: testCase.category, pass: false, detail });
     }
   }
