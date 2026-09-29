@@ -177,7 +177,7 @@ export class GoalManager {
         reason: `P${goal.priority}, ${deadlineNote}, idle ${ageDays.toFixed(1)}d`,
       };
     });
-    return ranked.sort(
+    return ranked.toSorted(
       (a, b) => b.score - a.score || a.goal.createdAtISO.localeCompare(b.goal.createdAtISO),
     );
   }

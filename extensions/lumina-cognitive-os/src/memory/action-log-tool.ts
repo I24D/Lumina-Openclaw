@@ -96,8 +96,12 @@ export function createWorkingMemoryLogTool(store: ActionLogStore): AnyAgentTool 
       };
       const action = params.action?.trim();
       const target = params.target?.trim();
-      if (!action) throw new ToolInputError("action is required");
-      if (!target) throw new ToolInputError("target is required");
+      if (!action) {
+        throw new ToolInputError("action is required");
+      }
+      if (!target) {
+        throw new ToolInputError("target is required");
+      }
       const entry = store.append({
         action,
         target,

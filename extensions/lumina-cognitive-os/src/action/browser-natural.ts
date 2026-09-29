@@ -59,7 +59,7 @@ function parseNaturalCommand(cmd: string): {
 
   // Navigation intents
   if (lower.startsWith("go to ") || lower.startsWith("open ") || lower.startsWith("navigate to ")) {
-    const url = cmd.substring(cmd.indexOf(" ") + 1).trim();
+    const url = cmd.slice(cmd.indexOf(" ") + 1).trim();
     return { intent: "navigate", target: url };
   }
 
@@ -77,7 +77,7 @@ function parseNaturalCommand(cmd: string): {
 
   // Click intents
   if (lower.startsWith("click ") || lower.startsWith("tap ") || lower.startsWith("press ")) {
-    const target = cmd.substring(cmd.indexOf(" ") + 1).trim();
+    const target = cmd.slice(cmd.indexOf(" ") + 1).trim();
     return { intent: "click", target };
   }
 
@@ -102,8 +102,7 @@ function parseNaturalCommand(cmd: string): {
   // Search intents
   if (lower.startsWith("search for ") || lower.startsWith("find ")) {
     const query =
-      cmd.substring(cmd.indexOf("for ") + 4).trim() ||
-      cmd.substring(cmd.indexOf("find ") + 5).trim();
+      cmd.slice(cmd.indexOf("for ") + 4).trim() || cmd.slice(cmd.indexOf("find ") + 5).trim();
     return { intent: "search", target: query };
   }
 
@@ -169,7 +168,9 @@ export function createBrowserNaturalTool(opts: BrowserNaturalConfig): AnyAgentTo
       };
 
       const command = params.command?.trim();
-      if (!command) throw new ToolInputError("command is required");
+      if (!command) {
+        throw new ToolInputError("command is required");
+      }
 
       // Parse natural language to structured action
       const parsed = parseNaturalCommand(command);

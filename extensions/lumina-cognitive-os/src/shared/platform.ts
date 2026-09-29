@@ -23,7 +23,9 @@ export type LuminaPlatform = "windows" | "wsl" | "linux" | "macos" | "unknown";
 let cached: LuminaPlatform | null = null;
 
 export function detectPlatform(): LuminaPlatform {
-  if (cached !== null) return cached;
+  if (cached !== null) {
+    return cached;
+  }
   if (process.platform === "win32") {
     cached = "windows";
     return cached;
@@ -59,9 +61,13 @@ export function canRunWindowsHostTools(): boolean {
 /** Convert a WSL path like `/mnt/c/Users/x/foo.png` to Windows `C:\\Users\\x\\foo.png`.
  *  No-op on non-WSL. Returns the input if the path is not under `/mnt/<drive>/...`. */
 export function toWindowsPath(p: string): string {
-  if (detectPlatform() !== "wsl") return p;
+  if (detectPlatform() !== "wsl") {
+    return p;
+  }
   const m = /^\/mnt\/([a-zA-Z])(\/.*)?$/.exec(p);
-  if (!m) return p;
+  if (!m) {
+    return p;
+  }
   const drive = m[1]!.toUpperCase();
   const rest = (m[2] ?? "").replace(/\//g, "\\");
   return `${drive}:${rest}`;
@@ -70,9 +76,13 @@ export function toWindowsPath(p: string): string {
 /** Convert a Windows path like `C:\\Users\\x\\foo.png` to WSL `/mnt/c/Users/x/foo.png`.
  *  No-op on non-WSL. Returns the input if the path is not a drive-rooted Windows path. */
 export function toWslPath(p: string): string {
-  if (detectPlatform() !== "wsl") return p;
+  if (detectPlatform() !== "wsl") {
+    return p;
+  }
   const m = /^([a-zA-Z]):[\\/](.*)$/.exec(p);
-  if (!m) return p;
+  if (!m) {
+    return p;
+  }
   const drive = m[1]!.toLowerCase();
   const rest = m[2]!.replace(/\\/g, "/");
   return `/mnt/${drive}/${rest}`;

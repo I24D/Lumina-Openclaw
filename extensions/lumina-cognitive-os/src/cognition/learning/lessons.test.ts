@@ -73,6 +73,6 @@ describe("LessonStore", () => {
     const s = new LessonStore(dir);
     s.learn({ trigger: "ram.high", claim: "low", confidence: 0.6 });
     s.learn({ trigger: "ram.high", claim: "high", confidence: 0.95 });
-    expect(s.applicable("ram.high")[0].claim).toBe("high");
+    expect(s.applicable("ram.high")[0]?.claim).toBe("high");
   });
 });

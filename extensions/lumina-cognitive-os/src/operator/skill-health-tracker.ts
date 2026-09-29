@@ -139,8 +139,10 @@ export class SkillHealthTracker {
   /** Returns all tracked skills, optionally limited to flagged ones. */
   snapshot(params: { flaggedOnly?: boolean } = {}): SkillHealthSnapshot {
     const all = Array.from(this.entries.values());
-    if (params.flaggedOnly) return all.filter((e) => e.flagged);
-    return all.sort((a, b) => b.consecutiveFailures - a.consecutiveFailures);
+    if (params.flaggedOnly) {
+      return all.filter((e) => e.flagged);
+    }
+    return all.toSorted((a, b) => b.consecutiveFailures - a.consecutiveFailures);
   }
 
   /** Reset the tracker for a single skill (e.g. after Dal re-records it). */

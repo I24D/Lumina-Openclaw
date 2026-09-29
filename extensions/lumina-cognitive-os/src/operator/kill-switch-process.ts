@@ -71,7 +71,9 @@ export class KillSwitchProcess {
   }
 
   start(): { ok: boolean; error?: string } {
-    if (this.proc) return { ok: false, error: "already_running" };
+    if (this.proc) {
+      return { ok: false, error: "already_running" };
+    }
     try {
       this.proc = spawn(this.pythonExe, ["-u", this.scriptPath, "--keys", this.keys], {
         windowsHide: true,
@@ -115,14 +117,18 @@ export class KillSwitchProcess {
     while ((nl = this.stdoutBuffer.indexOf("\n")) !== -1) {
       const line = this.stdoutBuffer.slice(0, nl).trim();
       this.stdoutBuffer = this.stdoutBuffer.slice(nl + 1);
-      if (!line) continue;
-      let event: { event?: string; chord?: string } | null = null;
+      if (!line) {
+        continue;
+      }
+      let event: { event?: string; chord?: string } | null;
       try {
         event = JSON.parse(line) as { event?: string; chord?: string };
       } catch {
         continue;
       }
-      if (!event) continue;
+      if (!event) {
+        continue;
+      }
       if (event.event === "ready") {
         this.ready = true;
         this.chord = event.chord ?? this.keys;

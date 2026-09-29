@@ -64,9 +64,13 @@ export function createCalendarTool(): AnyAgentTool {
           orderBy: "startTime",
           maxResults: String(max),
         });
-        if (tMax) q.set("timeMax", tMax);
+        if (tMax) {
+          q.set("timeMax", tMax);
+        }
         const r = await googleFetch(`${base}/events?${q.toString()}`);
-        if (!r.ok) return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        if (!r.ok) {
+          return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        }
         const json = (await r.json()) as {
           items?: Array<{
             id: string;
@@ -100,24 +104,40 @@ export function createCalendarTool(): AnyAgentTool {
         }
         const tz = params.timeZone ?? "UTC";
         const body: Record<string, unknown> = {};
-        if (params.summary !== undefined) body.summary = params.summary;
-        if (params.description !== undefined) body.description = params.description;
-        if (params.location !== undefined) body.location = params.location;
-        if (params.startISO) body.start = { dateTime: params.startISO, timeZone: tz };
-        if (params.endISO) body.end = { dateTime: params.endISO, timeZone: tz };
-        if (params.attendees) body.attendees = params.attendees.map((email) => ({ email }));
+        if (params.summary !== undefined) {
+          body.summary = params.summary;
+        }
+        if (params.description !== undefined) {
+          body.description = params.description;
+        }
+        if (params.location !== undefined) {
+          body.location = params.location;
+        }
+        if (params.startISO) {
+          body.start = { dateTime: params.startISO, timeZone: tz };
+        }
+        if (params.endISO) {
+          body.end = { dateTime: params.endISO, timeZone: tz };
+        }
+        if (params.attendees) {
+          body.attendees = params.attendees.map((email) => ({ email }));
+        }
         const url =
           action === "create"
             ? `${base}/events`
             : `${base}/events/${encodeURIComponent(params.eventId!)}`;
         const method = action === "create" ? "POST" : "PATCH";
         const r = await googleFetch(url, { method, body: JSON.stringify(body) });
-        if (!r.ok) return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        if (!r.ok) {
+          return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        }
         return jsonResult({ ok: true, event: await r.json() });
       }
 
       if (action === "delete") {
-        if (!params.eventId) throw new ToolInputError("eventId required for delete");
+        if (!params.eventId) {
+          throw new ToolInputError("eventId required for delete");
+        }
         const r = await googleFetch(`${base}/events/${encodeURIComponent(params.eventId)}`, {
           method: "DELETE",
         });
@@ -138,7 +158,9 @@ export function createCalendarTool(): AnyAgentTool {
             items: [{ id: calendarId }],
           }),
         });
-        if (!r.ok) return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        if (!r.ok) {
+          return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        }
         return jsonResult({ ok: true, freeBusy: await r.json() });
       }
 

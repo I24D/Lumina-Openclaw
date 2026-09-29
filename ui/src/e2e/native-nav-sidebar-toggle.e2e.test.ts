@@ -82,7 +82,9 @@ let context: BrowserContext | undefined;
 
 suite.define(() => {
   afterEach(async () => {
-    await context?.close();
+    if (context) {
+      await suite.closeBrowserContext(context);
+    }
     context = undefined;
   });
 
@@ -99,7 +101,7 @@ suite.define(() => {
     webChrome?: boolean;
     width?: number;
   }) {
-    context = await suite.browser.newContext({
+    context = await suite.newBrowserContext({
       colorScheme: options.colorScheme,
       hasTouch: options.hasTouch,
       locale: "en-US",
@@ -705,12 +707,19 @@ suite.define(() => {
   });
 
   it("keeps overlay motion anchored to its owning interaction", async () => {
-    const page = await openPage({ nativeNav: false });
+    let popupModule!: Awaited<ReturnType<typeof holdModuleResponse>>;
+    const page = await openPage({
+      nativeNav: false,
+      beforeNavigate: async (nextPage) => {
+        popupModule = await holdModuleResponse(nextPage, /\/assets\/tooltip-[^/?]+\.js(?:\?.*)?$/u);
+      },
+    });
 
     await page.keyboard.press("ControlOrMeta+K");
-    const palette = page.locator(".cmd-palette");
-    const paletteDialog = page.locator("openclaw-modal-dialog.palette");
-    await page.locator(".cmd-palette__input:not([disabled])").waitFor({ state: "visible" });
+    // The loading dialog is replaced during handoff; measure the full palette.
+    const palette = page.locator("openclaw-command-palette .cmd-palette");
+    const paletteDialog = page.locator("openclaw-command-palette openclaw-modal-dialog.palette");
+    await palette.locator(".cmd-palette__input:not([disabled])").waitFor({ state: "visible" });
     const paletteAnimationName = await palette.evaluate(
       (element) => getComputedStyle(element).animationName,
     );
@@ -723,13 +732,22 @@ suite.define(() => {
 
     const sidebar = page.locator("openclaw-app-sidebar");
     await sidebar.locator(".sidebar-identity-card").click();
-    const buildLink = sidebar.getByRole("link", {
+    const buildLink = sidebar.getByRole("menuitem", {
       name: "Control UI build details",
       exact: true,
     });
     await page.clock.install();
     await buildLink.hover();
     await page.clock.runFor(600);
+    // The hover delay starts the lazy popup load; it does not finish its upgrade
+    // or positioning. Keep that load pending until after the timer has elapsed.
+    await popupModule.request;
+    popupModule.release();
+    await sidebar
+      .locator(
+        'openclaw-sidebar-build-chip openclaw-tooltip wa-tooltip[open] wa-popup[data-current-placement] [part~="popup"]',
+      )
+      .waitFor({ state: "visible" });
     const hoverCardMotion = await sidebar
       .locator("openclaw-sidebar-build-chip openclaw-tooltip")
       .evaluate((tooltip) => {

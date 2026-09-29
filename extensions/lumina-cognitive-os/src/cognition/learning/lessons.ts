@@ -115,6 +115,6 @@ export class LessonStore {
   applicable(trigger: string, minConfidence = 0.5): ReadonlyArray<Lesson> {
     return this.lessons
       .filter((l) => l.trigger === trigger && l.confidence >= minConfidence)
-      .sort((a, b) => b.confidence - a.confidence);
+      .toSorted((a, b) => b.confidence - a.confidence);
   }
 }

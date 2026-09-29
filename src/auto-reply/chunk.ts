@@ -6,8 +6,8 @@ import {
 } from "@openclaw/normalization-core/grapheme";
 import {
   findFenceSpanAt,
-  isSafeFenceBreak,
   parseFenceSpans,
+  type FenceSpan,
 } from "../../packages/markdown-core/src/fences.js";
 import type { ChannelId } from "../channels/plugins/types.core.js";
 import { resolveChannelStreamingChunkMode } from "../channels/streaming.js";
@@ -15,6 +15,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveChannelAccountEntry } from "../routing/account-lookup.js";
 import { normalizeAccountId } from "../routing/session-key.js";
 import { chunkTextByBreakResolver, normalizeChunkLimit } from "../shared/text-chunking.js";
+import { findCodeRegions, isInsideCode } from "../shared/text/code-regions.js";
 import { INTERNAL_MESSAGE_CHANNEL } from "../utils/message-channel-constants.js";
 
 export type TextChunkProvider = ChannelId;
@@ -222,7 +223,7 @@ export function chunkByParagraph(
     return chunkText(normalized, limit);
   }
 
-  const spans = parseFenceSpans(normalized);
+  const codeRegions = findCodeRegions(normalized);
 
   const parts: string[] = [];
   const separators: string[] = [];
@@ -231,8 +232,8 @@ export function chunkByParagraph(
   for (const match of normalized.matchAll(re)) {
     const idx = match.index ?? 0;
 
-    // Do not split on blank lines that occur inside fenced code blocks.
-    if (!isSafeFenceBreak(spans, idx)) {
+    // Blank lines inside code are content, not disposable paragraph separators.
+    if (isInsideCode(idx, codeRegions)) {
       continue;
     }
 
@@ -381,7 +382,7 @@ export function chunkMarkdownText(text: string, limit: number): string[] {
   const chunks: string[] = [];
   const spans = parseFenceSpans(text);
   let start = 0;
-  let reopenFence: ReturnType<typeof findFenceSpanAt> | undefined;
+  let reopenFence: FenceSpan | undefined;
 
   while (start < text.length) {
     const reopenLine = reopenFence ? resolveFenceReopenLine(reopenFence, normalizedLimit) : "";
@@ -478,10 +479,7 @@ export function chunkMarkdownText(text: string, limit: number): string[] {
   return chunks;
 }
 
-function resolveFenceReopenLine(
-  fence: NonNullable<ReturnType<typeof findFenceSpanAt>>,
-  limit: number,
-): string {
+function resolveFenceReopenLine(fence: FenceSpan, limit: number): string {
   const markerLine = `${fence.indent}${fence.marker}`;
   // Reserve the closing marker, two newlines, and one body character.
   if (fence.openLine.length + markerLine.length + 3 <= limit) {

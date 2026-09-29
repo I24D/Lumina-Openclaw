@@ -2,8 +2,8 @@ import { WORKER_BUNDLE_PREWARM_VERSION } from "../../../packages/gateway-protoco
 import { racePromiseWithAbortSignal } from "../../infra/abort-signal.js";
 import { NODE_WORKER_BUNDLE_INSTALL_COMMAND } from "../../infra/node-commands.js";
 import { parseNodeWorkerBundleInstallResult } from "../../worker/node-bundle-install-protocol.js";
+import { sameWorkerBuild } from "../../worker/worker-build-identity.js";
 import type { NodeWorkerSupervisorTransport } from "../node-registry-private.js";
-import { verifyWorkerAdmissionHandshake } from "./admission.js";
 import { workerBootstrapOperationTimeoutMs } from "./bootstrap.js";
 import type { WorkerInstallationArtifact } from "./bundle.js";
 import type { NodeWorkerBundleTransferService } from "./node-worker-bundle-transfer-service.js";
@@ -19,6 +19,7 @@ export function createGatewayNodeWorkerBundleInstaller(options: {
     prewarm: boolean;
     signal?: AbortSignal;
     assertCurrent?: () => void;
+    onProgress?: () => void;
   }) => {
     params.signal?.throwIfAborted();
     const transport = options.getTransport();
@@ -54,6 +55,7 @@ export function createGatewayNodeWorkerBundleInstaller(options: {
       ...(bundlePrewarm ? { bundlePrewarm } : {}),
       isAuthorized,
       signal: params.signal,
+      onProgress: params.onProgress,
     });
     try {
       const result = await transport.invoke({
@@ -84,7 +86,7 @@ export function createGatewayNodeWorkerBundleInstaller(options: {
         }
       }
       const receipt = parseNodeWorkerBundleInstallResult(payload);
-      if (!receipt || !verifyWorkerAdmissionHandshake(receipt, artifact)) {
+      if (!receipt || !sameWorkerBuild(receipt, artifact)) {
         throw new Error("Device worker bundle installer returned a mismatched build receipt");
       }
       return receipt;

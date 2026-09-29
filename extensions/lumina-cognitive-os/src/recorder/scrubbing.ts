@@ -39,8 +39,8 @@ export function defaultScrubbingPolicy(): ScrubbingPolicy {
 }
 
 const RE_EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
-const RE_BEARER = /\bBearer\s+[A-Za-z0-9._\-]{16,}/g;
-const RE_API_KEY = /\b(sk|pk|ghp|xoxb|xoxp|AIza)[-_]?[A-Za-z0-9_\-]{16,}/g;
+const RE_BEARER = /\bBearer\s+[A-Za-z0-9._-]{16,}/g;
+const RE_API_KEY = /\b(sk|pk|ghp|xoxb|xoxp|AIza)[-_]?[A-Za-z0-9_-]{16,}/g;
 const RE_CC = /\b(?:\d[ -]*?){13,19}\b/g;
 
 export function redactSecretsInText(
@@ -48,9 +48,15 @@ export function redactSecretsInText(
   policy: ScrubbingPolicy = defaultScrubbingPolicy(),
 ): string {
   let out = input;
-  if (policy.redactEmails) out = out.replace(RE_EMAIL, "[REDACTED:email]");
-  if (policy.redactBearerTokens) out = out.replace(RE_BEARER, "[REDACTED:bearer]");
-  if (policy.redactApiKeys) out = out.replace(RE_API_KEY, "[REDACTED:apikey]");
+  if (policy.redactEmails) {
+    out = out.replace(RE_EMAIL, "[REDACTED:email]");
+  }
+  if (policy.redactBearerTokens) {
+    out = out.replace(RE_BEARER, "[REDACTED:bearer]");
+  }
+  if (policy.redactApiKeys) {
+    out = out.replace(RE_API_KEY, "[REDACTED:apikey]");
+  }
   if (policy.redactCreditCards) {
     out = out.replace(RE_CC, (match) => {
       const digits = match.replace(/\D/g, "");
@@ -67,9 +73,13 @@ export function redactSecretsInText(
 
 function looksHighEntropy(text: string): boolean {
   const len = text.length;
-  if (len < 24) return false;
+  if (len < 24) {
+    return false;
+  }
   const counts: Record<string, number> = {};
-  for (const c of text) counts[c] = (counts[c] ?? 0) + 1;
+  for (const c of text) {
+    counts[c] = (counts[c] ?? 0) + 1;
+  }
   let entropy = 0;
   for (const k of Object.keys(counts)) {
     const p = counts[k]! / len;

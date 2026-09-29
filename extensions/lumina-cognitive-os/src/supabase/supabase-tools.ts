@@ -8,6 +8,7 @@
  * own persistence. Updates/deletes also require confirm=true.
  */
 import { Type } from "typebox";
+import { textOf } from "../shared/text.js";
 import {
   jsonResult,
   ToolAuthorizationError,
@@ -57,7 +58,7 @@ type OpenApiSchema = {
   };
 };
 
-const SELECT_RE = /^[A-Za-z0-9_*,.():! \-]+$/u;
+const SELECT_RE = /^[A-Za-z0-9_*,.():! -]+$/u;
 const ORDER_RE = /^[A-Za-z_][A-Za-z0-9_]*(?:\.(?:asc|desc))?(?:\.(?:nullsfirst|nullslast))?$/u;
 
 function errorResult(err: unknown) {
@@ -80,7 +81,9 @@ function validateSelect(select: string): string {
 }
 
 function validateOrder(order: string | undefined): string | undefined {
-  if (!order) return undefined;
+  if (!order) {
+    return undefined;
+  }
   const trimmed = order.trim();
   if (!ORDER_RE.test(trimmed)) {
     throw new ToolInputError("order must look like column.asc or column.desc");
@@ -89,9 +92,15 @@ function validateOrder(order: string | undefined): string | undefined {
 }
 
 function serializeScalar(value: unknown): string {
-  if (value === null) return "null";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
   throw new ToolInputError(
     "filter values must be strings, numbers, booleans, null, or arrays for in",
   );
@@ -99,11 +108,13 @@ function serializeScalar(value: unknown): string {
 
 export function serializeSupabaseFilter(filter: SupabaseFilter): [string, string] {
   const column = filter.column?.trim();
-  if (!column) throw new ToolInputError("filter.column is required");
+  if (!column) {
+    throw new ToolInputError("filter.column is required");
+  }
   assertSupabaseIdentifier(column, "filter.column");
   const op = filter.op ?? "eq";
   if (!FILTER_OPS.includes(op)) {
-    throw new ToolInputError(`unsupported filter op ${String(op)}`);
+    throw new ToolInputError(`unsupported filter op ${op}`);
   }
   if (op === "in") {
     if (!Array.isArray(filter.value) || filter.value.length === 0) {
@@ -139,17 +150,15 @@ function extractOpenApiTables(openapi: OpenApiSchema) {
           typeof name === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/u.test(name),
       ),
   );
-  return [...pathTables].sort().map((name) => {
+  return [...pathTables].toSorted().map((name) => {
     const definition = definitions[name] ?? {};
-    const properties = definition.properties ?? {};
-    return {
-      name,
-      columns: Object.entries(properties).map(([column, meta]) => ({
-        name: column,
-        ...(typeof meta === "object" && meta !== null ? (meta as Record<string, unknown>) : {}),
-      })),
-      required: definition.required ?? [],
-    };
+    const columns: Array<Record<string, unknown> & { name: string }> = [];
+    for (const [column, meta] of Object.entries(definition.properties ?? {})) {
+      const details =
+        typeof meta === "object" && meta !== null ? (meta as Record<string, unknown>) : {};
+      columns.push({ name: column, ...details });
+    }
+    return { name, columns, required: definition.required ?? [] };
   });
 }
 
@@ -207,8 +216,9 @@ export function createSupabaseSchemaTool(deps: ToolDeps): AnyAgentTool {
           timeoutMs: 15_000,
         });
         const parsed = await readSupabaseJson<OpenApiSchema>(response);
-        if (!parsed.ok)
+        if (!parsed.ok) {
           return jsonResult({ ok: false, error: parsed.error, status: parsed.status });
+        }
         const tables = extractOpenApiTables(parsed.data);
         const includeColumns = raw.includeColumns !== false;
         return jsonResult({
@@ -261,7 +271,7 @@ export function createSupabaseQueryTool(deps: ToolDeps): AnyAgentTool {
       };
       try {
         const cfg = resolveSupabaseConfig(deps);
-        const table = String(raw.table ?? "").trim();
+        const table = textOf(raw.table).trim();
         assertSupabaseIdentifier(table, "table");
         const select = validateSelect(typeof raw.select === "string" ? raw.select : "*");
         const limit = clampLimit(raw.limit, cfg.maxRows);
@@ -269,7 +279,9 @@ export function createSupabaseQueryTool(deps: ToolDeps): AnyAgentTool {
         params.set("select", select);
         params.set("limit", String(limit));
         const order = validateOrder(typeof raw.order === "string" ? raw.order : undefined);
-        if (order) params.set("order", order);
+        if (order) {
+          params.set("order", order);
+        }
         appendFilters(params, raw.filters as SupabaseFilter[] | undefined);
 
         const response = await supabaseFetch(
@@ -282,8 +294,9 @@ export function createSupabaseQueryTool(deps: ToolDeps): AnyAgentTool {
           },
         );
         const parsed = await readSupabaseJson<unknown[]>(response);
-        if (!parsed.ok)
+        if (!parsed.ok) {
           return jsonResult({ ok: false, error: parsed.error, status: parsed.status });
+        }
         return jsonResult({
           ok: true,
           table,
@@ -348,8 +361,8 @@ export function createSupabaseMutateTool(deps: ToolDeps): AnyAgentTool {
             "Supabase writes are disabled. Set LUMINA_SUPABASE_ALLOW_WRITES=true to enable.",
           );
         }
-        const action = String(raw.action);
-        const table = String(raw.table ?? "").trim();
+        const action = textOf(raw.action);
+        const table = textOf(raw.table).trim();
         assertSupabaseIdentifier(table, "table");
         const params = new URLSearchParams();
         params.set("select", validateSelect(typeof raw.select === "string" ? raw.select : "*"));
@@ -361,7 +374,9 @@ export function createSupabaseMutateTool(deps: ToolDeps): AnyAgentTool {
 
         if (action === "insert" || action === "upsert") {
           method = "POST";
-          if (raw.rows === undefined) throw new ToolInputError("rows is required");
+          if (raw.rows === undefined) {
+            throw new ToolInputError("rows is required");
+          }
           body = JSON.stringify(raw.rows);
           if (action === "upsert") {
             headers.prefer = "resolution=merge-duplicates,return=representation";
@@ -374,7 +389,9 @@ export function createSupabaseMutateTool(deps: ToolDeps): AnyAgentTool {
             throw new ToolAuthorizationError("confirm=true is required for Supabase update");
           }
           method = "PATCH";
-          if (raw.rows === undefined) throw new ToolInputError("rows is required");
+          if (raw.rows === undefined) {
+            throw new ToolInputError("rows is required");
+          }
           if (!Array.isArray(raw.filters) || raw.filters.length === 0) {
             throw new ToolInputError("update requires at least one filter");
           }
@@ -397,8 +414,9 @@ export function createSupabaseMutateTool(deps: ToolDeps): AnyAgentTool {
           { method, body, headers, timeoutMs: 20_000 },
         );
         const parsed = await readSupabaseJson<unknown[]>(response);
-        if (!parsed.ok)
+        if (!parsed.ok) {
           return jsonResult({ ok: false, error: parsed.error, status: parsed.status });
+        }
         return jsonResult({ ok: true, action, table, rows: parsed.data });
       } catch (err) {
         return errorResult(err);

@@ -97,7 +97,9 @@ async function bridgeJson<T>(
   timeoutMs: number,
 ): Promise<T | null> {
   const f = getFetch(deps);
-  if (!f) return null;
+  if (!f) {
+    return null;
+  }
   const base = deps.bridgeUrl.replace(/\/+$/, "");
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
@@ -108,7 +110,9 @@ async function bridgeJson<T>(
       body: JSON.stringify(body ?? {}),
       signal: controller.signal,
     });
-    if (!r.ok) return null;
+    if (!r.ok) {
+      return null;
+    }
     return (await r.json()) as T;
   } catch {
     return null;
@@ -119,7 +123,9 @@ async function bridgeJson<T>(
 
 async function captureScreenshot(deps: SmartClickDeps): Promise<string | null> {
   const body = await bridgeJson<ScreenshotResponse>(deps, "/screenshot", {}, 5_000);
-  if (!body) return null;
+  if (!body) {
+    return null;
+  }
   return typeof body.path === "string" && body.path.length > 0 ? body.path : null;
 }
 
@@ -129,7 +135,9 @@ async function fetchLiveUiaTree(): Promise<LiveUiaNode[] | null> {
     ["--max-depth", "8", "--max-nodes", "600"],
     { timeoutMs: 15_000 },
   );
-  if (!r.ok) return null;
+  if (!r.ok) {
+    return null;
+  }
   const nodes = r.data?.nodes;
   return Array.isArray(nodes) ? nodes : null;
 }
@@ -141,12 +149,18 @@ async function resolveUia(params: {
   maxMatches: number;
 }): Promise<UiaFindResponse | null> {
   const args = ["--find", params.query, "--max-matches", String(params.maxMatches)];
-  if (params.controlType) args.push("--control-type", params.controlType);
-  if (typeof params.pid === "number") args.push("--pid", String(params.pid));
+  if (params.controlType) {
+    args.push("--control-type", params.controlType);
+  }
+  if (typeof params.pid === "number") {
+    args.push("--pid", String(params.pid));
+  }
   const r = await runPythonSidecarJson<UiaFindResponse>("uia_tree", args, {
     timeoutMs: 15_000,
   });
-  if (!r.ok || !r.data) return null;
+  if (!r.ok || !r.data) {
+    return null;
+  }
   return r.data;
 }
 
@@ -155,9 +169,13 @@ function filterByProcess(
   processName: string | undefined,
   procFromUia: { name: string } | undefined,
 ): UiaMatch[] {
-  if (!processName) return matches;
+  if (!processName) {
+    return matches;
+  }
   const norm = processName.trim().toLowerCase();
-  if (!norm) return matches;
+  if (!norm) {
+    return matches;
+  }
   if (procFromUia && procFromUia.name.trim().toLowerCase() === norm) {
     return matches;
   }
@@ -175,10 +193,16 @@ function pickBest(
     }
     return { picked: matches[candidateIndex] ?? null, reason: "index_override" };
   }
-  if (matches.length === 0) return { picked: null, reason: null };
+  if (matches.length === 0) {
+    return { picked: null, reason: null };
+  }
   const best = matches[0]!;
-  if (!best.center) return { picked: null, reason: null };
-  if (best.score < minScore) return { picked: null, reason: null };
+  if (!best.center) {
+    return { picked: null, reason: null };
+  }
+  if (best.score < minScore) {
+    return { picked: null, reason: null };
+  }
   return { picked: best, reason: "high_score" };
 }
 
@@ -205,7 +229,9 @@ async function dispatchClick(
     },
     8_000,
   );
-  if (!body) return { ok: false, error: "bridge_unreachable" };
+  if (!body) {
+    return { ok: false, error: "bridge_unreachable" };
+  }
   return body;
 }
 
@@ -221,7 +247,9 @@ async function dispatchType(deps: SmartClickDeps, text: string): Promise<Dispatc
     },
     8_000,
   );
-  if (!body) return { ok: false, error: "bridge_unreachable" };
+  if (!body) {
+    return { ok: false, error: "bridge_unreachable" };
+  }
   return body;
 }
 
@@ -385,7 +413,9 @@ export function createSmartClickTool(deps: SmartClickDeps): AnyAgentTool {
         dryRun?: boolean;
       };
       const query = params.query?.trim();
-      if (!query) throw new ToolInputError("query is required");
+      if (!query) {
+        throw new ToolInputError("query is required");
+      }
 
       const minScore = typeof params.minScore === "number" ? params.minScore : 0.5;
       const maxMatches = typeof params.maxMatches === "number" ? params.maxMatches : 5;
@@ -506,7 +536,9 @@ export function createSmartClickTool(deps: SmartClickDeps): AnyAgentTool {
       }
 
       // Give the OS a beat to repaint before we re-snapshot.
-      await new Promise((r) => setTimeout(r, 180));
+      await new Promise<void>((r) => {
+        setTimeout(r, 180);
+      });
 
       let postScreenshot: string | null = null;
       let postUiaNodes: ReadonlyArray<LiveUiaNode> | null = null;
@@ -576,7 +608,9 @@ export function createSmartTypeTool(deps: SmartClickDeps): AnyAgentTool {
         dryRun?: boolean;
       };
       const query = params.query?.trim();
-      if (!query) throw new ToolInputError("query is required");
+      if (!query) {
+        throw new ToolInputError("query is required");
+      }
       const text = params.text;
       if (typeof text !== "string" || text.length === 0) {
         throw new ToolInputError("text is required");
@@ -647,7 +681,9 @@ export function createSmartTypeTool(deps: SmartClickDeps): AnyAgentTool {
           error: focus.error ?? "focus_click_failed",
         });
       }
-      await new Promise((r) => setTimeout(r, 120));
+      await new Promise<void>((r) => {
+        setTimeout(r, 120);
+      });
 
       const typed = await dispatchType(deps, text);
       if (!typed.ok) {
@@ -681,7 +717,9 @@ export function createSmartTypeTool(deps: SmartClickDeps): AnyAgentTool {
         }
       }
 
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise<void>((r) => {
+        setTimeout(r, 200);
+      });
       let postScreenshot: string | null = null;
       let postUiaNodes: ReadonlyArray<LiveUiaNode> | null = null;
       if (verifyKind === "screenshot") {

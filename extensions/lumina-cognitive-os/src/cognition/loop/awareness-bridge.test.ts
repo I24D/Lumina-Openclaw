@@ -17,7 +17,10 @@ const makeLoop = (run?: () => void) =>
     }),
   });
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+const settle = () =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
 
 describe("attachAwareness", () => {
   it("turns a bus event into a completed cycle", async () => {
@@ -30,8 +33,8 @@ describe("attachAwareness", () => {
     await settle();
 
     expect(cycles).toHaveLength(1);
-    expect(cycles[0].executed).toBe(true);
-    expect(cycles[0].event.source).toBe("awareness");
+    expect(cycles[0]?.executed).toBe(true);
+    expect(cycles[0]?.event.source).toBe("awareness");
     expect(run).toHaveBeenCalledOnce();
   });
 
@@ -60,6 +63,6 @@ describe("attachAwareness", () => {
     await settle();
 
     expect(onError).toHaveBeenCalledOnce();
-    expect((onError.mock.calls[0][0] as Error).message).toBe("loop exploded");
+    expect(onError.mock.calls[0]?.[0]).toMatchObject({ message: "loop exploded" });
   });
 });

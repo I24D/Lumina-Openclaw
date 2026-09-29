@@ -320,6 +320,8 @@ export const SPECIALISED_AGENTS: ReadonlyArray<SpecialisedAgent> = [
 
 export function getAgent(id: SpecialisedAgentId): SpecialisedAgent {
   const a = SPECIALISED_AGENTS.find((x) => x.id === id);
-  if (!a) throw new Error(`unknown agent id: ${id}`);
+  if (!a) {
+    throw new Error(`unknown agent id: ${id}`);
+  }
   return a;
 }

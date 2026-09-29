@@ -14,7 +14,9 @@ import type { PcOperatorEngine } from "./loop-engine.js";
 import type { SkillHealthTracker } from "./skill-health-tracker.js";
 
 function summarizeRun(run: ReturnType<PcOperatorEngine["get"]>): Record<string, unknown> {
-  if (!run) return { ok: false, error: "run_not_found" };
+  if (!run) {
+    return { ok: false, error: "run_not_found" };
+  }
   return {
     ok: true,
     id: run.id,
@@ -146,7 +148,9 @@ export function createPcDoTool(engine: PcOperatorEngine): AnyAgentTool {
         brainModel?: string;
       };
       const goal = params.goal?.trim();
-      if (!goal) throw new ToolInputError("goal is required");
+      if (!goal) {
+        throw new ToolInputError("goal is required");
+      }
       const run = await engine.run({
         goal,
         mode: params.mode,

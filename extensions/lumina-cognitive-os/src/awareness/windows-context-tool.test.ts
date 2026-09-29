@@ -5,9 +5,14 @@ import { createWindowsContextTool } from "./windows-context-tool.js";
 function bridgeReturning(value: unknown): BridgeClient {
   return {
     bridgeUrl: "http://127.0.0.1:8765",
-    get: async () => value,
+    get: async <T>() => value as T | null,
     post: async () => null,
   };
+}
+
+function firstText(content: ReadonlyArray<{ type: string; text?: string }>): string {
+  const first = content[0];
+  return first?.type === "text" && first.text !== undefined ? first.text : "{}";
 }
 
 describe("lumina_windows_context", () => {
@@ -28,7 +33,7 @@ describe("lumina_windows_context", () => {
     );
 
     const result = await tool.execute("test", {});
-    const payload = JSON.parse(result.content[0]?.text ?? "{}");
+    const payload = JSON.parse(firstText(result.content));
 
     expect(payload.ok).toBe(true);
     expect(payload.location.approximate).toBe(true);
@@ -40,7 +45,7 @@ describe("lumina_windows_context", () => {
   it("returns an actionable error when the Windows Bridge is unavailable", async () => {
     const tool = createWindowsContextTool(bridgeReturning(null));
     const result = await tool.execute("test", {});
-    const payload = JSON.parse(result.content[0]?.text ?? "{}");
+    const payload = JSON.parse(firstText(result.content));
 
     expect(payload).toMatchObject({ ok: false, error: "windows_context_unavailable" });
   });

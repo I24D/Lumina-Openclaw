@@ -42,17 +42,25 @@ export function buildSetOfMarks(
   const maxElements = opts.maxElements ?? 30;
   const minConfidence = opts.minConfidence ?? 0;
   const filtered = elements.filter((e) => {
-    if (typeof e.confidence === "number" && e.confidence < minConfidence) return false;
-    if (opts.includeIcons === false && e.kind === "icon") return false;
-    if (opts.includeText === false && e.kind === "text") return false;
+    if (typeof e.confidence === "number" && e.confidence < minConfidence) {
+      return false;
+    }
+    if (opts.includeIcons === false && e.kind === "icon") {
+      return false;
+    }
+    if (opts.includeText === false && e.kind === "text") {
+      return false;
+    }
     return true;
   });
   // Stable sort: top-to-bottom, left-to-right (reading order).
   const sorted = [...filtered]
-    .sort((a, b) => {
+    .toSorted((a, b) => {
       const aRow = Math.floor(a.bbox.y / 32);
       const bRow = Math.floor(b.bbox.y / 32);
-      if (aRow !== bRow) return aRow - bRow;
+      if (aRow !== bRow) {
+        return aRow - bRow;
+      }
       return a.bbox.x - b.bbox.x;
     })
     .slice(0, maxElements);
@@ -86,9 +94,13 @@ export function buildSetOfMarks(
  * resolve.
  */
 export function resolveSetOfMarksChoice(answer: string, marks: SetOfMarks): DetectedElement | null {
-  if (!answer) return null;
+  if (!answer) {
+    return null;
+  }
   const match = answer.match(/\b(\d{1,3})\b/);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   const key = match[1]!;
   return marks.index.get(key) ?? null;
 }

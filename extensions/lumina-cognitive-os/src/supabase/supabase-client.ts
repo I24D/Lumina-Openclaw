@@ -39,7 +39,9 @@ function normalizeSupabaseUrl(value: string): string {
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined || value.trim() === "") return fallback;
+  if (value === undefined || value.trim() === "") {
+    return fallback;
+  }
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
@@ -50,7 +52,9 @@ function parseMaxRows(value: number | string | undefined): number {
       : typeof value === "string" && value.trim()
         ? Number(value.trim())
         : DEFAULT_MAX_ROWS;
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MAX_ROWS;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_MAX_ROWS;
+  }
   return Math.min(Math.trunc(parsed), HARD_MAX_ROWS);
 }
 
@@ -133,6 +137,7 @@ export async function supabaseFetch(
   }
 }
 
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- JSON results are typed by the caller.
 export async function readSupabaseJson<T>(
   response: Response,
 ): Promise<{ ok: true; data: T } | { ok: false; error: string; status: number }> {

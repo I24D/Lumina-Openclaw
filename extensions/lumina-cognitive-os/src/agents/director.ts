@@ -65,14 +65,20 @@ export function routeIntent(intent: string, topK = 3): RouteResult {
     for (const kw of agent.keywords) {
       const kwTokens = tokenize(kw);
       const all = kwTokens.every((t) => tokens.has(t));
-      if (all) hits.push(kw);
+      if (all) {
+        hits.push(kw);
+      }
     }
-    if (hits.length === 0) continue;
+    if (hits.length === 0) {
+      continue;
+    }
     const score = hits.length / Math.max(1, agent.keywords.length);
     ranked.push({ agent, score, hits });
   }
   ranked.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
+    if (b.score !== a.score) {
+      return b.score - a.score;
+    }
     return priority(a.agent.id) - priority(b.agent.id);
   });
   const cap = ranked.slice(0, Math.max(1, Math.min(topK, ranked.length)));

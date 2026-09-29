@@ -36,7 +36,9 @@ export function createBridgeClient(options: BridgeClientOptions): BridgeClient {
     body: unknown,
     timeoutMs: number,
   ): Promise<T | null> {
-    if (!f) return null;
+    if (!f) {
+      return null;
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -46,7 +48,9 @@ export function createBridgeClient(options: BridgeClientOptions): BridgeClient {
         init.body = JSON.stringify(body ?? {});
       }
       const response = await f(`${base}${path}`, init);
-      if (!response.ok) return null;
+      if (!response.ok) {
+        return null;
+      }
       return (await response.json()) as T;
     } catch {
       return null;

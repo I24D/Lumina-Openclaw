@@ -196,6 +196,21 @@ export function createControlUiRegistrar(state: PluginRegistryState) {
         : undefined;
     // Lumina: plugin tabs such as Lumina Design can ask to open in their own window.
     const openInNewWindow = descriptor.openInNewWindow === true ? true : undefined;
+    const capability =
+      surface === "tab"
+        ? "page"
+        : surface === "widget"
+          ? "widget"
+          : surface === "link-reader"
+            ? "link-reader"
+            : undefined;
+    // Missing declarations are advisory: metadata never grants or denies a UI registration.
+    if (capability && record.uiCapabilities && !record.uiCapabilities.includes(capability)) {
+      state.reportRegistrationWarning(
+        record,
+        `Registered UI capability "${capability}" is missing from uiCapabilities in openclaw.plugin.json.`,
+      );
+    }
     registry.controlUiDescriptors.push(
       createRegistration(record, {
         descriptor: {

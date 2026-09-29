@@ -32,15 +32,15 @@ They are different parts of the same Lumina project by **DAL NIJARUQ**.
 
 ## Staying Current With Upstream OpenClaw
 
-Current integration: OpenClaw `2026.8.1` at official commit
-`8d30790f083c467b240f0ef0e0da81cb0db09d73` (updated 2026-08-29).
+Current integration: OpenClaw `2026.9.6` at official commit
+`039b32a68a0` (merged 2026-09-28).
 
 This repository tracks `openclaw/openclaw` as a real git ancestor, so upstream
 releases arrive through an ordinary pull:
 
 ```bash
 git remote add upstream https://github.com/openclaw/openclaw.git   # once
-git fetch upstream
+git fetch upstream main
 git merge upstream/main
 pnpm install
 ```
@@ -48,16 +48,20 @@ pnpm install
 Conflicts can only appear in the files Lumina actually modifies. Everything
 else fast-forwards untouched. The Lumina-owned surface is:
 
-| Area                                                   | Files                                                                                                                                         |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Transient-401 retry                                    | `src/agents/embedded-agent-runner/run/{helpers,failover-retry-controller,assistant-failover,assistant-failure}.ts`, `run-loop.ts`, `types.ts` |
-| Tailscale: Windows discovery + stale-listener recovery | `src/infra/tailscale.ts`, `src/shared/tailscale-status.ts`, `src/gateway/server-tailscale.ts`                                                 |
-| Windows cron process identity                          | `src/shared/pid-alive.ts`                                                                                                                     |
-| WhatsApp outbound safety                               | `extensions/whatsapp/src/outbound-safety.ts`, `send.ts`, `auto-reply/monitor/inbound-dispatch.ts`, `on-message.ts`                            |
-| Supabase extension                                     | `extensions/lumina-supabase/**` (upstream has no such path)                                                                                   |
-| Detached Start Talk, camera, and screen sharing        | `ui/src/pages/chat/**`, `ui/src/app/app-shell-view.ts`, `ui/src/styles/chat/talk-window.css`                                                  |
-| Branding and docs                                      | `README.md`, `VISION.md`, `docs/LUMINA_OPENCLAW.md`, `docs/assets/lumina-openclaw-banner-*.svg`, `package.json`                               |
-| CI and scripts                                         | `.github/workflows/lumina-baseline-ci.yml`, fork guards on inherited workflows, `scripts/lumina-dev-healthcheck.mts`                          |
+| Area                                 | Files                                                                                                                                                                                                                                                             |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lumina plugins (no upstream path)    | `extensions/lumina-{cognitive-os,context-engine,open-design,supabase}/**`, `extensions/chatgpt-bridge/**`, `extensions/cline/**`                                                                                                                                  |
+| Lumina Design tab hooks              | `packages/gateway-protocol/src/schema/plugins.ts`, `src/plugins/registry-control-ui.ts`, `src/gateway/control-ui-plugin-tabs.ts`, `ui/src/app/app-shell-{view,plugin-window}.ts`, `ui/src/components/app-sidebar-nav-menus.ts`, `ui/src/styles/plugin-window.css` |
+| Talk playback backpressure           | `ui/src/pages/chat/talk/{audio,google-live}.ts`                                                                                                                                                                                                                   |
+| WhatsApp outbound safety             | `extensions/whatsapp/src/outbound-safety.ts`, `send.ts`, `auto-reply/monitor/{inbound-dispatch,on-message}.ts`                                                                                                                                                    |
+| WhatsApp outage resilience           | `extensions/whatsapp/src/lumina-resilience{,.runtime}.ts`, `reconnect.ts`, `connection-controller.ts`, `channel.ts`                                                                                                                                               |
+| Contact-channel guard and read aloud | `src/lumina/**`, `src/auto-reply/reply/{agent-runner-result-payloads,dispatch-from-config.finalize}.ts`, `src/gateway/server-core-runtime.ts`, `src/plugins/host-hooks.ts`                                                                                        |
+| Windows fixes                        | `src/infra/tailscale.ts`, `src/shared/tailscale-status.ts` (tailscale.exe outside PATH), `src/config/sessions/session-transcript-worker-resources.ts` (Proxy env sent to the worker)                                                                              |
+| Browser pointer motion               | `extensions/browser/src/browser/pointer-{motion,trajectory}.ts`, `pw-tools-core.interactions.actions.ts`                                                                                                                                                          |
+| Native session catalogs              | `extensions/anthropic/session-catalog-*.ts`, `extensions/acpx/src/codex-auth-bridge.ts`, `scripts/lib/native-session-catalogs.json`, `ui/src/pages/config/session-sources.ts`                                                                                     |
+| Memory evaluation                    | `extensions/memory-core/src/concept-vocabulary.ts`, `scripts/lumina-memory-eval.ts`, `scripts/lumina-procedural-memory.ts`                                                                                                                                        |
+| Branding, docs and skills            | `README.md`, `VISION.md`, `AGENTS.md`, `CONTRIBUTING.md`, `docs/LUMINA_*.md`, `docs/assets/lumina-openclaw-banner-*.svg`, `skills/bitso/**`, `package.json`                                                                                                       |
+| CI and scripts                       | `.github/workflows/lumina-baseline-ci.yml`, fork guards on `auto-response.yml` and `clawsweeper-dispatch.yml`, `scripts/lumina-dev-healthcheck.mts`, `scripts/lumina-publish-github.ts`                                                                           |
 
 Two upstream behaviours to expect when merging:
 

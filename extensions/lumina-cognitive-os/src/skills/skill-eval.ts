@@ -63,7 +63,9 @@ export class SkillEvalStore {
     }
     const rows: SkillEvalRun[] = [];
     for (const line of raw.split("\n")) {
-      if (!line.trim()) continue;
+      if (!line.trim()) {
+        continue;
+      }
       try {
         rows.push(JSON.parse(line) as SkillEvalRun);
       } catch {
@@ -80,7 +82,7 @@ export class SkillEvalStore {
       skillId,
       runs: recent.length,
       successRate: successes / recent.length,
-      recentRuns: recent.slice().reverse(),
+      recentRuns: recent.toReversed(),
       avgLatencyMs: Math.round(avgLatency),
     };
   }

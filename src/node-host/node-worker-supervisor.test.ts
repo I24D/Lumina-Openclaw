@@ -2,16 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
-import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { NODE_WORKER_CAPACITY_EXHAUSTED_ERROR_CODE } from "../infra/node-commands.js";
 import * as secretRegistry from "../logging/secret-redaction-registry.js";
 import { resetSecretRedactionRegistryForTest } from "../logging/secret-redaction-registry.test-support.js";
-import {
-  closeOpenClawStateDatabaseAsync,
-  closeOpenClawStateDatabaseForTest,
-  openOpenClawStateDatabase,
-} from "../state/openclaw-state-db.js";
+import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
+import { useStateDatabaseTempDirs } from "../test-utils/state-database-temp-dirs.js";
 import { NodeWorkerJournalWorker } from "./node-worker-journal-worker.js";
 import { NodeWorkerLaunchStore } from "./node-worker-launch-store.js";
 import type * as workerLaunchTransport from "./node-worker-launch-transport.js";
@@ -38,13 +34,7 @@ import { NodeWorkerTurnStore } from "./node-worker-turn-store.js";
 
 type NodeWorkerSupervisor = ReturnType<typeof createNodeWorkerSupervisor>;
 
-const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
-  afterEach(async () => {
-    await closeOpenClawStateDatabaseAsync();
-    closeOpenClawStateDatabaseForTest();
-    cleanup();
-  }),
-);
+const tempDirs = useStateDatabaseTempDirs();
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -131,42 +121,55 @@ describe("node worker supervisor", () => {
   it("launches idempotently and persists only bounded non-secret facts", async () => {
     const { env, supervisor, workspaceDir } = fixture();
     const input = launchInput(workspaceDir, "success-launch");
-
-    expect(await supervisor.launch(input, TEST_WORKER_ENDPOINT)).toMatchObject({
-      launchId: "success-launch",
-      state: "running",
-      environmentId: input.descriptor.admission.environmentId,
-      sessionId: input.descriptor.admission.sessionId,
-      ownerEpoch: 3,
-      placementGeneration: 4,
-      runId: "run-1",
+    let adapter: workerLaunchTransport.NodeWorkerChildAdapter | undefined;
+    const captureAdapter = observeNodeWorkerAdapters((child) => {
+      adapter = child;
     });
-    const completed = await waitForTerminal(supervisor, input.launchId);
-    expect(completed).toMatchObject({ state: "completed", errorText: null });
-    expect(JSON.parse(completed.resultJson ?? "null")).toEqual({
-      status: "completed",
-      transcriptLeafId: "leaf-1",
-      transcriptNextSeq: 2,
-    });
-    expect(
-      JSON.parse(fs.readFileSync(path.join(workspaceDir, `${input.launchId}.argv.json`), "utf8")),
-    ).toEqual(["--internal-worker-ipc", "--internal-worker-session"]);
-    expect(await supervisor.launch(input, TEST_WORKER_ENDPOINT)).toEqual(completed);
-    await expect(
-      supervisor.launch(
-        {
-          ...input,
-          descriptor: testWorkerDescriptor(workspaceDir, "different-plan", input.launchId),
-        },
-        TEST_WORKER_ENDPOINT,
-      ),
-    ).rejects.toThrow("replayed with a different plan");
+    try {
+      expect(await supervisor.launch(input, TEST_WORKER_ENDPOINT)).toMatchObject({
+        launchId: "success-launch",
+        state: "running",
+        environmentId: input.descriptor.admission.environmentId,
+        sessionId: input.descriptor.admission.sessionId,
+        ownerEpoch: 3,
+        placementGeneration: 4,
+        runId: "run-1",
+      });
+      captureAdapter.mockRestore();
+      if (!adapter) {
+        throw new Error("missing worker adapter");
+      }
+      // Turn completion precedes the anchor's durable lineage-settled fact.
+      await (adapter.waitForExtinction?.() ?? adapter.wait());
+      const completed = await waitForTerminal(supervisor, input.launchId);
+      expect(completed).toMatchObject({ state: "completed", errorText: null });
+      expect(JSON.parse(completed.resultJson ?? "null")).toEqual({
+        status: "completed",
+        transcriptLeafId: "leaf-1",
+        transcriptNextSeq: 2,
+      });
+      expect(
+        JSON.parse(fs.readFileSync(path.join(workspaceDir, `${input.launchId}.argv.json`), "utf8")),
+      ).toEqual(["--internal-worker-ipc", "--internal-worker-session"]);
+      expect(await supervisor.launch(input, TEST_WORKER_ENDPOINT)).toEqual(completed);
+      await expect(
+        supervisor.launch(
+          {
+            ...input,
+            descriptor: testWorkerDescriptor(workspaceDir, "different-plan", input.launchId),
+          },
+          TEST_WORKER_ENDPOINT,
+        ),
+      ).rejects.toThrow("replayed with a different plan");
 
-    const row = openOpenClawStateDatabase({ env })
-      .db.prepare("SELECT * FROM node_worker_launches WHERE launch_id = ?")
-      .get(input.launchId);
-    expect(JSON.stringify(row)).not.toContain(TEST_WORKER_CREDENTIAL);
-    await supervisor.close();
+      const row = openOpenClawStateDatabase({ env })
+        .db.prepare("SELECT * FROM node_worker_launches WHERE launch_id = ?")
+        .get(input.launchId);
+      expect(JSON.stringify(row)).not.toContain(TEST_WORKER_CREDENTIAL);
+    } finally {
+      captureAdapter.mockRestore();
+      await supervisor.close();
+    }
   });
 
   it("admits two durable launches and releases one physical slot at a time", async () => {
@@ -800,6 +803,9 @@ describe("node worker supervisor", () => {
       const input = launchInput(workspaceDir, "cancel-rejected-terminal", "tree-cancel-reject");
       const retryStarted = createDeferred();
       const releaseRetry = createDeferred();
+      const journalCalls = retryJournal
+        ? vi.spyOn(NodeWorkerJournalWorker.prototype, "execute")
+        : undefined;
       let cancellation: ReturnType<NodeWorkerSupervisor["cancel"]> | undefined;
       try {
         const running = await supervisor.launch(input, TEST_WORKER_ENDPOINT);
@@ -811,17 +817,31 @@ describe("node worker supervisor", () => {
           Number(fs.readFileSync(grandchildPath, "utf8")),
         );
 
-        if (retryJournal) {
-          const finish = vi.spyOn(NodeWorkerTurnStore.prototype, "finish");
-          finish
-            .mockImplementationOnce(async () => {
-              throw new Error("injected cancellation journal failure");
-            })
-            .mockImplementation(async function (this: NodeWorkerTurnStore, params) {
+        if (journalCalls) {
+          const claim = journalCalls.mock.calls.findIndex(
+            ([command]) => command.type === "nodeWorker.turn.claim",
+          );
+          const journal = journalCalls.mock.contexts[claim];
+          journalCalls.mockRestore();
+          if (!(journal instanceof NodeWorkerJournalWorker)) {
+            throw new Error("Missing admitted worker journal");
+          }
+          const execute = journal.execute.bind(journal);
+          let firstFinish = true;
+          const finish = vi
+            .spyOn(journal, "execute")
+            .mockImplementation(async (command, authority) => {
+              if (command.type !== "nodeWorker.turn.finish") {
+                return execute(command, authority);
+              }
+              if (firstFinish) {
+                firstFinish = false;
+                throw new Error("injected cancellation journal failure");
+              }
               retryStarted.resolve();
               await releaseRetry.promise;
               finish.mockRestore();
-              return this.finish(params);
+              return journal.execute(command, authority);
             });
         }
         cancellation = supervisor.cancel(testNodeWorkerLaunchIdentity(input));

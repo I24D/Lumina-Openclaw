@@ -81,7 +81,9 @@ describe("buildSkillFromRecording", () => {
       skillsDir: skillsRoot,
     });
     expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    if (!r.ok) {
+      return;
+    }
     expect(r.skillId).toBe("learned-open-notepad");
     expect(fs.existsSync(r.skillFile)).toBe(true);
     expect(fs.existsSync(path.join(r.skillDir, "references", "demo-summary.md"))).toBe(true);
@@ -124,7 +126,9 @@ describe("buildSkillFromRecording", () => {
       skillsDir: tmpRoot,
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/not found/);
+    if (!r.ok) {
+      expect(r.error).toMatch(/not found/);
+    }
   });
 
   it("rejects when skill already exists", () => {
@@ -146,7 +150,9 @@ describe("buildSkillFromRecording", () => {
       skillsDir: skillsRoot,
     });
     expect(b.ok).toBe(false);
-    if (!b.ok) expect(b.error).toMatch(/already exists/);
+    if (!b.ok) {
+      expect(b.error).toMatch(/already exists/);
+    }
   });
 
   it("normalizes weird skillName to kebab-case", () => {
@@ -162,6 +168,8 @@ describe("buildSkillFromRecording", () => {
       skillsDir: skillsRoot,
     });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.skillId).toBe("learned-organize-my-downloads");
+    if (r.ok) {
+      expect(r.skillId).toBe("learned-organize-my-downloads");
+    }
   });
 });

@@ -224,7 +224,9 @@ export function extractJson(raw: string): unknown {
   // If the model added prose, grab the first top-level {...} block.
   if (!text.startsWith("{")) {
     const m = text.match(/\{[\s\S]*\}/);
-    if (m) text = m[0];
+    if (m) {
+      text = m[0];
+    }
   }
   return JSON.parse(text);
 }
@@ -235,7 +237,9 @@ export function coerceAction(parsed: unknown): LoopAction {
   }
   const obj = parsed as Record<string, unknown>;
   const kind = obj.kind;
-  if (typeof kind !== "string") throw new Error("brain returned no kind");
+  if (typeof kind !== "string") {
+    throw new Error("brain returned no kind");
+  }
   if (!("reasoning" in obj) && kind !== "done" && kind !== "stuck") {
     obj.reasoning = "";
   }
@@ -244,7 +248,9 @@ export function coerceAction(parsed: unknown): LoopAction {
 
 export function createGeminiBrain(opts: GeminiBrainOptions): BrainClient {
   const fetchImpl = opts.fetchImpl ?? (typeof fetch === "function" ? fetch : null);
-  if (!fetchImpl) throw new Error("fetch is unavailable; pass fetchImpl explicitly");
+  if (!fetchImpl) {
+    throw new Error("fetch is unavailable; pass fetchImpl explicitly");
+  }
   const endpoint =
     opts.endpoint ??
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(opts.model)}:generateContent`;
@@ -300,7 +306,9 @@ export function createGeminiBrain(opts: GeminiBrainOptions): BrainClient {
       }
       const text =
         raw.candidates?.[0]?.content?.parts?.find((p) => typeof p.text === "string")?.text ?? "";
-      if (!text) throw new Error("gemini returned no text");
+      if (!text) {
+        throw new Error("gemini returned no text");
+      }
       const parsed = extractJson(text);
       const action = coerceAction(parsed);
       return {

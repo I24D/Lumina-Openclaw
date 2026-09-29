@@ -180,9 +180,17 @@ export function preflightCheck(params: {
 /** Map a language string to a Risk Engine action verb used for classification. */
 export function languageToRiskAction(lang: string): string {
   const normalized = lang.toLowerCase();
-  if (normalized.startsWith("python")) return "python_exec";
-  if (normalized === "node") return "node_exec";
-  if (normalized === "bash") return "bash_exec";
-  if (normalized === "powershell" || normalized === "pwsh") return "powershell_exec";
+  if (normalized.startsWith("python")) {
+    return "python_exec";
+  }
+  if (normalized === "node") {
+    return "node_exec";
+  }
+  if (normalized === "bash") {
+    return "bash_exec";
+  }
+  if (normalized === "powershell" || normalized === "pwsh") {
+    return "powershell_exec";
+  }
   return `${normalized}_exec`;
 }

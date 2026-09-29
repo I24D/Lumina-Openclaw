@@ -50,8 +50,10 @@ export function createRegistryTool(): AnyAgentTool {
         ["--action", action, "--json", JSON.stringify(params)],
         { timeoutMs: 12_000 },
       );
-      if (!r.ok) return jsonResult({ ok: false, action, error: r.error });
-      return jsonResult({ action, ...(r.data ?? {}) });
+      if (!r.ok) {
+        return jsonResult({ ok: false, action, error: r.error });
+      }
+      return jsonResult({ action, ...r.data });
     },
   };
 }

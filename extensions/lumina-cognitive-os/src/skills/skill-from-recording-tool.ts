@@ -63,8 +63,12 @@ export function createSkillFromRecordingTool(deps: {
       };
       const sessionId = p.sessionId?.trim();
       const skillName = p.skillName?.trim();
-      if (!sessionId) throw new ToolInputError("sessionId is required");
-      if (!skillName) throw new ToolInputError("skillName is required");
+      if (!sessionId) {
+        throw new ToolInputError("sessionId is required");
+      }
+      if (!skillName) {
+        throw new ToolInputError("skillName is required");
+      }
 
       const result = buildSkillFromRecording(deps.recorderStore, {
         sessionId,

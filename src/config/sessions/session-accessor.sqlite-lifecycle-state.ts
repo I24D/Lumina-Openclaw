@@ -1,4 +1,5 @@
 import { toUSVString } from "node:util";
+import { isMainThread } from "node:worker_threads";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
 import { sql } from "kysely";
 import {
@@ -11,7 +12,8 @@ import {
   type OpenClawAgentDatabase,
   type OpenClawAgentDatabaseOptions,
 } from "../../state/openclaw-agent-db.js";
-import { persistSessionTranscriptArchive } from "./session-accessor.sqlite-archive-store.js";
+import { supportsOpenClawAgentDatabaseExecution } from "../../state/openclaw-agent-execution.js";
+import { persistSessionTranscriptArchive } from "./session-accessor.sqlite-archive-store-kernel.js";
 import type {
   MaterializedSessionStateDeletePlan,
   SessionStateDeletePlan,
@@ -25,6 +27,7 @@ import {
   readSessionStateDeleteSnapshot,
   sqliteSessionStateDeleteSnapshotsEqual,
 } from "./session-accessor.sqlite-delete-snapshot.js";
+import { hasPreparedNativeSessionDeletion } from "./session-accessor.sqlite-deletion.js";
 import { sqliteSessionEntriesEqual } from "./session-accessor.sqlite-entry-equality.js";
 import {
   deleteSessionEntryRows,
@@ -46,11 +49,7 @@ import {
   addRetainedWindowSessionReferences,
   collectSessionStateIdsForEntry,
 } from "./session-accessor.sqlite-references.js";
-import {
-  cloneSessionEntry,
-  getSessionKysely,
-  withSqliteSessionDatabase,
-} from "./session-accessor.sqlite-scope.js";
+import { getSessionKysely, withSqliteSessionDatabase } from "./session-accessor.sqlite-scope.js";
 import {
   parseSessionEntryJson as parseSessionEntryRow,
   sessionEntryMetadataJson,
@@ -125,25 +124,22 @@ export function readReferencedSessionIds(
     );
   // Narrow all target IDs together. Optional/malformed references stay eligible
   // for the projection or raw fallback, including escaped and duplicate keys.
+  // Bulk plans scan once instead of comparing each surviving row with every candidate.
   if (
     candidateSessionIds?.length &&
+    candidateSessionIds.length <= 16 &&
     candidateSessionIds.every(
       (candidate) => toUSVString(candidate) === candidate && !/[\0\uFFFD-\uFFFF]/u.test(candidate),
     )
   ) {
     query = query.where((eb) =>
       eb.or([
-        candidateSessionIds.length <= 16
-          ? eb.or(
-              candidateSessionIds.map(
-                (candidate) =>
-                  /* kysely-allow-raw: substring narrowing retains trimmed current IDs. */ sql<boolean>`instr(current_session_id, ${candidate}) > 0`,
-              ),
-            )
-          : /* kysely-allow-raw: large candidate sets avoid expression/parameter limits. */ sql<boolean>`EXISTS (
-              SELECT 1 FROM ${sqliteStringSet(candidateSessionIds)} AS candidates
-              WHERE instr(current_session_id, candidates.value) > 0
-            )`,
+        eb.or(
+          candidateSessionIds.map(
+            (candidate) =>
+              /* kysely-allow-raw: substring narrowing retains trimmed current IDs. */ sql<boolean>`instr(current_session_id, ${candidate}) > 0`,
+          ),
+        ),
         /* kysely-allow-raw: malformed TEXT and optional fields retain their original reference semantics. */ sql<boolean>`CASE
           WHEN NOT json_valid(entry_json) THEN 1
           WHEN length(CAST(entry_json AS BLOB)) != length(CAST(printf('%s', entry_json) AS BLOB)) THEN 1
@@ -359,15 +355,36 @@ export async function projectSessionEntryLifecycleMutation(
   },
 ): Promise<ProjectedLifecycleMutation> {
   return withSqliteSessionDatabase(databaseOptions, async (removalDatabase) => {
-    const store = readSessionEntryStore(removalDatabase, {
-      allowCanonicalRepair: params.allowCanonicalRepair === true,
-      sessionKeys: [
-        ...params.removals.map((removal) =>
-          removal.exactStoredKey ? removal.sessionKey : removal.sessionKey.trim(),
-        ),
-        ...params.upserts.map((upsert) => upsert.sessionKey.trim()),
-      ],
-    });
+    const sessionKeys = [
+      ...params.removals.map((removal) =>
+        removal.exactStoredKey ? removal.sessionKey : removal.sessionKey.trim(),
+      ),
+      ...params.upserts.map((upsert) => upsert.sessionKey.trim()),
+    ];
+    const snapshot =
+      isMainThread &&
+      !params.allowCanonicalRepair &&
+      !hasPreparedNativeSessionDeletion() &&
+      params.removals.length === 0 &&
+      supportsOpenClawAgentDatabaseExecution(databaseOptions)
+        ? await import("./session-transcript-worker-runtime.js").then(
+            ({ withSessionHistoryWorkerDatabase }) =>
+              withSessionHistoryWorkerDatabase(databaseOptions, (reader) =>
+                reader.readExactEntries({
+                  projection: "lifecycle",
+                  includeAuthorization: true,
+                  sessionKeys,
+                  env: { ...(databaseOptions.env ?? process.env) },
+                }),
+              ),
+          )
+        : undefined;
+    const store = snapshot
+      ? Object.fromEntries(snapshot.entries.map(({ sessionKey, entry }) => [sessionKey, entry]))
+      : readSessionEntryStore(removalDatabase, {
+          allowCanonicalRepair: params.allowCanonicalRepair === true,
+          sessionKeys,
+        });
     const removedKeysToArchive = new Set<string>();
     const changedSessionKeys = new Set<string>();
     const projectedRemovals: ProjectedLifecycleMutation["removals"] = [];
@@ -381,7 +398,7 @@ export async function projectSessionEntryLifecycleMutation(
             `SQLite session entry changed before raw lifecycle removal for ${sessionKey}`,
           );
         }
-        entry = removal.expectedEntry ? cloneSessionEntry(removal.expectedEntry) : undefined;
+        entry = removal.expectedEntry ? structuredClone(removal.expectedEntry) : undefined;
       }
       if (!shouldRemoveSessionEntry(entry, removal)) {
         continue;
@@ -403,7 +420,7 @@ export async function projectSessionEntryLifecycleMutation(
       projectedRemovals.push({
         // Capture each archive decision before an async builder can change its input.
         archiveTranscript: removal.archiveRemovedTranscript === true,
-        expectedEntry: cloneSessionEntry(entry),
+        expectedEntry: structuredClone(entry),
         removal,
         sessionKey,
       });
@@ -427,7 +444,7 @@ export async function projectSessionEntryLifecycleMutation(
       ) {
         continue;
       }
-      const expectedEntry = store[sessionKey] ? cloneSessionEntry(store[sessionKey]) : undefined;
+      const expectedEntry = store[sessionKey] ? structuredClone(store[sessionKey]) : undefined;
       if (upsert.resetBoundary && !expectedEntry) {
         throw new Error(
           `Cannot append reset boundary without an existing session row: ${sessionKey}`,
@@ -437,13 +454,13 @@ export async function projectSessionEntryLifecycleMutation(
         upsert.buildEntry === undefined
           ? upsert.entry
           : await upsert.buildEntry({
-              currentEntry: expectedEntry ? cloneSessionEntry(expectedEntry) : undefined,
+              currentEntry: expectedEntry ? structuredClone(expectedEntry) : undefined,
               sessionKey,
             });
       if (!entry) {
         continue;
       }
-      const cloned = cloneSessionEntry(entry);
+      const cloned = structuredClone(entry);
       store[sessionKey] = cloned;
       changedSessionKeys.add(sessionKey);
       upsertedEntries.push({
@@ -455,14 +472,32 @@ export async function projectSessionEntryLifecycleMutation(
       });
     }
     if (projectedRemovals.length === 0) {
-      return { deletePlans: [], removals: projectedRemovals, upsertedEntries };
+      return {
+        deletePlans: [],
+        removals: projectedRemovals,
+        upsertedEntries,
+        archiveRecovery:
+          snapshot?.databaseIdentity && snapshot.pendingArchives !== undefined
+            ? {
+                pending: snapshot.pendingArchives,
+                databaseIdentity: snapshot.databaseIdentity.identity,
+              }
+            : undefined,
+      };
     }
     // Builders can close the original handle; admit the reference snapshot again.
     return withSqliteSessionDatabase(databaseOptions, (database) => {
+      const removedGenerationIds = readSessionGenerationIdsForKeys(database, removedKeysToArchive);
       const referencedSessionIds = collectProjectedReferencedSessionIds({
         database,
         excludedSessionKeys: changedSessionKeys,
         projectedStore: store,
+        candidateSessionIds: uniqueStrings([
+          ...projectedRemovals.flatMap(({ expectedEntry }) =>
+            collectSessionStateIdsForEntry(expectedEntry),
+          ),
+          ...removedGenerationIds,
+        ]),
       });
       const deletePlans = projectedRemovals.flatMap(({ archiveTranscript, expectedEntry: entry }) =>
         planSessionStateAfterEntryRemoval({
@@ -490,7 +525,7 @@ export async function projectSessionEntryLifecycleMutation(
         }
       }
       const plannedIds = new Set(deletePlans.map((plan) => plan.sessionId));
-      for (const sessionId of readSessionGenerationIdsForKeys(database, removedKeysToArchive)) {
+      for (const sessionId of removedGenerationIds) {
         if (plannedIds.has(sessionId)) {
           continue;
         }
@@ -518,9 +553,14 @@ export function collectProjectedReferencedSessionIds(params: {
   database: OpenClawAgentDatabase;
   excludedSessionKeys: Iterable<string>;
   projectedStore: Record<string, SessionEntry>;
+  candidateSessionIds?: readonly string[];
 }): Set<string> {
   const excludedSessionKeys = new Set(params.excludedSessionKeys);
-  const sessionIds = readReferencedSessionIds(params.database, excludedSessionKeys);
+  const sessionIds = readReferencedSessionIds(
+    params.database,
+    excludedSessionKeys,
+    params.candidateSessionIds,
+  );
   for (const entry of Object.values(params.projectedStore)) {
     for (const sessionId of collectSessionStateIdsForEntry(entry)) {
       sessionIds.add(sessionId);

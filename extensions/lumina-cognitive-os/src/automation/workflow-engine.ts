@@ -93,13 +93,17 @@ export type WorkflowEnvironment = {
 const DEFAULT_RECIPES_DIR = "c:/I24D_WhatsApp/recipes";
 
 export function resolveRecipesDir(override?: string): string {
-  if (override && override.trim()) return override.trim();
+  if (override && override.trim()) {
+    return override.trim();
+  }
   const env = getLuminaEnvVar("LUMINA_RECIPES_DIR");
   return env && env.trim() ? env.trim() : DEFAULT_RECIPES_DIR;
 }
 
 function safeId(value: unknown): string {
-  if (typeof value !== "string") return "";
+  if (typeof value !== "string") {
+    return "";
+  }
   return value
     .trim()
     .toLowerCase()
@@ -109,10 +113,14 @@ function safeId(value: unknown): string {
 }
 
 function parsePrecondition(raw: unknown): Precondition | undefined {
-  if (!raw || typeof raw !== "object") return undefined;
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
   const obj = raw as Record<string, unknown>;
   const type = typeof obj.type === "string" ? obj.type : "";
-  if (type === "always") return { type: "always" };
+  if (type === "always") {
+    return { type: "always" };
+  }
   if (type === "process_running" && typeof obj.name === "string") {
     return { type: "process_running", name: obj.name.trim() };
   }
@@ -126,13 +134,19 @@ function parsePrecondition(raw: unknown): Precondition | undefined {
 }
 
 function parseSteps(raw: unknown): RecipeStep[] {
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
   const out: RecipeStep[] = [];
   for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
+    if (!item || typeof item !== "object") {
+      continue;
+    }
     const s = item as Record<string, unknown>;
     const tool = typeof s.tool === "string" ? s.tool.trim() : "";
-    if (!tool) continue;
+    if (!tool) {
+      continue;
+    }
     const params =
       s.params && typeof s.params === "object" && !Array.isArray(s.params)
         ? (s.params as Record<string, unknown>)
@@ -150,13 +164,19 @@ function parseSteps(raw: unknown): RecipeStep[] {
 }
 
 function parseRecipe(filePath: string, raw: unknown): Recipe | null {
-  if (!raw || typeof raw !== "object") return null;
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
   const obj = raw as Record<string, unknown>;
   const fallbackId = safeId(path.basename(filePath).replace(/\.json$/i, ""));
   const id = safeId(obj.id) || fallbackId;
-  if (!id) return null;
+  if (!id) {
+    return null;
+  }
   const steps = parseSteps(obj.steps);
-  if (steps.length === 0) return null;
+  if (steps.length === 0) {
+    return null;
+  }
   return {
     id,
     displayName: typeof obj.displayName === "string" ? obj.displayName : id,
@@ -185,14 +205,16 @@ export class WorkflowEngine {
 
   private reloadIfStale(force = false): void {
     const now = Date.now();
-    if (!force && now - this.lastLoadedAtMs < this.reloadEveryMs) return;
+    if (!force && now - this.lastLoadedAtMs < this.reloadEveryMs) {
+      return;
+    }
     this.lastLoadedAtMs = now;
     const next = new Map<string, Recipe>();
     if (!fs.existsSync(this.recipesDir)) {
       this.cache = next;
       return;
     }
-    let entries: string[] = [];
+    let entries: string[];
     try {
       entries = fs.readdirSync(this.recipesDir);
     } catch {
@@ -200,13 +222,17 @@ export class WorkflowEngine {
       return;
     }
     for (const name of entries) {
-      if (!/\.json$/i.test(name)) continue;
+      if (!/\.json$/i.test(name)) {
+        continue;
+      }
       const full = path.join(this.recipesDir, name);
       try {
         const raw = fs.readFileSync(full, "utf8");
         const parsed = JSON.parse(raw) as unknown;
         const recipe = parseRecipe(full, parsed);
-        if (recipe) next.set(recipe.id, recipe);
+        if (recipe) {
+          next.set(recipe.id, recipe);
+        }
       } catch {
         /* ignore corrupt recipe */
       }
@@ -216,7 +242,7 @@ export class WorkflowEngine {
 
   list(): Recipe[] {
     this.reloadIfStale();
-    return Array.from(this.cache.values()).sort((a, b) => a.id.localeCompare(b.id));
+    return Array.from(this.cache.values()).toSorted((a, b) => a.id.localeCompare(b.id));
   }
 
   get(id: string): Recipe | null {
@@ -278,7 +304,9 @@ function evaluatePrecondition(
   precondition: Precondition | undefined,
   env: WorkflowEnvironment,
 ): { skip: boolean; reason?: string } {
-  if (!precondition || precondition.type === "always") return { skip: false };
+  if (!precondition || precondition.type === "always") {
+    return { skip: false };
+  }
   if (precondition.type === "process_running") {
     const target = precondition.name.toLowerCase().replace(/\.exe$/, "");
     const running = Array.from(env.runningProcessNames).some(

@@ -33,7 +33,9 @@ export function createDirectorRouteTool(): AnyAgentTool {
       // validates the payload before execute() is ever called.
       const params = rawParams as { intent: string; topK?: number };
       const intent = params.intent?.trim();
-      if (!intent) throw new ToolInputError("intent is required");
+      if (!intent) {
+        throw new ToolInputError("intent is required");
+      }
       const result = routeIntent(intent, params.topK ?? 3);
       return jsonResult({
         ok: true,

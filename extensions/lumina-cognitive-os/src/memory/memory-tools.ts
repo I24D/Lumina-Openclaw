@@ -103,7 +103,9 @@ export function createEpisodicRememberTool(store: EpisodicMemoryStore): AnyAgent
         ref?: unknown;
       };
       const summary = params.summary?.trim();
-      if (!summary) throw new ToolInputError("summary is required");
+      if (!summary) {
+        throw new ToolInputError("summary is required");
+      }
       const ep = store.remember({
         kind: params.kind as EpisodeKind,
         summary,

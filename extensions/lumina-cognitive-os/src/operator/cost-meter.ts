@@ -29,25 +29,25 @@ const DEFAULT_PRICING: Record<Provider, Record<string, Pricing>> = {
   gemini: {
     "gemini-2.5-flash": { inputPerMillion: 0.075, outputPerMillion: 0.3 },
     "gemini-2.5-flash-lite": { inputPerMillion: 0.0375, outputPerMillion: 0.15 },
-    "gemini-2.5-pro": { inputPerMillion: 1.25, outputPerMillion: 5.0 },
+    "gemini-2.5-pro": { inputPerMillion: 1.25, outputPerMillion: 5 },
     "gemini-2.0-flash": { inputPerMillion: 0.075, outputPerMillion: 0.3 },
     "gemini-flash-latest": { inputPerMillion: 0.075, outputPerMillion: 0.3 },
-    "gemini-pro-latest": { inputPerMillion: 1.25, outputPerMillion: 5.0 },
+    "gemini-pro-latest": { inputPerMillion: 1.25, outputPerMillion: 5 },
   },
   openai: {
-    "gpt-4o": { inputPerMillion: 2.5, outputPerMillion: 10.0 },
+    "gpt-4o": { inputPerMillion: 2.5, outputPerMillion: 10 },
     "gpt-4o-mini": { inputPerMillion: 0.15, outputPerMillion: 0.6 },
-    "gpt-4.1": { inputPerMillion: 2.0, outputPerMillion: 8.0 },
+    "gpt-4.1": { inputPerMillion: 2, outputPerMillion: 8 },
     "gpt-4.1-mini": { inputPerMillion: 0.4, outputPerMillion: 1.6 },
-    "o1-mini": { inputPerMillion: 3.0, outputPerMillion: 12.0 },
+    "o1-mini": { inputPerMillion: 3, outputPerMillion: 12 },
     "o3-mini": { inputPerMillion: 1.1, outputPerMillion: 4.4 },
   },
   anthropic: {
-    "claude-3-5-sonnet-latest": { inputPerMillion: 3.0, outputPerMillion: 15.0 },
-    "claude-3-5-haiku-latest": { inputPerMillion: 0.8, outputPerMillion: 4.0 },
-    "claude-opus-4-7": { inputPerMillion: 15.0, outputPerMillion: 75.0 },
-    "claude-opus-4-8": { inputPerMillion: 15.0, outputPerMillion: 75.0 },
-    "claude-sonnet-4-6": { inputPerMillion: 3.0, outputPerMillion: 15.0 },
+    "claude-3-5-sonnet-latest": { inputPerMillion: 3, outputPerMillion: 15 },
+    "claude-3-5-haiku-latest": { inputPerMillion: 0.8, outputPerMillion: 4 },
+    "claude-opus-4-7": { inputPerMillion: 15, outputPerMillion: 75 },
+    "claude-opus-4-8": { inputPerMillion: 15, outputPerMillion: 75 },
+    "claude-sonnet-4-6": { inputPerMillion: 3, outputPerMillion: 15 },
   },
   ollama: {
     // Local Ollama is free; Ollama Cloud charges per token but the official
@@ -61,7 +61,7 @@ export type CostEntry = {
   readonly runId: string;
   readonly iteration: number;
   readonly provider: Provider | "unknown";
-  readonly model: string | "unknown";
+  readonly model: string;
   readonly tokensIn: number;
   readonly tokensOut: number;
   readonly usd: number;
@@ -69,7 +69,7 @@ export type CostEntry = {
 
 export type ProviderTotals = {
   readonly provider: Provider | "unknown";
-  readonly model: string | "unknown";
+  readonly model: string;
   readonly callCount: number;
   readonly tokensIn: number;
   readonly tokensOut: number;
@@ -91,11 +91,17 @@ function lookupPricing(provider: string, model: string): Pricing {
   if (!table) {
     return { inputPerMillion: 0, outputPerMillion: 0 };
   }
-  if (table[model]) return table[model]!;
+  if (table[model]) {
+    return table[model]!;
+  }
   // Loose prefix match (e.g. gemini-2.5-flash-image → gemini-2.5-flash)
   const prefix = Object.keys(table).find((k) => model.startsWith(k));
-  if (prefix) return table[prefix]!;
-  if (table["*"]) return table["*"]!;
+  if (prefix) {
+    return table[prefix]!;
+  }
+  if (table["*"]) {
+    return table["*"]!;
+  }
   return { inputPerMillion: 0, outputPerMillion: 0 };
 }
 
@@ -112,7 +118,7 @@ export class CostMeter {
   record(params: {
     runId: string;
     iteration: number;
-    provider?: Provider | string | null;
+    provider?: string | null;
     model?: string | null;
     tokensIn?: number | null;
     tokensOut?: number | null;
@@ -198,11 +204,11 @@ export class CostMeter {
       totalTokensIn,
       totalTokensOut,
       totalUsd: Number(totalUsd.toFixed(6)),
-      byProvider: Array.from(byKey.values()).sort((a, b) => b.usd - a.usd),
+      byProvider: Array.from(byKey.values()).toSorted((a, b) => b.usd - a.usd),
       windowSinceISO: Number.isFinite(windowSeconds)
         ? new Date(cutoff).toISOString()
         : this.startedAtISO,
-      recent: filtered.slice(-limit).reverse(),
+      recent: filtered.slice(-limit).toReversed(),
     };
   }
 }

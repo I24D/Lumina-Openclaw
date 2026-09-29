@@ -34,8 +34,12 @@ export function createPerceptionStartTool(deps: PerceptionToolDeps): AnyAgentToo
       // validates the payload before execute() is ever called.
       const raw = rawParams as { fps?: number; threshold?: number };
       const params = raw as { fps?: number; threshold?: number };
-      if (typeof params.fps === "number") deps.process.setDesiredFps(params.fps);
-      if (typeof params.threshold === "number") deps.process.setDesiredThreshold(params.threshold);
+      if (typeof params.fps === "number") {
+        deps.process.setDesiredFps(params.fps);
+      }
+      if (typeof params.threshold === "number") {
+        deps.process.setDesiredThreshold(params.threshold);
+      }
       const r = deps.process.start();
       const status = deps.process.getStatus();
       return jsonResult({ ...r, status });
@@ -163,7 +167,9 @@ export function createPerceptionRecentTool(deps: PerceptionToolDeps): AnyAgentTo
       };
       const params = raw as { limit?: number; kind?: string };
       let events = deps.bus.recent(params.limit ?? 30);
-      if (params.kind) events = events.filter((e) => e.kind === params.kind);
+      if (params.kind) {
+        events = events.filter((e) => e.kind === params.kind);
+      }
       return jsonResult({ ok: true, count: events.length, events });
     },
   };
@@ -183,7 +189,9 @@ export function createPerceptionHealthTool(): AnyAgentTool {
         ["--health"],
         { timeoutMs: 8_000 },
       );
-      if (!r.ok) return jsonResult({ ok: false, ready: false, error: r.error });
+      if (!r.ok) {
+        return jsonResult({ ok: false, ready: false, error: r.error });
+      }
       return jsonResult({ ...r.data, ok: true });
     },
   };

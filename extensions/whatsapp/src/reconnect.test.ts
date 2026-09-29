@@ -2,11 +2,10 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { describe, expect, it } from "vitest";
 import {
-  computeBackoff,
+  computeSlowRetryDelay,
   DEFAULT_RECONNECT_POLICY,
   resolveHeartbeatSeconds,
   resolveReconnectPolicy,
-  sleepWithAbort,
 } from "./reconnect.js";
 
 describe("web reconnect helpers", () => {
@@ -28,24 +27,24 @@ describe("web reconnect helpers", () => {
     expect(policy.maxAttempts).toBeGreaterThanOrEqual(0);
   });
 
-  it("computes increasing backoff with jitter", () => {
-    const policy = { ...DEFAULT_RECONNECT_POLICY, jitter: 0 };
-    const first = computeBackoff(policy, 1);
-    const second = computeBackoff(policy, 2);
-    expect(first).toBe(policy.initialMs);
-    expect(second).toBeGreaterThan(first);
-    expect(second).toBeLessThanOrEqual(policy.maxMs);
-  });
-
   it("returns heartbeat default when unset", () => {
     expect(resolveHeartbeatSeconds(cfg)).toBe(60);
     expect(resolveHeartbeatSeconds(cfg, 5)).toBe(5);
   });
 
-  it("sleepWithAbort rejects on abort", async () => {
-    const controller = new AbortController();
-    const promise = sleepWithAbort(50, controller.signal);
-    controller.abort();
-    await expect(promise).rejects.toThrow("aborted");
+  it("normalizes the Lumina slow retry interval and leaves it unset by default", () => {
+    expect(resolveReconnectPolicy(cfg).slowRetryMs).toBeUndefined();
+    expect(resolveReconnectPolicy(cfg, { slowRetryMs: -5 }).slowRetryMs).toBe(0);
+    expect(resolveReconnectPolicy(cfg, { slowRetryMs: 1_000 }).slowRetryMs).toBe(
+      DEFAULT_RECONNECT_POLICY.maxMs,
+    );
+    expect(resolveReconnectPolicy(cfg, { slowRetryMs: 300_000.7 }).slowRetryMs).toBe(300_000);
+  });
+
+  it("spreads slow retries by the policy jitter", () => {
+    const policy = { ...DEFAULT_RECONNECT_POLICY, jitter: 0.2, slowRetryMs: 100_000 };
+    expect(computeSlowRetryDelay(policy, () => 0)).toBe(80_000);
+    expect(computeSlowRetryDelay(policy, () => 1)).toBe(120_000);
+    expect(computeSlowRetryDelay({ ...policy, jitter: 0 }, () => 0.5)).toBe(100_000);
   });
 });

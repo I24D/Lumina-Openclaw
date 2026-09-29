@@ -161,8 +161,12 @@ export type EvaluateOutput = {
 };
 
 function matches(input: string, matcher: string | RegExp | undefined): boolean {
-  if (matcher === undefined) return true;
-  if (matcher instanceof RegExp) return matcher.test(input);
+  if (matcher === undefined) {
+    return true;
+  }
+  if (matcher instanceof RegExp) {
+    return matcher.test(input);
+  }
   return input.toLowerCase().includes(matcher.toLowerCase());
 }
 
@@ -171,9 +175,15 @@ export function evaluateRisk(
   rules: ReadonlyArray<RiskRule> = DEFAULT_RISK_RULES,
 ): EvaluateOutput {
   for (const rule of rules) {
-    if (rule.category !== input.category) continue;
-    if (!matches(input.action, rule.actionMatch)) continue;
-    if (!matches(input.target ?? "", rule.targetMatch)) continue;
+    if (rule.category !== input.category) {
+      continue;
+    }
+    if (!matches(input.action, rule.actionMatch)) {
+      continue;
+    }
+    if (!matches(input.target ?? "", rule.targetMatch)) {
+      continue;
+    }
     const tier = rule.tier;
     return {
       tier,

@@ -26,9 +26,13 @@ const SCRIPT = `
 `;
 
 export async function readGpuInfo(timeoutMs = 6_000): Promise<GpuInfo[]> {
-  if (process.platform !== "win32") return [];
+  if (process.platform !== "win32") {
+    return [];
+  }
   const r = await runPowerShellJson<Raw | Raw[]>(SCRIPT, timeoutMs);
-  if (!r.ok) return [];
+  if (!r.ok) {
+    return [];
+  }
   const raw = Array.isArray(r.data) ? r.data : r.data === null ? [] : [r.data];
   return raw.map((row) => {
     const w = row.CurrentHorizontalResolution ?? null;

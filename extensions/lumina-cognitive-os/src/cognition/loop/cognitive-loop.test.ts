@@ -148,7 +148,7 @@ describe("CognitiveLoop", () => {
     });
     await loop.handle(event("disk.low"));
     expect(surfaced).toHaveLength(1);
-    expect(surfaced[0].outcome).toBe("propose");
+    expect(surfaced[0]?.outcome).toBe("propose");
   });
 
   it("keeps running when an observer throws", async () => {

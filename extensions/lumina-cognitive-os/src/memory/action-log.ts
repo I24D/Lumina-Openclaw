@@ -77,10 +77,16 @@ export class ActionLogStore {
       const entry = this.buffer[i]!;
       if (sinceMs !== null) {
         const t = Date.parse(entry.ts);
-        if (Number.isFinite(t) && t < sinceMs) break;
+        if (Number.isFinite(t) && t < sinceMs) {
+          break;
+        }
       }
-      if (actionN && !entry.action.toLowerCase().includes(actionN)) continue;
-      if (sourceN && entry.source.toLowerCase() !== sourceN) continue;
+      if (actionN && !entry.action.toLowerCase().includes(actionN)) {
+        continue;
+      }
+      if (sourceN && entry.source.toLowerCase() !== sourceN) {
+        continue;
+      }
       filtered.push(entry);
     }
     return filtered;

@@ -1,10 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  bytesToBase64,
-  RealtimeTalkMediaStreamMeter,
-  RealtimeTalkPcmOutputQueue,
-} from "./audio.ts";
+import { bytesToBase64 } from "../../../lib/bytes-base64.ts";
+import { RealtimeTalkMediaStreamMeter, RealtimeTalkPcmOutputQueue } from "./audio.ts";
 
 class MockAudioBufferSource {
   buffer: unknown = null;
@@ -168,6 +165,22 @@ describe("RealtimeTalkPcmOutputQueue", () => {
     expect(queue.isPlaying).toBe(true);
   });
 
+  it("queues a thirty-second generated reply without cancelling its tail", () => {
+    vi.useFakeTimers();
+    const context = new MockOutputAudioContext();
+    const queue = new RealtimeTalkPcmOutputQueue();
+    const frame = silentPcmBase64(480);
+    for (let index = 0; index < 1_500; index += 1) {
+      expect(queue.play(frame, context as unknown as AudioContext, 24_000)).toBe("queued");
+    }
+    // Only the scheduling lead reaches the graph; the rest of the reply waits as bytes.
+    expect(queue.queuedUntil).toBeCloseTo(30);
+    expect(context.sources).toHaveLength(320);
+
+    queue.stop(context as unknown as AudioContext);
+    vi.useRealTimers();
+  });
+
   it("defers audio past the scheduling lead instead of dropping it", () => {
     vi.useFakeTimers();
     const context = new MockOutputAudioContext();
@@ -213,7 +226,9 @@ describe("RealtimeTalkPcmOutputQueue", () => {
     const context = new MockOutputAudioContext();
     const queue = new RealtimeTalkPcmOutputQueue();
 
-    expect(queue.play("!".repeat(3_000), context as unknown as AudioContext, 100)).toBe("overflow");
+    expect(queue.play("!".repeat(30_000), context as unknown as AudioContext, 100)).toBe(
+      "overflow",
+    );
     expect(context.sources).toHaveLength(0);
   });
 

@@ -71,11 +71,15 @@ export class OperativeDaemon {
     this.persistentDebounce = opts.persistentDebounce ?? true;
     this.toastDispatcher = opts.toastDispatcher ?? defaultBridgeToastDispatcher();
     this.ruleSet = loadOperativeRules(this.rulesPath);
-    if (opts.autoStart !== false) this.start();
+    if (opts.autoStart !== false) {
+      this.start();
+    }
   }
 
   start(): void {
-    if (this.unsubscribe) return;
+    if (this.unsubscribe) {
+      return;
+    }
     this.unsubscribe = this.bus.on((event) => {
       void this.handle(event);
     });
@@ -89,7 +93,9 @@ export class OperativeDaemon {
   }
 
   stop(): void {
-    if (!this.unsubscribe) return;
+    if (!this.unsubscribe) {
+      return;
+    }
     this.unsubscribe();
     this.unsubscribe = null;
     this.log?.append({
@@ -102,7 +108,9 @@ export class OperativeDaemon {
 
   reload(): OperativeRuleSet {
     this.ruleSet = loadOperativeRules(this.rulesPath);
-    if (!this.persistentDebounce) this.debounce.clear();
+    if (!this.persistentDebounce) {
+      this.debounce.clear();
+    }
     this.log?.append({
       action: "operative.reload",
       target: this.rulesPath,
@@ -146,13 +154,19 @@ export class OperativeDaemon {
   private async handle(event: AwarenessChange): Promise<void> {
     const nowSec = Math.floor(Date.now() / 1000);
     for (const rule of this.enabledRules()) {
-      if (!ruleMatches(rule, event)) continue;
+      if (!ruleMatches(rule, event)) {
+        continue;
+      }
       const lastFired = this.debounce.get(rule.id) ?? 0;
-      if (nowSec - lastFired < rule.debounceSeconds) continue;
+      if (nowSec - lastFired < rule.debounceSeconds) {
+        continue;
+      }
       this.debounce.set(rule.id, nowSec);
       const suggestion = renderSuggestion(rule, event);
       this.recent.unshift(suggestion);
-      if (this.recent.length > MAX_RECENT) this.recent.length = MAX_RECENT;
+      if (this.recent.length > MAX_RECENT) {
+        this.recent.length = MAX_RECENT;
+      }
       this.log?.append({
         action: "operative.suggest",
         target: `rule:${rule.id}`,
@@ -184,7 +198,9 @@ export class OperativeDaemon {
 export function defaultBridgeToastDispatcher(): ToastDispatcher {
   const url = (process.env.LUMINA_BRIDGE_URL ?? "http://127.0.0.1:8765").replace(/\/+$/, "");
   return async (suggestion) => {
-    if (typeof fetch !== "function") return;
+    if (typeof fetch !== "function") {
+      return;
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4_000);
     try {

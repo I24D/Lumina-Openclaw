@@ -39,10 +39,30 @@ import type {
 export function createSessionIdentityProjection(): SessionIdentityProjection {
   let owners = new WeakMap<SessionEntry, ReturnType<typeof projectSessionOwner>>();
   let participants = new WeakMap<SessionEntry, ReadonlyMap<string, SessionParticipant>>();
+  let people = new WeakMap<SessionEntry, readonly SessionPerson[]>();
+  let involvement = new WeakMap<SessionEntry, Map<string, SessionProfileInvolvement>>();
   return {
     invalidate() {
       owners = new WeakMap();
       participants = new WeakMap();
+      people = new WeakMap();
+      involvement = new WeakMap();
+    },
+    involvement(this: void, entry, profileId, profiles) {
+      let projected = involvement.get(entry);
+      if (!projected) {
+        projected = new Map();
+        for (const [id, state] of Object.entries(entry.profileInvolvement?.profiles ?? {})) {
+          const canonical = projectSessionParticipant({ type: "profile", id }, profiles).identity
+            .id;
+          const merged = mergeSessionProfileInvolvement([projected.get(canonical), state]);
+          if (merged) {
+            projected.set(canonical, merged);
+          }
+        }
+        involvement.set(entry, projected);
+      }
+      return projected.get(profileId);
     },
     owner(this: void, ...args: Parameters<typeof projectSessionOwner>) {
       const [entry] = args;
@@ -66,6 +86,15 @@ export function createSessionIdentityProjection(): SessionIdentityProjection {
       if (!projected) {
         projected = projectSessionParticipants(...args);
         participants.set(entry, projected);
+      }
+      return projected;
+    },
+    people(this: void, ...args: Parameters<typeof projectSessionPeople>): readonly SessionPerson[] {
+      const [entry] = args;
+      let projected = people.get(entry);
+      if (!projected) {
+        projected = projectSessionPeople(...args);
+        people.set(entry, projected);
       }
       return projected;
     },

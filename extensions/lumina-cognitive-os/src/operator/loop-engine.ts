@@ -108,21 +108,29 @@ export function verifyObservationDelta(
   after: ObserveResult,
 ): PassiveVerification {
   const changedFields: PassiveVerification["changedFields"][number][] = [];
-  if (before.screenshotPath !== after.screenshotPath) changedFields.push("screenshotPath");
+  if (before.screenshotPath !== after.screenshotPath) {
+    changedFields.push("screenshotPath");
+  }
   const beforeFresh = before.freshnessMs ?? null;
   const afterFresh = after.freshnessMs ?? null;
   if (beforeFresh !== null && afterFresh !== null && Math.abs(beforeFresh - afterFresh) > 500) {
-    if (!changedFields.includes("screenshotPath")) changedFields.push("screenshotPath");
+    if (!changedFields.includes("screenshotPath")) {
+      changedFields.push("screenshotPath");
+    }
   }
   if (before.digest.foregroundProcess !== after.digest.foregroundProcess) {
     changedFields.push("foregroundProcess");
   }
   const beforeCount = before.digest.interactables?.length ?? 0;
   const afterCount = after.digest.interactables?.length ?? 0;
-  if (Math.abs(beforeCount - afterCount) >= 2) changedFields.push("interactablesCount");
+  if (Math.abs(beforeCount - afterCount) >= 2) {
+    changedFields.push("interactablesCount");
+  }
   const beforeTitles = (before.digest.windowTitles ?? []).join("|");
   const afterTitles = (after.digest.windowTitles ?? []).join("|");
-  if (beforeTitles !== afterTitles) changedFields.push("windowTitles");
+  if (beforeTitles !== afterTitles) {
+    changedFields.push("windowTitles");
+  }
   return {
     method: "observation-delta",
     changed: changedFields.length > 0,
@@ -227,8 +235,12 @@ const SKILL_STOPWORDS = new Set<string>([
 function tokenize(text: string): Set<string> {
   const out = new Set<string>();
   for (const raw of text.toLowerCase().split(/[^\p{Letter}\p{Number}]+/u)) {
-    if (raw.length < 3) continue;
-    if (SKILL_STOPWORDS.has(raw)) continue;
+    if (raw.length < 3) {
+      continue;
+    }
+    if (SKILL_STOPWORDS.has(raw)) {
+      continue;
+    }
     out.add(raw);
   }
   return out;
@@ -240,9 +252,15 @@ function tokenize(text: string): Set<string> {
 export function scoreSkillMatch(goal: string, skill: { id: string; description: string }): number {
   const goalTokens = tokenize(goal);
   const skillTokens = tokenize(`${skill.id.replace(/-/g, " ")} ${skill.description}`);
-  if (goalTokens.size === 0 || skillTokens.size === 0) return 0;
+  if (goalTokens.size === 0 || skillTokens.size === 0) {
+    return 0;
+  }
   let inter = 0;
-  for (const t of goalTokens) if (skillTokens.has(t)) inter += 1;
+  for (const t of goalTokens) {
+    if (skillTokens.has(t)) {
+      inter += 1;
+    }
+  }
   const union = new Set([...goalTokens, ...skillTokens]).size;
   return union === 0 ? 0 : inter / union;
 }
@@ -263,7 +281,9 @@ export function pickSkillForGoal(
       bestId = skill.id;
     }
   }
-  if (bestId === null || bestScore < threshold) return null;
+  if (bestId === null || bestScore < threshold) {
+    return null;
+  }
   return { skillId: bestId, score: bestScore };
 }
 
@@ -288,9 +308,13 @@ function newRunId(): string {
 // the query (the brain prompts "smart_click({ query: 'learned-spotify-play' })").
 // Detect them to feed the self-healing tracker.
 function extractLearnedSkillName(query: string | undefined): string | null {
-  if (!query) return null;
+  if (!query) {
+    return null;
+  }
   const trimmed = query.trim().toLowerCase();
-  if (trimmed.startsWith("learned-")) return trimmed.split(/\s+/u)[0]!;
+  if (trimmed.startsWith("learned-")) {
+    return trimmed.split(/\s+/u)[0]!;
+  }
   return null;
 }
 
@@ -303,7 +327,7 @@ export class PcOperatorEngine {
   }
 
   list(): ReadonlyArray<LoopRun> {
-    return Array.from(this.runs.values()).sort((a, b) =>
+    return Array.from(this.runs.values()).toSorted((a, b) =>
       a.createdAtISO.localeCompare(b.createdAtISO),
     );
   }
@@ -314,7 +338,9 @@ export class PcOperatorEngine {
 
   abort(id: string): boolean {
     const r = this.runs.get(id);
-    if (!r) return false;
+    if (!r) {
+      return false;
+    }
     if (
       r.status === "done" ||
       r.status === "aborted" ||
@@ -330,7 +356,9 @@ export class PcOperatorEngine {
 
   async run(params: RunParams): Promise<LoopRun> {
     const goal = params.goal.trim();
-    if (!goal) throw new Error("goal is required");
+    if (!goal) {
+      throw new Error("goal is required");
+    }
     const mode: LoopMode = params.mode ?? "production";
     const maxIterations = Math.max(1, Math.min(20, params.maxIterations ?? 8));
     const interStepDelayMs = Math.max(0, Math.min(2_000, params.interStepDelayMs ?? 250));
@@ -377,7 +405,9 @@ export class PcOperatorEngine {
           });
           run.status = outcome.ok ? "done" : "error";
           run.finalSummary = outcome.summary;
-          if (!outcome.ok) run.errorMessage = outcome.summary;
+          if (!outcome.ok) {
+            run.errorMessage = outcome.summary;
+          }
           run.finishedAtISO = new Date().toISOString();
           this.deps.log?.append({
             action: "pc_operator.skill_shortcut",
@@ -598,7 +628,9 @@ export class PcOperatorEngine {
           break;
         }
         if (iter < maxIterations && interStepDelayMs > 0) {
-          await new Promise((r) => setTimeout(r, interStepDelayMs));
+          await new Promise<void>((r) => {
+            setTimeout(r, interStepDelayMs);
+          });
         }
       }
 
@@ -637,7 +669,7 @@ export class PcOperatorEngine {
     if (!observeTool) {
       return { screenshotPath: null, digest: {}, freshnessMs: null };
     }
-    let pcDetails: Record<string, unknown> = {};
+    let pcDetails: Record<string, unknown>;
     try {
       const r = await observeTool.execute("loop_observe", { maxInteractables: 30 });
       pcDetails = (r as unknown as { details?: Record<string, unknown> }).details ?? {};

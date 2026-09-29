@@ -13,6 +13,7 @@ import {
 } from "@openclaw/normalization-core/string-coerce";
 import { runExec } from "../process/exec.js";
 import { signalProcessTree } from "../process/kill-tree.js";
+import { createDeferredCore } from "../shared/deferred.js";
 import { extractTailscaleServeGatewayUrls } from "../shared/tailscale-status.js";
 import { isVitestRuntimeEnv } from "./env.js";
 import { toErrorObject } from "./errors.js";
@@ -82,17 +83,7 @@ export function windowsTailscaleBinaryCandidates(env: NodeJS.ProcessEnv = proces
   return [...candidates];
 }
 
-/**
- * Locate Tailscale binary using multiple strategies:
- * 1. Filesystem PATH lookup
- * 2. Known Windows install paths (%ProgramFiles%\Tailscale)
- * 3. Known macOS app path
- * 4. locate database (if available)
- *
- * @returns Path to Tailscale binary or null if not found
- */
 export async function findTailscaleBinary(): Promise<string | null> {
-  // Helper to check if a binary exists and is executable
   const checkBinary = async (filePath: string): Promise<boolean> => {
     if (!filePath || !existsSync(filePath)) {
       return false;
@@ -105,7 +96,6 @@ export async function findTailscaleBinary(): Promise<string | null> {
     }
   };
 
-  // Strategy 1: PATH lookup
   try {
     const fromPath = resolveExecutableFromPathEnv(
       "tailscale",
@@ -123,20 +113,18 @@ export async function findTailscaleBinary(): Promise<string | null> {
     // PATH lookup failed, continue
   }
 
-  // Strategy 2: Known Windows install paths. The lookup above only sees PATH.
+  // Known Windows install paths. The lookup above only sees PATH.
   for (const winPath of windowsTailscaleBinaryCandidates()) {
     if (await checkBinary(winPath)) {
       return winPath;
     }
   }
 
-  // Strategy 3: Known macOS app path
   const macAppPath = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
   if (await checkBinary(macAppPath)) {
     return macAppPath;
   }
 
-  // Strategy 4: locate command
   try {
     const { stdout } = await runExec("locate", ["Tailscale.app"]);
     const candidates = stdout
@@ -156,7 +144,6 @@ export async function findTailscaleBinary(): Promise<string | null> {
 }
 
 export async function getTailnetHostname(exec: typeof runExec = runExec, detectedBinary?: string) {
-  // Derive tailnet hostname (or IP fallback) from tailscale status JSON.
   const candidates = detectedBinary
     ? [detectedBinary]
     : [
@@ -191,10 +178,6 @@ export async function getTailnetHostname(exec: typeof runExec = runExec, detecte
   );
 }
 
-/**
- * Get the Tailscale binary command to use.
- * Returns a cached detected binary or the default "tailscale" command.
- */
 let cachedTailscaleBinary: string | null = null;
 
 function getTestTailscaleBinaryOverride(env: NodeJS.ProcessEnv = process.env): string | null {
@@ -261,16 +244,11 @@ function waitWithTimeout(promise: Promise<void>, timeoutMs: number): Promise<boo
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(false), timeoutMs);
     timer.unref?.();
-    void promise.then(
-      () => {
-        clearTimeout(timer);
-        resolve(true);
-      },
-      () => {
-        clearTimeout(timer);
-        resolve(true);
-      },
-    );
+    const settled = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    void promise.then(settled, settled);
   });
 }
 
@@ -294,10 +272,7 @@ async function startTailscaleRouteOwner(
   let active = false;
   let stopping = false;
   let failure: Error | undefined;
-  let resolveExit!: () => void;
-  const exited = new Promise<void>((resolve) => {
-    resolveExit = resolve;
-  });
+  const { promise: exited, resolve: resolveExit } = createDeferredCore();
 
   const startup = new Promise<void>((resolve, reject) => {
     const settle = (error?: Error) => {
@@ -586,7 +561,6 @@ function isPermissionDeniedError(err: unknown): boolean {
   return (
     combined.includes("permission denied") ||
     combined.includes("access denied") ||
-    combined.includes("operation not permitted") ||
     combined.includes("not permitted") ||
     combined.includes("requires root") ||
     combined.includes("must be run as root") ||
@@ -606,19 +580,15 @@ export async function hasTailscaleFunnelRouteForPort(
     timeoutMs: 5_000,
   });
   const parsed = stdout ? parsePossiblyNoisyJsonObject(stdout) : {};
-  return tailscaleFunnelStatusCoversPort(parsed, port);
-}
-
-const TAILSCALE_LOOPBACK_PROXY_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
-
-function tailscaleFunnelStatusCoversPort(status: Record<string, unknown>, port: number): boolean {
-  for (const proxy of funnelStatusBackendsForPort(status)) {
+  for (const proxy of funnelStatusBackendsForPort(parsed)) {
     if (tailscaleProxyMatchesLoopbackPort(proxy, port)) {
       return true;
     }
   }
   return false;
 }
+
+const TAILSCALE_LOOPBACK_PROXY_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
 function tailscaleProxyMatchesLoopbackPort(proxy: string, port: number): boolean {
   // Tailscale stores the Proxy field as a full URL string (e.g.

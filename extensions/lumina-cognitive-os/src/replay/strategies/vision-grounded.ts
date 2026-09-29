@@ -34,8 +34,12 @@ export const visionGroundedStrategy: ReplayStrategy = {
     "Use OmniParser to detect the closest element to the recorded click and re-target there.",
   async resolve(ctx: StrategyContext): Promise<ResolvedAction> {
     const e = ctx.recorded;
-    if (e.kind !== "mouse.down") return forwardNaive(ctx);
-    if (!e.pos) return { kind: "skip", reason: "no recorded pos" };
+    if (e.kind !== "mouse.down") {
+      return forwardNaive(ctx);
+    }
+    if (!e.pos) {
+      return { kind: "skip", reason: "no recorded pos" };
+    }
     if (!ctx.live.screenshotPath) {
       return { kind: "skip", reason: "no live screenshot available" };
     }
@@ -50,7 +54,9 @@ export const visionGroundedStrategy: ReplayStrategy = {
       return { kind: "skip", reason: `OmniParser returned no elements: ${r.error ?? "empty"}` };
     }
     const match = pickClosestElement(r.elements, e.pos.x, e.pos.y);
-    if (!match) return { kind: "skip", reason: "no element close enough" };
+    if (!match) {
+      return { kind: "skip", reason: "no element close enough" };
+    }
     const center = match.center ?? {
       x: match.bbox.x + Math.floor(match.bbox.w / 2),
       y: match.bbox.y + Math.floor(match.bbox.h / 2),
@@ -85,7 +91,9 @@ function pickClosestElement(
     const dx = c.x - x;
     const dy = c.y - y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (!best || dist < best.dist) best = { el, dist };
+    if (!best || dist < best.dist) {
+      best = { el, dist };
+    }
   }
   // Require the closest element to be within 100 px (reasonable click tolerance).
   return best && best.dist <= 100 ? best.el : null;

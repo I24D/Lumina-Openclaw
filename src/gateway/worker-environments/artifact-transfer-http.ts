@@ -6,7 +6,10 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import { AUTH_RATE_LIMIT_SCOPE_WORKER_TRANSFER, type AuthRateLimiter } from "../auth-rate-limit.js";
 import { sendJson, watchClientDisconnect } from "../http-common.js";
 import { withSerializedRateLimitAttempt } from "../rate-limit-attempt-serialization.js";
-import type { ArtifactTransferService } from "./artifact-transfer-service.js";
+import {
+  ArtifactTransferBusyError,
+  type ArtifactTransferService,
+} from "./artifact-transfer-service.js";
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 
@@ -55,6 +58,15 @@ export async function handleArtifactTransferHttpRequest(
     sendOpaqueNotFound(params.res);
     return true;
   }
+  return handleWorkerTransferHttpRequest(params, (bearer) =>
+    params.callback?.({ req: params.req, res: params.res, artifactKey, bearer }),
+  );
+}
+
+export async function handleWorkerTransferHttpRequest(
+  params: ArtifactTransferHttpRequest,
+  authorize: (bearer: string) => ReturnType<ArtifactTransferHttpCallback> | undefined,
+): Promise<boolean> {
   const authorization = normalizeOptionalString(params.req.headers.authorization);
   const bearer = authorization?.toLowerCase().startsWith("bearer ")
     ? normalizeOptionalString(authorization.slice(7))
@@ -73,10 +85,10 @@ export async function handleArtifactTransferHttpRequest(
       if (rateCheck && !rateCheck.allowed) {
         return { kind: "rate-limited", retryAfterMs: rateCheck.retryAfterMs };
       }
-      const outcome =
-        bearer && params.callback
-          ? await params.callback({ req: params.req, res: params.res, artifactKey, bearer })
-          : ({ kind: "unauthorized" } as const);
+      const pendingAuthorization = bearer ? authorize(bearer) : undefined;
+      const outcome = pendingAuthorization
+        ? await pendingAuthorization
+        : ({ kind: "unauthorized" } as const);
       if (outcome.kind === "unauthorized") {
         params.rateLimiter?.recordFailure(params.clientIp, AUTH_RATE_LIMIT_SCOPE_WORKER_TRANSFER);
       } else {
@@ -104,7 +116,18 @@ export function createArtifactTransferHttpCallback(
   service: Omit<ArtifactTransferService, "prepare">,
 ): ArtifactTransferHttpCallback {
   return async ({ req, res, artifactKey, bearer }) => {
-    const authorization = service.authorize({ token: bearer, artifactKey });
+    let authorization: ReturnType<ArtifactTransferService["authorize"]>;
+    try {
+      authorization = service.authorize({ token: bearer, artifactKey });
+    } catch (error) {
+      if (!(error instanceof ArtifactTransferBusyError)) {
+        throw error;
+      }
+      return {
+        kind: "authorized",
+        handle: () => sendJson(res, 503, { error: "transfer_in_progress" }),
+      };
+    }
     if (!authorization) {
       return { kind: "unauthorized" };
     }
@@ -125,25 +148,36 @@ export function createArtifactTransferHttpCallback(
             sendOpaqueNotFound(res);
             return;
           }
+          const range = req.headers.range;
+          const start = range === undefined ? 0 : Number(/^bytes=(\d+)-$/u.exec(range)?.[1]);
+          if (range !== undefined && (!Number.isSafeInteger(start) || start >= file.bytes)) {
+            res.setHeader("Content-Range", `bytes */${file.bytes}`);
+            sendJson(res, 416, { error: "range_not_satisfiable" });
+            return;
+          }
           const checkAuthority = new Transform({
             transform(chunk: Buffer, _encoding, next) {
-              next(
-                service.isAuthorizationCurrent(authorization)
-                  ? null
-                  : new Error("Worker artifact transfer authority closed"),
-                chunk,
-              );
+              if (!service.isAuthorizationCurrent(authorization)) {
+                next(new Error("Worker artifact transfer authority closed"));
+                return;
+              }
+              service.recordProgress(authorization);
+              next(null, chunk);
             },
           });
-          res.writeHead(200, {
+          res.writeHead(range === undefined ? 200 : 206, {
             "content-type": "application/octet-stream",
-            "content-length": String(file.bytes),
+            "content-length": String(file.bytes - start),
+            "accept-ranges": "bytes",
+            ...(range === undefined
+              ? {}
+              : { "content-range": `bytes ${start}-${file.bytes - 1}/${file.bytes}` }),
             "x-openclaw-content-sha256": file.sha256,
           });
           // An extra EOF read can outlive the client's Content-Length-complete response
           // and let owner revocation destroy its reused keep-alive socket.
           const stream = file.handle.createReadStream({
-            start: 0,
+            start,
             end: file.bytes - 1,
             autoClose: false,
           });
@@ -156,8 +190,11 @@ export function createArtifactTransferHttpCallback(
           }
         } finally {
           stopWatchingDisconnect();
-          service.revoke(authorization);
-          await fileHandle?.close();
+          try {
+            await fileHandle?.close();
+          } finally {
+            service.finish(authorization);
+          }
         }
       },
     };

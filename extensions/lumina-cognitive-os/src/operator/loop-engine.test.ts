@@ -15,6 +15,7 @@ import {
 function fakeTool(name: string, handler: (params: unknown) => unknown): AnyAgentTool {
   return {
     name,
+    label: name,
     description: name,
     parameters: {} as AnyAgentTool["parameters"],
     execute: vi.fn(async (_id, params) => jsonResult(handler(params))),
@@ -45,7 +46,9 @@ function brainFrom(actions: LoopAction[]): BrainClient {
     think: vi.fn(async (_params: ThinkParams): Promise<ThinkResult> => {
       const action = actions[Math.min(index, actions.length - 1)];
       index += 1;
-      if (!action) throw new Error("brain action queue is empty");
+      if (!action) {
+        throw new Error("brain action queue is empty");
+      }
       return { action, tokensIn: 10, tokensOut: 5 };
     }),
   };
@@ -289,6 +292,7 @@ describe("OmniParser fallback in observe()", () => {
       })),
       vision_parse: {
         name: "lumina_vision_parse",
+        label: "lumina_vision_parse",
         description: "vision parse",
         parameters: {} as AnyAgentTool["parameters"],
         execute: vi.fn(async (_id, params) => {
@@ -340,6 +344,7 @@ describe("OmniParser fallback in observe()", () => {
       })),
       vision_parse: {
         name: "lumina_vision_parse",
+        label: "lumina_vision_parse",
         description: "vision parse",
         parameters: {} as AnyAgentTool["parameters"],
         execute: visionSpy,

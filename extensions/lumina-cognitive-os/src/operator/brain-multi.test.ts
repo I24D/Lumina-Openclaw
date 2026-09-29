@@ -55,7 +55,7 @@ describe("createMultiProviderBrain", () => {
     );
     const init = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
       .calls[0]?.[1] as RequestInit;
-    const body = JSON.parse(String(init.body));
+    const body = JSON.parse(typeof init.body === "string" ? init.body : "");
     expect(body).toMatchObject({
       model: "gpt-test",
       response_format: { type: "json_object" },
@@ -164,7 +164,7 @@ describe("createMultiProviderBrain", () => {
     let call = 0;
     const fetchImpl = vi.fn(async (url: string | URL | Request) => {
       call += 1;
-      const target = typeof url === "string" ? url : url.toString();
+      const target = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
       if (target.includes("generativelanguage")) {
         return new Response("rate limit", { status: 429 });
       }
@@ -213,7 +213,7 @@ describe("createMultiProviderBrain", () => {
     vi.stubEnv("GEMINI_API_KEY", "gemini-test-key");
     vi.stubEnv("OPENAI_API_KEY", "openai-test-key");
     const fetchImpl = vi.fn(async (url: string | URL | Request) => {
-      const target = typeof url === "string" ? url : url.toString();
+      const target = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
       if (target.includes("generativelanguage")) {
         return new Response("rate limit", { status: 429 });
       }
@@ -251,7 +251,7 @@ describe("createMultiProviderBrain", () => {
 
     const init = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
       .calls[0]?.[1] as RequestInit;
-    const body = JSON.parse(String(init.body)) as {
+    const body = JSON.parse(typeof init.body === "string" ? init.body : "") as {
       messages: Array<{ role: string }>;
       temperature?: unknown;
       max_completion_tokens: number;
@@ -277,7 +277,7 @@ describe("createMultiProviderBrain", () => {
 
     const init = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
       .calls[0]?.[1] as RequestInit;
-    const body = JSON.parse(String(init.body)) as {
+    const body = JSON.parse(typeof init.body === "string" ? init.body : "") as {
       messages: Array<{ role: string }>;
       temperature?: unknown;
     };
@@ -289,7 +289,7 @@ describe("createMultiProviderBrain", () => {
     vi.stubEnv("GEMINI_API_KEY", "gemini-test-key");
     vi.stubEnv("OPENAI_API_KEY", "openai-test-key");
     const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-      const target = typeof url === "string" ? url : url.toString();
+      const target = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
       if (target.includes("generativelanguage")) {
         // Simulate a stalled provider — wait longer than the timeout,
         // but respect the abort signal.

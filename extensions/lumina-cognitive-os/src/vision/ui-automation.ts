@@ -33,9 +33,15 @@ export function createUiTreeTool(): AnyAgentTool {
       // validates the payload before execute() is ever called.
       const params = rawParams as { pid?: number; maxDepth?: number; maxNodes?: number };
       const args: string[] = [];
-      if (typeof params.pid === "number") args.push("--pid", String(params.pid));
-      if (typeof params.maxDepth === "number") args.push("--max-depth", String(params.maxDepth));
-      if (typeof params.maxNodes === "number") args.push("--max-nodes", String(params.maxNodes));
+      if (typeof params.pid === "number") {
+        args.push("--pid", String(params.pid));
+      }
+      if (typeof params.maxDepth === "number") {
+        args.push("--max-depth", String(params.maxDepth));
+      }
+      if (typeof params.maxNodes === "number") {
+        args.push("--max-nodes", String(params.maxNodes));
+      }
       const r = await runPythonSidecarJson<{ ok: boolean; [k: string]: unknown }>(
         "uia_tree",
         args,

@@ -44,7 +44,9 @@ export class WorkingMemoryStore {
   }
 
   private load(): void {
-    if (!fs.existsSync(this.filePath)) return;
+    if (!fs.existsSync(this.filePath)) {
+      return;
+    }
     try {
       const raw = fs.readFileSync(this.filePath, "utf8");
       const parsed = JSON.parse(raw) as Partial<WorkingMemory>;

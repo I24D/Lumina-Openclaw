@@ -58,7 +58,9 @@ export async function runPowerShell(
     let stderr = "";
     let settled = false;
     const timer = setTimeout(() => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       try {
         child.kill("SIGKILL");
@@ -81,13 +83,17 @@ export async function runPowerShell(
       stderr += chunk.toString("utf8");
     });
     child.on("error", (err) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       resolve({ ok: false, stdout, stderr, code: -1, error: err.message });
     });
     child.on("close", (code) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       resolve({
@@ -100,11 +106,12 @@ export async function runPowerShell(
   });
 }
 
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- JSON results are typed by the caller.
 export async function runPowerShellJson<T = unknown>(
   script: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
-  const full = `${script}\n` + `| ConvertTo-Json -Depth 8 -Compress`;
+  const full = `${script}\n| ConvertTo-Json -Depth 8 -Compress`;
   const r = await runPowerShell(full, timeoutMs);
   if (!r.ok) {
     return { ok: false, error: r.error ?? r.stderr ?? `exit ${r.code}` };

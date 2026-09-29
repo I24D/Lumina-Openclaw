@@ -253,11 +253,15 @@ async function dispatchCloseApplication(
 
 function normalizeUrl(rawUrl: string): string | null {
   const trimmed = rawUrl.trim();
-  if (!trimmed) return null;
+  if (!trimmed) {
+    return null;
+  }
   try {
     const withScheme = /^[a-z][a-z0-9+.-]*:/iu.test(trimmed) ? trimmed : `https://${trimmed}`;
     const parsed = new URL(withScheme);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
     return parsed.toString();
   } catch {
     return null;
@@ -418,7 +422,9 @@ export async function dispatchAction(
 
     case "wait": {
       const ms = Math.max(0, Math.min(10_000, action.ms));
-      await new Promise((r) => setTimeout(r, ms));
+      await new Promise<void>((r) => {
+        setTimeout(r, ms);
+      });
       return {
         ok: true,
         dispatched: true,
@@ -438,4 +444,11 @@ export async function dispatchAction(
         toolName: action.kind,
       };
   }
+  return {
+    ok: false,
+    dispatched: false,
+    verifiedByTool: null,
+    toolName: "unknown",
+    errorMessage: `unsupported action kind: ${JSON.stringify((action as { kind?: unknown }).kind)}`,
+  };
 }

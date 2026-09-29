@@ -23,15 +23,6 @@ import os from "node:os";
  * ════════════════════════════════════════════════════════════════
  */
 import path from "node:path";
-
-// Global error handlers — catch unhandled rejections and uncaught exceptions
-// to prevent silent failures in long-running gateway sessions.
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("[lumina-cognitive-os] Unhandled Rejection at:", promise, "reason:", reason);
-});
-process.on("uncaughtException", (err, origin) => {
-  console.error("[lumina-cognitive-os] Uncaught Exception:", err, "origin:", origin);
-});
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 // Action
 import { createPlanStore, createActionPlanTool } from "./src/action/action-tools.js";
@@ -207,8 +198,8 @@ import {
   createLuminaMemoryStatusTool,
   createLuminaMemorySearchTool,
   createLuminaMemoryRememberTool,
-  createLuminaWarehouseCatalogTool,
 } from "./src/supabase/lumina-memory-tools.js";
+import { createLuminaWarehouseCatalogTool } from "./src/supabase/lumina-warehouse-catalog.js";
 // Supabase
 import {
   createSupabaseStatusTool,
@@ -233,6 +224,15 @@ import { createUiTreeTool } from "./src/vision/ui-automation.js";
 import { createUiInvokeTool } from "./src/vision/ui-invoke.js";
 import { createUiResolveTool } from "./src/vision/ui-resolve.js";
 import { createWindowClassifyTool } from "./src/vision/window-classify-tool.js";
+
+// Global error handlers — catch unhandled rejections and uncaught exceptions
+// to prevent silent failures in long-running gateway sessions.
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[lumina-cognitive-os] Unhandled Rejection at:", promise, "reason:", reason);
+});
+process.on("uncaughtException", (err, origin) => {
+  console.error("[lumina-cognitive-os] Uncaught Exception:", err, "origin:", origin);
+});
 
 type CognitiveConfig = {
   enabled?: boolean;
@@ -263,7 +263,9 @@ type CognitiveConfig = {
 };
 
 function parseAllowedApps(raw: string | undefined): string[] {
-  if (!raw) return [];
+  if (!raw) {
+    return [];
+  }
   return raw
     .split(/[,;\s]+/)
     .map((s) => s.trim())
@@ -271,15 +273,23 @@ function parseAllowedApps(raw: string | undefined): string[] {
 }
 
 function readBooleanEnv(value: string | undefined): boolean | undefined {
-  if (value === undefined || value.trim() === "") return undefined;
+  if (value === undefined || value.trim() === "") {
+    return undefined;
+  }
   const normalized = value.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
   return undefined;
 }
 
 function readNumberEnv(value: string | undefined): number | undefined {
-  if (value === undefined || value.trim() === "") return undefined;
+  if (value === undefined || value.trim() === "") {
+    return undefined;
+  }
   const parsed = Number(value.trim());
   return Number.isFinite(parsed) ? parsed : undefined;
 }
@@ -303,7 +313,9 @@ async function fetchWorkflowEnvironment(bridgeUrl: string): Promise<WorkflowEnvi
     runningProcessNames: new Set<string>(),
     visibleWindowTitles: [],
   };
-  if (!bridgeUrl || typeof fetch !== "function") return empty;
+  if (!bridgeUrl || typeof fetch !== "function") {
+    return empty;
+  }
   const base = bridgeUrl.replace(/\/+$/, "");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3_000);
@@ -684,9 +696,11 @@ export default definePluginEntry({
         elements?: DetectedElement[];
         error?: string;
       }>("omniparser", args, { timeoutMs: 90_000 });
-      if (!r.ok) return { ok: false, error: r.error };
+      if (!r.ok) {
+        return { ok: false, error: r.error };
+      }
       const data = r.data ?? { ok: false };
-      return { ok: data.ok === true, elements: data.elements, error: data.error };
+      return { ok: data.ok, elements: data.elements, error: data.error };
     });
 
     // ── LfD Fase B: Recorder ─────────────────────────────────────
@@ -785,7 +799,9 @@ export default definePluginEntry({
 
     // Risk + awareness piped into the transparency log so the UI sees them.
     risk.on((d) => {
-      if (d.tier === "SAFE") return; // SAFE → no noise.
+      if (d.tier === "SAFE") {
+        return;
+      } // SAFE → no noise.
       activity.push({
         category: "risk",
         summary: `${d.input.action} → ${d.tier}`,

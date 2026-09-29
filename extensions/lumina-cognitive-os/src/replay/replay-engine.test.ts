@@ -73,9 +73,7 @@ describe("ReplayEngine — basic lifecycle", () => {
       { idx: 4, atMs: 300, kind: "key.down", key: "a" },
       { idx: 5, atMs: 400, kind: "key.up", key: "a" },
     ]);
-    const dispatcher = vi.fn<Parameters<ActionDispatcher>, ReturnType<ActionDispatcher>>(
-      async () => ({ ok: true }),
-    );
+    const dispatcher = vi.fn<ActionDispatcher>(async () => ({ ok: true }));
     const engine = new ReplayEngine({
       store,
       log: null,
@@ -93,7 +91,9 @@ describe("ReplayEngine — basic lifecycle", () => {
     expect(dispatcher).not.toHaveBeenCalled(); // simulate mode
     const click = run.steps[1]!;
     expect(click.resolved.kind).toBe("mouse_click");
-    if (click.resolved.kind === "mouse_click") expect(click.resolved.x).toBe(50);
+    if (click.resolved.kind === "mouse_click") {
+      expect(click.resolved.x).toBe(50);
+    }
   });
 
   it("dispatches in production mode", async () => {
@@ -101,9 +101,7 @@ describe("ReplayEngine — basic lifecycle", () => {
     seed(store, "s2", [
       { idx: 1, atMs: 0, kind: "mouse.down", pos: { x: 5, y: 10 }, button: "left" },
     ]);
-    const dispatcher = vi.fn<Parameters<ActionDispatcher>, ReturnType<ActionDispatcher>>(
-      async () => ({ ok: true }),
-    );
+    const dispatcher = vi.fn<ActionDispatcher>(async () => ({ ok: true }));
     const engine = new ReplayEngine({
       store,
       log: null,
@@ -148,7 +146,9 @@ describe("ReplayEngine — basic lifecycle", () => {
       mode: "simulate",
       interStepDelayMs: 0,
       onStep: (_s, r) => {
-        if (r.steps.length === 1) engine.abort(r.id);
+        if (r.steps.length === 1) {
+          engine.abort(r.id);
+        }
       },
     });
     expect(run.status).toBe("aborted");
@@ -236,7 +236,9 @@ describe("naive_coords — event mapping", () => {
     } as const;
     const r = await naiveCoordsStrategy.resolve(ctx as any);
     expect(r.kind).toBe("type_text");
-    if (r.kind === "type_text") expect(r.text).toBe("h");
+    if (r.kind === "type_text") {
+      expect(r.text).toBe("h");
+    }
   });
 
   it("treats named key.down as key_press", async () => {
@@ -249,7 +251,9 @@ describe("naive_coords — event mapping", () => {
     } as const;
     const r = await naiveCoordsStrategy.resolve(ctx as any);
     expect(r.kind).toBe("key_press");
-    if (r.kind === "key_press") expect(r.keys).toEqual(["enter"]);
+    if (r.kind === "key_press") {
+      expect(r.keys).toEqual(["enter"]);
+    }
   });
 });
 
@@ -292,7 +296,9 @@ describe("uia_grounded — finds element by automationId", () => {
     if (r.kind === "mouse_click") {
       expect(r.x).toBe(750);
       expect(r.y).toBe(420);
-      if (r.via.source === "uia_grounded") expect(r.via.automationId).toBe("saveBtn");
+      if (r.via.source === "uia_grounded") {
+        expect(r.via.automationId).toBe("saveBtn");
+      }
     }
   });
 

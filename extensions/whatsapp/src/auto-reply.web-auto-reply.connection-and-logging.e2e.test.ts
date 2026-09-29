@@ -297,6 +297,47 @@ describe("web auto-reply connection", () => {
     expectErrorContaining(runtime.error, "Retry 1/2");
   });
 
+  it("keeps retrying a long DNS outage with slow retries instead of stopping (Lumina)", async () => {
+    // getaddrinfo ENOTFOUND web.whatsapp.com reaches the monitor as Baileys status 408.
+    const dnsOutage = { output: { statusCode: 408 } };
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      vi.mocked(waitForWaConnection).mockRejectedValueOnce(dnsOutage);
+    }
+    const listenerFactory = vi.fn(async () => createMockWebListener());
+    const sleep = vi.fn(async () => {});
+    const statuses: WebChannelStatus[] = [];
+    const { runtime, controller, run } = startWebAutoReplyMonitor({
+      monitorWebChannelFn: monitorWebChannel as never,
+      listenerFactory,
+      sleep,
+      statusSink: (next) => statuses.push(next),
+      reconnect: { initialMs: 10, maxMs: 10, maxAttempts: 2, factor: 1.1, slowRetryMs: 60_000 },
+    });
+
+    await vi.waitFor(
+      () => {
+        expect(listenerFactory).toHaveBeenCalledTimes(1);
+      },
+      { timeout: 500, interval: 2 },
+    );
+    controller.abort();
+    await run;
+
+    expect(waitForWaConnection).toHaveBeenCalledTimes(5);
+    const delays = sleep.mock.calls.map((call) => (call as unknown[])[0] as number);
+    expect(delays).toHaveLength(4);
+    expect(delays[0]).toBeLessThan(1_000);
+    for (const delay of delays.slice(1)) {
+      expect(delay).toBeGreaterThanOrEqual(45_000);
+      expect(delay).toBeLessThanOrEqual(75_000);
+    }
+    expect(statuses.some((entry) => entry.lifecycle === "blocked")).toBe(false);
+    expect(statuses.some((entry) => entry.connected)).toBe(true);
+    expect(
+      runtime.error.mock.calls.some((call) => String(call[0]).includes("Stopping web monitoring")),
+    ).toBe(false);
+  });
+
   it("marks an opening-phase remote logout as a terminal disconnect", async () => {
     vi.mocked(waitForWaConnection).mockRejectedValueOnce({
       output: { statusCode: 401 },

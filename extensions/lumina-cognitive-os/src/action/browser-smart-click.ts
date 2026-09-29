@@ -102,7 +102,9 @@ export function createBrowserSmartClickTool(opts: BrowserSmartConfig): AnyAgentT
         timeoutMs?: number;
       };
       const query = params.query?.trim();
-      if (!query) throw new ToolInputError("query is required");
+      if (!query) {
+        throw new ToolInputError("query is required");
+      }
       const payload = {
         action: "smart_click",
         userDataDir: profileDir(params.profile?.trim() || "default"),
@@ -165,8 +167,12 @@ export function createBrowserSmartTypeTool(opts: BrowserSmartConfig): AnyAgentTo
         timeoutMs?: number;
       };
       const query = params.query?.trim();
-      if (!query) throw new ToolInputError("query is required");
-      if (!params.text) throw new ToolInputError("text is required");
+      if (!query) {
+        throw new ToolInputError("query is required");
+      }
+      if (!params.text) {
+        throw new ToolInputError("text is required");
+      }
       const payload = {
         action: "smart_type",
         userDataDir: profileDir(params.profile?.trim() || "default"),
@@ -179,7 +185,9 @@ export function createBrowserSmartTypeTool(opts: BrowserSmartConfig): AnyAgentTo
         },
       };
       const r = await callSidecar(payload, Math.max(20_000, (params.timeoutMs ?? 6_000) + 10_000));
-      if (!r.ok) return jsonResult({ ok: false, error: r.error });
+      if (!r.ok) {
+        return jsonResult({ ok: false, error: r.error });
+      }
       return jsonResult(r.data);
     },
   };
@@ -229,7 +237,9 @@ export function createBrowserDomScreenshotTool(opts: BrowserSmartConfig): AnyAge
         },
       };
       const r = await callSidecar(payload, 25_000);
-      if (!r.ok) return jsonResult({ ok: false, error: r.error });
+      if (!r.ok) {
+        return jsonResult({ ok: false, error: r.error });
+      }
       return jsonResult(r.data);
     },
   };
@@ -268,7 +278,9 @@ export function createBrowserDomObserveTool(opts: BrowserSmartConfig): AnyAgentT
         },
       };
       const r = await callSidecar(payload, 20_000);
-      if (!r.ok) return jsonResult({ ok: false, error: r.error });
+      if (!r.ok) {
+        return jsonResult({ ok: false, error: r.error });
+      }
       return jsonResult(r.data);
     },
   };

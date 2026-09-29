@@ -37,7 +37,9 @@ describe("WorkingMemoryStore", () => {
 
   it("caps pinnedContext at 5 entries via pin()", () => {
     const wm = new WorkingMemoryStore(tmpDir);
-    for (let i = 0; i < 8; i++) wm.pin(`line-${i}`);
+    for (let i = 0; i < 8; i++) {
+      wm.pin(`line-${i}`);
+    }
     expect(wm.get().pinnedContext.length).toBe(5);
     // Newest first.
     expect(wm.get().pinnedContext[0]).toBe("line-7");

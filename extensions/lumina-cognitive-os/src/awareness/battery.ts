@@ -35,21 +35,26 @@ function describe(status: number | undefined): { charging: boolean; label: strin
       return { charging: false, label: "low" };
     case 5:
       return { charging: false, label: "critical" };
-    case 1:
     default:
       return { charging: false, label: "discharging" };
   }
 }
 
 export async function readBatteryInfo(timeoutMs = 4_000): Promise<BatteryInfo | null> {
-  if (process.platform !== "win32") return null;
+  if (process.platform !== "win32") {
+    return null;
+  }
   const r = await runPowerShellJson<Raw | Raw[]>(
     `Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining, BatteryStatus, EstimatedRunTime`,
     timeoutMs,
   );
-  if (!r.ok) return null;
+  if (!r.ok) {
+    return null;
+  }
   const raw = Array.isArray(r.data) ? r.data[0] : r.data;
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   const d = describe(raw.BatteryStatus);
   // EstimatedRunTime = 71582788 means "unknown/AC" per Microsoft sentinel.
   const runtime =

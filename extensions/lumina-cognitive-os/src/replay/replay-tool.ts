@@ -12,11 +12,11 @@
 import { Type } from "typebox";
 import { jsonResult, ToolInputError, type AnyAgentTool } from "../shared/tool-result.js";
 import type { ReplayEngine } from "./replay-engine.js";
+import { STRATEGIES } from "./strategies/registry.js";
 import { ALL_STRATEGY_IDS, type StrategyId } from "./strategies/types.js";
 
 /** Replay modes accepted by the tool; mirrors MODE_LITERALS below. */
 type ReplayMode = "simulate" | "production";
-import { STRATEGIES } from "./strategies/registry.js";
 
 const STRATEGY_LITERALS = ALL_STRATEGY_IDS.map((id) => Type.Literal(id));
 const MODE_LITERALS = [Type.Literal("simulate"), Type.Literal("production")];
@@ -60,7 +60,9 @@ export function createReplayRunTool(engine: ReplayEngine): AnyAgentTool {
         confirm?: boolean;
       };
       const sessionId = p.sessionId?.trim();
-      if (!sessionId) throw new ToolInputError("sessionId is required");
+      if (!sessionId) {
+        throw new ToolInputError("sessionId is required");
+      }
       const mode = (p.mode as ReplayMode) ?? "simulate";
       if (mode === "production" && !p.confirm) {
         return jsonResult({
@@ -105,7 +107,9 @@ export function createReplayStatusTool(engine: ReplayEngine): AnyAgentTool {
       // validates the payload before execute() is ever called.
       const p = rawParams as { runId: string };
       const r = engine.get(p.runId.trim());
-      if (!r) return jsonResult({ ok: false, error: `run '${p.runId}' not found` });
+      if (!r) {
+        return jsonResult({ ok: false, error: `run '${p.runId}' not found` });
+      }
       return jsonResult({
         ok: true,
         runId: r.id,
@@ -187,10 +191,17 @@ function summarizeRun(run: NonNullable<RunForSummary>): Record<string, unknown> 
   let verifyFailed = 0;
   let totalLatency = 0;
   for (const s of run.steps) {
-    if (s.error) failed++;
-    if (s.resolved.kind === "skip") skipped++;
-    else if (s.dispatched) dispatched++;
-    if (s.verification && !s.verification.ok) verifyFailed++;
+    if (s.error) {
+      failed++;
+    }
+    if (s.resolved.kind === "skip") {
+      skipped++;
+    } else if (s.dispatched) {
+      dispatched++;
+    }
+    if (s.verification && !s.verification.ok) {
+      verifyFailed++;
+    }
     totalLatency += s.latencyMs;
   }
   return {

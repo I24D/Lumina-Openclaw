@@ -5,12 +5,17 @@ import { createPhoneLinkReplyTool, createPhoneLinkStatusTool } from "./phone-lin
 function bridgeReturning(value: unknown, calls: unknown[] = []): BridgeClient {
   return {
     bridgeUrl: "http://127.0.0.1:8765",
-    get: async () => value,
-    post: async (_path, body) => {
+    get: async <T>() => value as T | null,
+    post: async <T>(_path: string, body?: unknown) => {
       calls.push(body);
-      return value;
+      return value as T | null;
     },
   };
+}
+
+function firstText(content: ReadonlyArray<{ type: string; text?: string }>): string {
+  const first = content[0];
+  return first?.type === "text" && first.text !== undefined ? first.text : "{}";
 }
 
 describe("Phone Link tools", () => {
@@ -19,7 +24,7 @@ describe("Phone Link tools", () => {
       bridgeReturning({ ok: true, connected: true, notificationFeedReady: true }),
     );
     const result = await tool.execute("test", {});
-    expect(JSON.parse(result.content[0]?.text ?? "{}")).toMatchObject({
+    expect(JSON.parse(firstText(result.content))).toMatchObject({
       ok: true,
       connected: true,
       notificationFeedReady: true,
@@ -42,7 +47,7 @@ describe("Phone Link tools", () => {
       confirmed: false,
     });
 
-    expect(JSON.parse(result.content[0]?.text ?? "{}")).toMatchObject({
+    expect(JSON.parse(firstText(result.content))).toMatchObject({
       ok: false,
       refused: "needs_confirmation",
     });

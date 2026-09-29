@@ -14,7 +14,9 @@ export const windowRelativeStrategy: ReplayStrategy = {
       // Fall back to naive behaviour for non-positional events.
       return forwardNaive(ctx);
     }
-    if (!e.pos || !e.window) return { kind: "skip", reason: "missing pos/window" };
+    if (!e.pos || !e.window) {
+      return { kind: "skip", reason: "missing pos/window" };
+    }
 
     const liveWin = findWindowByTitle(ctx.live.windows, e.window.title);
     if (!liveWin) {

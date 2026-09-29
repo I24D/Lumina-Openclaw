@@ -55,7 +55,7 @@ describe("Lumina memory tools", () => {
     process.env.SUPABASE_URL = "https://project.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role";
     const fetchMock = vi.fn(
-      async () =>
+      async (_url: string, _init?: RequestInit) =>
         new Response(JSON.stringify([{ id: "locm_test", user_id: "lumina_openclaw::fact" }]), {
           status: 200,
         }),
@@ -72,10 +72,10 @@ describe("Lumina memory tools", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toContain("/rest/v1/long_term_memories?select=");
-    expect(init.method).toBe("POST");
-    expect(String(init.body)).toContain("lumina_openclaw::fact");
+    expect(init?.method).toBe("POST");
+    expect(typeof init?.body === "string" ? init.body : "").toContain("lumina_openclaw::fact");
     expect(JSON.stringify(result.details)).not.toContain("test-service-role");
     expect(result.details).toMatchObject({ ok: true, userId: "lumina_openclaw::fact" });
   });
@@ -109,7 +109,7 @@ describe("Lumina memory tools", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url] = fetchMock.mock.calls[0]!;
     expect(url).toContain("summary=ilike.*OpenClaw+memory*");
     expect(result.details).toMatchObject({ ok: true, count: 1 });
   });

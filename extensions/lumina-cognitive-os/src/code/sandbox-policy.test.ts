@@ -35,7 +35,9 @@ describe("preflightCheck — language", () => {
       code: "puts 1",
     });
     expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.reason).toMatch(/not supported/);
+    if (!v.ok) {
+      expect(v.reason).toMatch(/not supported/);
+    }
   });
 });
 
@@ -48,7 +50,9 @@ describe("preflightCheck — cwd", () => {
       code: "print(1)",
     });
     expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.reason).toMatch(/absolute/);
+    if (!v.ok) {
+      expect(v.reason).toMatch(/absolute/);
+    }
   });
 
   it("rejects cwd inside deny list", () => {
@@ -59,7 +63,9 @@ describe("preflightCheck — cwd", () => {
       code: "print(1)",
     });
     expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.reason).toMatch(/denied directory/);
+    if (!v.ok) {
+      expect(v.reason).toMatch(/denied directory/);
+    }
   });
 
   it("rejects cwd outside the allow list", () => {
@@ -70,7 +76,9 @@ describe("preflightCheck — cwd", () => {
       code: "print(1)",
     });
     expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.reason).toMatch(/allowlist/);
+    if (!v.ok) {
+      expect(v.reason).toMatch(/allowlist/);
+    }
   });
 
   it("accepts cwd inside an allowed root", () => {
@@ -100,7 +108,9 @@ describe("preflightCheck — hard deny patterns", () => {
     it(`rejects ${code.slice(0, 40)}…`, () => {
       const v = preflightCheck({ policy: POLICY, language: lang, cwd: "c:/work", code });
       expect(v.ok).toBe(false);
-      if (!v.ok) expect(v.reason).toMatch(/hard-denied/);
+      if (!v.ok) {
+        expect(v.reason).toMatch(/hard-denied/);
+      }
     });
   }
 });
@@ -115,7 +125,9 @@ describe("preflightCheck — timeout clamping", () => {
       timeoutMs: 999_999,
     });
     expect(v.ok).toBe(true);
-    if (v.ok) expect(v.timeoutMs).toBe(POLICY.maxTimeoutMs);
+    if (v.ok) {
+      expect(v.timeoutMs).toBe(POLICY.maxTimeoutMs);
+    }
   });
 
   it("clamps requested timeout to a minimum", () => {
@@ -127,7 +139,9 @@ describe("preflightCheck — timeout clamping", () => {
       timeoutMs: 0,
     });
     expect(v.ok).toBe(true);
-    if (v.ok) expect(v.timeoutMs).toBeGreaterThanOrEqual(100);
+    if (v.ok) {
+      expect(v.timeoutMs).toBeGreaterThanOrEqual(100);
+    }
   });
 
   it("uses default when timeoutMs omitted", () => {
@@ -138,7 +152,9 @@ describe("preflightCheck — timeout clamping", () => {
       code: "print(1)",
     });
     expect(v.ok).toBe(true);
-    if (v.ok) expect(v.timeoutMs).toBe(POLICY.defaultTimeoutMs);
+    if (v.ok) {
+      expect(v.timeoutMs).toBe(POLICY.defaultTimeoutMs);
+    }
   });
 });
 
@@ -146,7 +162,9 @@ describe("preflightCheck — empty code", () => {
   it("rejects empty code", () => {
     const v = preflightCheck({ policy: POLICY, language: "python", cwd: "c:/work", code: "   " });
     expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.reason).toMatch(/empty/);
+    if (!v.ok) {
+      expect(v.reason).toMatch(/empty/);
+    }
   });
 });
 

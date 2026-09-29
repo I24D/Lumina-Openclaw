@@ -41,7 +41,9 @@ export class WakeWordDaemon {
   }
 
   start(): { ok: boolean; error?: string } {
-    if (this.isRunning()) return { ok: true };
+    if (this.isRunning()) {
+      return { ok: true };
+    }
     const py =
       getLuminaEnvVar("LUMINA_PYTHON") ?? (process.platform === "win32" ? "python" : "python3");
     try {
@@ -61,7 +63,9 @@ export class WakeWordDaemon {
         const line = buffer.slice(0, nl).trim();
         buffer = buffer.slice(nl + 1);
         nl = buffer.indexOf("\n");
-        if (!line) continue;
+        if (!line) {
+          continue;
+        }
         try {
           const obj = JSON.parse(line) as {
             kind?: string;

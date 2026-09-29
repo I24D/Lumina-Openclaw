@@ -77,7 +77,9 @@ export function createGmailTool(): AnyAgentTool {
         const r = await googleFetch(
           `https://gmail.googleapis.com/gmail/v1/users/${userId}/messages?q=${encodeURIComponent(q)}&maxResults=${max}`,
         );
-        if (!r.ok) return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        if (!r.ok) {
+          return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        }
         const json = (await r.json()) as { messages?: Array<{ id: string; threadId: string }> };
         const ids = (json.messages ?? []).map((m) => m.id);
         // Fetch metadata in parallel
@@ -86,7 +88,9 @@ export function createGmailTool(): AnyAgentTool {
             const m = await googleFetch(
               `https://gmail.googleapis.com/gmail/v1/users/${userId}/messages/${id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
             );
-            if (!m.ok) return { id, error: m.status };
+            if (!m.ok) {
+              return { id, error: m.status };
+            }
             const mj = (await m.json()) as {
               id: string;
               snippet?: string;
@@ -112,11 +116,15 @@ export function createGmailTool(): AnyAgentTool {
       }
 
       if (action === "read") {
-        if (!params.messageId) throw new ToolInputError("messageId required for read");
+        if (!params.messageId) {
+          throw new ToolInputError("messageId required for read");
+        }
         const r = await googleFetch(
           `https://gmail.googleapis.com/gmail/v1/users/${userId}/messages/${params.messageId}?format=full`,
         );
-        if (!r.ok) return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        if (!r.ok) {
+          return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        }
         const json = (await r.json()) as {
           id: string;
           snippet?: string;
@@ -136,7 +144,9 @@ export function createGmailTool(): AnyAgentTool {
           bodyText = decodeBase64Url(direct);
         } else if (json.payload?.parts) {
           const plain = json.payload.parts.find((p) => p.mimeType === "text/plain");
-          if (plain?.body?.data) bodyText = decodeBase64Url(plain.body.data);
+          if (plain?.body?.data) {
+            bodyText = decodeBase64Url(plain.body.data);
+          }
         }
         return jsonResult({
           ok: true,
@@ -156,8 +166,12 @@ export function createGmailTool(): AnyAgentTool {
         const to = params.to;
         const subject = params.subject ?? "";
         const body = params.body ?? "";
-        if (!to) throw new ToolInputError("to required for send/draft");
-        if (!body) throw new ToolInputError("body required for send/draft");
+        if (!to) {
+          throw new ToolInputError("to required for send/draft");
+        }
+        if (!body) {
+          throw new ToolInputError("body required for send/draft");
+        }
         const from = params.from ?? "me";
         const raw = encodeBase64Url(rfc2822(from, to, subject, body));
         const endpoint =
@@ -169,19 +183,27 @@ export function createGmailTool(): AnyAgentTool {
           method: "POST",
           body: JSON.stringify(payload),
         });
-        if (!r.ok) return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        if (!r.ok) {
+          return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        }
         const json = await r.json();
         return jsonResult({ ok: true, result: json });
       }
 
       if (action === "label") {
-        if (!params.messageId) throw new ToolInputError("messageId required for label");
-        if (!params.label) throw new ToolInputError("label required for label");
+        if (!params.messageId) {
+          throw new ToolInputError("messageId required for label");
+        }
+        if (!params.label) {
+          throw new ToolInputError("label required for label");
+        }
         const r = await googleFetch(
           `https://gmail.googleapis.com/gmail/v1/users/${userId}/messages/${params.messageId}/modify`,
           { method: "POST", body: JSON.stringify({ addLabelIds: [params.label] }) },
         );
-        if (!r.ok) return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        if (!r.ok) {
+          return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        }
         return jsonResult({ ok: true, labeled: params.messageId });
       }
 

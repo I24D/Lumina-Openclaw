@@ -77,9 +77,13 @@ export type RecordingSummary = {
 const DEFAULT_RECORDINGS_DIR = "c:/I24D_WhatsApp/recordings";
 
 export function resolveRecordingsDir(override?: string): string {
-  if (override && override.trim()) return path.resolve(override.trim());
+  if (override && override.trim()) {
+    return path.resolve(override.trim());
+  }
   const env = getLuminaEnvVar("LUMINA_RECORDINGS_DIR");
-  if (env && env.trim()) return path.resolve(env.trim());
+  if (env && env.trim()) {
+    return path.resolve(env.trim());
+  }
   return path.resolve(DEFAULT_RECORDINGS_DIR);
 }
 
@@ -125,7 +129,9 @@ export class RecorderStore {
 
   readMeta(sessionId: string): RecordingMeta | null {
     const file = path.join(this.sessionDir(sessionId), "meta.json");
-    if (!fs.existsSync(file)) return null;
+    if (!fs.existsSync(file)) {
+      return null;
+    }
     try {
       return JSON.parse(fs.readFileSync(file, "utf8")) as RecordingMeta;
     } catch {
@@ -134,8 +140,10 @@ export class RecorderStore {
   }
 
   list(): RecordingSummary[] {
-    if (!fs.existsSync(this.rootDir)) return [];
-    let entries: fs.Dirent[] = [];
+    if (!fs.existsSync(this.rootDir)) {
+      return [];
+    }
+    let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(this.rootDir, { withFileTypes: true });
     } catch {
@@ -143,24 +151,30 @@ export class RecorderStore {
     }
     const out: RecordingSummary[] = [];
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
+      if (!entry.isDirectory()) {
+        continue;
+      }
       const summary = this.summarize(entry.name);
-      if (summary) out.push(summary);
+      if (summary) {
+        out.push(summary);
+      }
     }
-    return out.sort((a, b) => b.startedAtISO.localeCompare(a.startedAtISO));
+    return out.toSorted((a, b) => b.startedAtISO.localeCompare(a.startedAtISO));
   }
 
   summarize(sessionId: string): RecordingSummary | null {
     const dir = this.sessionDir(sessionId);
     const meta = this.readMeta(sessionId);
-    if (!meta) return null;
+    if (!meta) {
+      return null;
+    }
     const screenshotsDir = path.join(dir, "screenshots");
     const uiaDir = path.join(dir, "uia");
     const screenshotCount = safeCount(screenshotsDir);
     const uiaSnapshotCount = safeCount(uiaDir);
     const eventCount = meta.eventCount ?? this.countEventLines(sessionId);
     const startedMs = Date.parse(meta.startedAtISO);
-    const stoppedMs = meta.stoppedAtISO ? Date.parse(meta.stoppedAtISO) : NaN;
+    const stoppedMs = meta.stoppedAtISO ? Date.parse(meta.stoppedAtISO) : Number.NaN;
     return {
       sessionId,
       dir,
@@ -179,7 +193,9 @@ export class RecorderStore {
 
   countEventLines(sessionId: string): number {
     const file = path.join(this.sessionDir(sessionId), "events.jsonl");
-    if (!fs.existsSync(file)) return 0;
+    if (!fs.existsSync(file)) {
+      return 0;
+    }
     try {
       const raw = fs.readFileSync(file, "utf8");
       return raw.split("\n").filter((l) => l.trim().length > 0).length;
@@ -190,7 +206,9 @@ export class RecorderStore {
 
   readEvents(sessionId: string, opts: { offset?: number; limit?: number } = {}): RecordingEvent[] {
     const file = path.join(this.sessionDir(sessionId), "events.jsonl");
-    if (!fs.existsSync(file)) return [];
+    if (!fs.existsSync(file)) {
+      return [];
+    }
     const offset = Math.max(0, opts.offset ?? 0);
     const limit = Math.min(5_000, opts.limit ?? 500);
     const out: RecordingEvent[] = [];
@@ -204,7 +222,9 @@ export class RecorderStore {
     let kept = 0;
     let skipped = 0;
     for (const line of lines) {
-      if (!line.trim()) continue;
+      if (!line.trim()) {
+        continue;
+      }
       if (skipped < offset) {
         skipped++;
         continue;
@@ -215,14 +235,18 @@ export class RecorderStore {
       } catch {
         /* skip corrupt line */
       }
-      if (kept >= limit) break;
+      if (kept >= limit) {
+        break;
+      }
     }
     return out;
   }
 
   delete(sessionId: string): boolean {
     const dir = this.sessionDir(sessionId);
-    if (!fs.existsSync(dir)) return false;
+    if (!fs.existsSync(dir)) {
+      return false;
+    }
     try {
       fs.rmSync(dir, { recursive: true, force: true });
       return true;
@@ -241,7 +265,9 @@ export class RecorderStore {
     policy: ScrubbingPolicy = defaultScrubbingPolicy(),
   ): { ok: boolean; redactions: number; error?: string } {
     const file = path.join(this.sessionDir(sessionId), "events.jsonl");
-    if (!fs.existsSync(file)) return { ok: false, redactions: 0, error: "events.jsonl missing" };
+    if (!fs.existsSync(file)) {
+      return { ok: false, redactions: 0, error: "events.jsonl missing" };
+    }
     let raw: string;
     try {
       raw = fs.readFileSync(file, "utf8");
@@ -283,7 +309,9 @@ export class RecorderStore {
 }
 
 function safeCount(dir: string): number {
-  if (!fs.existsSync(dir)) return 0;
+  if (!fs.existsSync(dir)) {
+    return 0;
+  }
   try {
     return fs.readdirSync(dir).length;
   } catch {
@@ -298,7 +326,7 @@ function dirSizeShallow(dir: string): number {
   while (stack.length > 0 && visits < 50_000) {
     const cur = stack.pop()!;
     visits++;
-    let entries: fs.Dirent[] = [];
+    let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(cur, { withFileTypes: true });
     } catch {
@@ -308,8 +336,11 @@ function dirSizeShallow(dir: string): number {
       const full = path.join(cur, e.name);
       try {
         const stat = fs.statSync(full);
-        if (stat.isFile()) total += stat.size;
-        else if (stat.isDirectory()) stack.push(full);
+        if (stat.isFile()) {
+          total += stat.size;
+        } else if (stat.isDirectory()) {
+          stack.push(full);
+        }
       } catch {
         /* ignore */
       }

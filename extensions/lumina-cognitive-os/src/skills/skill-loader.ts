@@ -128,7 +128,9 @@ function parseFrontmatter(raw: string): ParsedFrontmatter | { error: string } {
       break;
     }
   }
-  if (endIdx < 0) return { error: "missing closing --- delimiter" };
+  if (endIdx < 0) {
+    return { error: "missing closing --- delimiter" };
+  }
 
   const fmLines = lines.slice(1, endIdx);
   const body = lines
@@ -203,7 +205,9 @@ function parseFrontmatter(raw: string): ParsedFrontmatter | { error: string } {
           continue;
         }
         const subColon = sub.indexOf(":");
-        if (subColon < 0) continue;
+        if (subColon < 0) {
+          continue;
+        }
         const subKey = sub.slice(0, subColon).trim();
         const subVal = sub.slice(subColon + 1).trim();
         if (subKey) {
@@ -256,17 +260,24 @@ function isBalanced(text: string): boolean {
       inStr = !inStr;
       continue;
     }
-    if (inStr) continue;
-    if (ch === "{") curly++;
-    else if (ch === "}") curly--;
-    else if (ch === "[") square++;
-    else if (ch === "]") square--;
+    if (inStr) {
+      continue;
+    }
+    if (ch === "{") {
+      curly++;
+    } else if (ch === "}") {
+      curly--;
+    } else if (ch === "[") {
+      square++;
+    } else if (ch === "]") {
+      square--;
+    }
   }
   return curly === 0 && square === 0;
 }
 
 /** Tolerant JSON parser: strips trailing commas before } and ]. */
-function tryParseFlow(text: string): unknown | undefined {
+function tryParseFlow(text: string): unknown {
   const cleaned = text
     .replace(/,(\s*[}\]])/g, "$1") // trailing commas
     .trim();
@@ -306,11 +317,13 @@ export type SemVer = {
 
 export function parseSemVer(version: string): SemVer | null {
   const match = version.match(SEMVER_RE);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   return {
-    major: parseInt(match[1]!, 10),
-    minor: parseInt(match[2]!, 10),
-    patch: parseInt(match[3]!, 10),
+    major: Number.parseInt(match[1]!, 10),
+    minor: Number.parseInt(match[2]!, 10),
+    patch: Number.parseInt(match[3]!, 10),
     prerelease: match[4],
     raw: version,
   };
@@ -327,17 +340,31 @@ export function isValidSemVer(version: string): boolean {
 export function compareSemVer(a: string, b: string): number {
   const va = parseSemVer(a);
   const vb = parseSemVer(b);
-  if (!va || !vb) return 0; // Invalid versions are considered equal
+  if (!va || !vb) {
+    return 0;
+  } // Invalid versions are considered equal
 
   // Compare major.minor.patch
-  if (va.major !== vb.major) return va.major < vb.major ? -1 : 1;
-  if (va.minor !== vb.minor) return va.minor < vb.minor ? -1 : 1;
-  if (va.patch !== vb.patch) return va.patch < vb.patch ? -1 : 1;
+  if (va.major !== vb.major) {
+    return va.major < vb.major ? -1 : 1;
+  }
+  if (va.minor !== vb.minor) {
+    return va.minor < vb.minor ? -1 : 1;
+  }
+  if (va.patch !== vb.patch) {
+    return va.patch < vb.patch ? -1 : 1;
+  }
 
   // Prerelease versions have lower precedence than normal versions
-  if (!va.prerelease && vb.prerelease) return 1; // a is release, b is prerelease
-  if (va.prerelease && !vb.prerelease) return -1; // a is prerelease, b is release
-  if (!va.prerelease && !vb.prerelease) return 0; // Both are releases
+  if (!va.prerelease && vb.prerelease) {
+    return 1;
+  } // a is release, b is prerelease
+  if (va.prerelease && !vb.prerelease) {
+    return -1;
+  } // a is prerelease, b is release
+  if (!va.prerelease && !vb.prerelease) {
+    return 0;
+  } // Both are releases
 
   // Compare prerelease identifiers lexicographically
   return va.prerelease!.localeCompare(vb.prerelease!);
@@ -351,7 +378,9 @@ export function compareSemVer(a: string, b: string): number {
  */
 export function incrementSemVer(version: string, part: "major" | "minor" | "patch"): string {
   const v = parseSemVer(version);
-  if (!v) return "1.0.0"; // Default fallback
+  if (!v) {
+    return "1.0.0";
+  } // Default fallback
 
   switch (part) {
     case "major":
@@ -361,12 +390,19 @@ export function incrementSemVer(version: string, part: "major" | "minor" | "patc
     case "patch":
       return `${v.major}.${v.minor}.${v.patch + 1}`;
   }
+  throw new Error(`unsupported version part: ${JSON.stringify(part)}`);
 }
 
 function validateName(name: unknown, folder: string): string | null {
-  if (typeof name !== "string") return "frontmatter `name` must be a string";
-  if (name.length === 0) return "frontmatter `name` is empty";
-  if (name.length > MAX_NAME) return `frontmatter \`name\` exceeds ${MAX_NAME} chars`;
+  if (typeof name !== "string") {
+    return "frontmatter `name` must be a string";
+  }
+  if (name.length === 0) {
+    return "frontmatter `name` is empty";
+  }
+  if (name.length > MAX_NAME) {
+    return `frontmatter \`name\` exceeds ${MAX_NAME} chars`;
+  }
   if (!NAME_RE.test(name)) {
     return "frontmatter `name` must match /^[a-z0-9]+(-[a-z0-9]+)*$/ (lowercase, hyphens, no leading/trailing or consecutive hyphens)";
   }
@@ -377,9 +413,13 @@ function validateName(name: unknown, folder: string): string | null {
 }
 
 function validateDescription(desc: unknown): string | null {
-  if (typeof desc !== "string") return "frontmatter `description` must be a string";
+  if (typeof desc !== "string") {
+    return "frontmatter `description` must be a string";
+  }
   const trimmed = desc.trim();
-  if (trimmed.length === 0) return "frontmatter `description` is empty";
+  if (trimmed.length === 0) {
+    return "frontmatter `description` is empty";
+  }
   if (desc.length > MAX_DESCRIPTION) {
     return `frontmatter \`description\` exceeds ${MAX_DESCRIPTION} chars`;
   }
@@ -388,28 +428,34 @@ function validateDescription(desc: unknown): string | null {
 
 function listResources(skillRoot: string, subdir: string): SkillResource[] {
   const dir = path.join(skillRoot, subdir);
-  if (!fs.existsSync(dir)) return [];
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
   const out: SkillResource[] = [];
   walk(skillRoot, dir, out);
   return out.slice(0, MAX_ASSET_LIST);
 }
 
 function walk(root: string, current: string, out: SkillResource[]): void {
-  let entries: fs.Dirent[] = [];
+  let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(current, { withFileTypes: true });
   } catch {
     return;
   }
   for (const entry of entries) {
-    if (out.length >= MAX_ASSET_LIST) return;
+    if (out.length >= MAX_ASSET_LIST) {
+      return;
+    }
     const full = path.join(current, entry.name);
     if (entry.isDirectory()) {
       walk(root, full, out);
       continue;
     }
-    if (!entry.isFile()) continue; // skip symlinks / sockets — security
-    let size = 0;
+    if (!entry.isFile()) {
+      continue;
+    } // skip symlinks / sockets — security
+    let size: number;
     try {
       size = fs.statSync(full).size;
     } catch {
@@ -444,7 +490,9 @@ export class SkillLoader {
   /** Reload only if more than reloadEveryMs since the last load. */
   private reloadIfStale(force = false): void {
     const now = Date.now();
-    if (!force && now - this.lastLoadedAtMs < this.reloadEveryMs) return;
+    if (!force && now - this.lastLoadedAtMs < this.reloadEveryMs) {
+      return;
+    }
     this.lastLoadedAtMs = now;
     const next = new Map<string, Skill>();
     const errors: SkillLoadError[] = [];
@@ -453,7 +501,7 @@ export class SkillLoader {
       this.cacheErrors = errors;
       return;
     }
-    let entries: fs.Dirent[] = [];
+    let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(this.skillsDir, { withFileTypes: true });
     } catch (e) {
@@ -468,11 +516,15 @@ export class SkillLoader {
       return;
     }
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
+      if (!entry.isDirectory()) {
+        continue;
+      }
       const folder = entry.name;
       const skillDir = path.join(this.skillsDir, folder);
       const skillFile = path.join(skillDir, "SKILL.md");
-      if (!fs.existsSync(skillFile)) continue; // not a skill folder
+      if (!fs.existsSync(skillFile)) {
+        continue;
+      } // not a skill folder
       const parsed = this.loadOne(folder, skillDir, skillFile);
       if ("error" in parsed) {
         errors.push({ folder, skillFile, error: parsed.error });
@@ -485,7 +537,7 @@ export class SkillLoader {
   }
 
   private loadOne(folder: string, skillDir: string, skillFile: string): Skill | { error: string } {
-    let raw = "";
+    let raw: string;
     try {
       const stat = fs.statSync(skillFile);
       if (stat.size > MAX_BODY_BYTES) {
@@ -496,12 +548,18 @@ export class SkillLoader {
       return { error: `unable to read SKILL.md: ${(e as Error).message}` };
     }
     const parsed = parseFrontmatter(raw);
-    if ("error" in parsed) return { error: parsed.error };
+    if ("error" in parsed) {
+      return { error: parsed.error };
+    }
 
     const nameErr = validateName(parsed.data.name, folder);
-    if (nameErr) return { error: nameErr };
+    if (nameErr) {
+      return { error: nameErr };
+    }
     const descErr = validateDescription(parsed.data.description);
-    if (descErr) return { error: descErr };
+    if (descErr) {
+      return { error: descErr };
+    }
 
     const id = parsed.data.name as string;
 
@@ -650,7 +708,7 @@ export class SkillLoader {
         deprecationMessage: skill.deprecationMessage,
         replacedBy: skill.replacedBy,
       }))
-      .sort((a, b) => a.id.localeCompare(b.id));
+      .toSorted((a, b) => a.id.localeCompare(b.id));
   }
 
   /** Activation tier — full instructions + resource paths. */
@@ -681,7 +739,9 @@ export class SkillLoader {
     options: { maxBytes?: number; encoding?: BufferEncoding | "binary" } = {},
   ): { ok: true; bytes: number; content: string } | { ok: false; error: string } {
     const skill = this.get(skillId);
-    if (!skill) return { ok: false, error: `skill '${skillId}' not found` };
+    if (!skill) {
+      return { ok: false, error: `skill '${skillId}' not found` };
+    }
     const maxBytes = options.maxBytes ?? 256 * 1024;
     const cleanRel = relPath.replace(/\\/g, "/").replace(/^\/+/, "");
     if (cleanRel.includes("..") || path.isAbsolute(cleanRel)) {

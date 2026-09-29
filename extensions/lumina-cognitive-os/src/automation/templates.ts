@@ -194,7 +194,9 @@ function normalize(s: string): string {
 
 export function matchTemplate(utterance: string): IntentTemplate | null {
   const u = normalize(utterance);
-  if (u.length === 0) return null;
+  if (u.length === 0) {
+    return null;
+  }
   let best: { tpl: IntentTemplate; score: number } | null = null;
   for (const tpl of INTENT_TEMPLATES) {
     for (const trig of tpl.triggers) {

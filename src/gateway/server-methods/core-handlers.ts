@@ -4,6 +4,8 @@ import {
   listCoreGatewayHandlerMethodNames,
   type CoreGatewayHandlerFamily,
 } from "../methods/core-method-policy.js";
+import type { GatewayMethodRegistryView } from "../methods/descriptor.js";
+import { gatewayClientUploadPolicyError } from "../upload-policy.js";
 import { createLazyCoreHandlers } from "./lazy-core-handlers.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
@@ -77,6 +79,7 @@ const CORE_GATEWAY_HANDLER_MODULES = {
     import("./models-auth-order.js").then((module) => module.modelsAuthOrderHandlers),
   models: () => import("./models.js").then((module) => module.modelsHandlers),
   "models-probe": () => import("./models-probe.js").then((module) => module.modelsProbeHandlers),
+  "web-search": () => import("./web-search.js").then((module) => module.webSearchHandlers),
   "native-hook-relay": () =>
     import("./native-hook-relay.js").then((module) => module.nativeHookRelayHandlers),
   "nodes-pending": () =>
@@ -117,6 +120,8 @@ const CORE_GATEWAY_HANDLER_MODULES = {
   "sessions-groups": () =>
     import("./sessions-groups.js").then((module) => module.sessionGroupHandlers),
   "sessions-goal": () => import("./sessions-goal.js").then((module) => module.sessionGoalHandlers),
+  "sessions-provider-review": () =>
+    import("./sessions-provider-review.js").then((module) => module.sessionProviderReviewHandlers),
   "sessions-messaging": () =>
     import("./sessions-messaging.js").then((module) => module.sessionMessagingHandlers),
   "sessions-mutations": () =>
@@ -143,10 +148,10 @@ const CORE_GATEWAY_HANDLER_MODULES = {
   "hooks-status": () => import("./hooks-status.js").then((module) => module.hooksStatusHandlers),
   skills: () => import("./skills.js").then((module) => module.skillsHandlers),
   system: () => import("./system.js").then((module) => module.systemHandlers),
+  presence: () => import("./presence.js").then((module) => module.presenceHandlers),
   talk: () => import("../talk/handlers/index.js").then((module) => module.talkHandlers),
   // Mode synchronization does not depend on loading speech or realtime providers.
   "talk-mode": () => import("../talk/handlers/mode.js").then((module) => module.talkModeHandlers),
-  tasks: () => import("./tasks.js").then((module) => module.tasksHandlers),
   "task-suggestions": () =>
     import("./task-suggestions.js").then((module) => module.taskSuggestionsHandlers),
   "tools-catalog": () => import("./tools-catalog.js").then((module) => module.toolsCatalogHandlers),
@@ -182,3 +187,24 @@ export const coreGatewayHandlers: GatewayRequestHandlers = Object.fromEntries(
     ),
   ),
 );
+
+// Canonical receipt owners distinguish replay from new input after authorization.
+// Overrides retain both router fences; a method name alone cannot delegate admission.
+export function gatewayRouterUploadPolicyError(
+  params: Parameters<typeof gatewayClientUploadPolicyError>[0],
+  registry: Pick<GatewayMethodRegistryView, "getHandler">,
+) {
+  switch (params.method) {
+    case "agent":
+    case "chat.send":
+    case "sessions.send":
+    case "sessions.steer":
+    case "sessions.create":
+    case "send":
+    case "message.action":
+      if (registry.getHandler(params.method) === coreGatewayHandlers[params.method]) {
+        return null;
+      }
+  }
+  return gatewayClientUploadPolicyError(params);
+}

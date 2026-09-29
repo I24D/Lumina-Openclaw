@@ -133,14 +133,20 @@ export function classifyWindow(signals: WindowSignals): WindowClassification {
   if (proc) {
     if (BROWSER_PROCESSES.has(proc)) {
       isBrowser = true;
-      if (kind === "unknown" || kind === "chromium") kind = "chromium";
+      if (kind === "unknown" || kind === "chromium") {
+        kind = "chromium";
+      }
       confidence = Math.max(confidence, 0.85);
     } else if (ELECTRON_PROCESSES.has(proc)) {
       isElectron = true;
-      if (kind === "unknown" || kind === "chromium") kind = "chromium";
+      if (kind === "unknown" || kind === "chromium") {
+        kind = "chromium";
+      }
       confidence = Math.max(confidence, 0.8);
     } else if (UWP_HOST_PROCESSES.has(proc)) {
-      if (kind === "unknown") kind = "uwp";
+      if (kind === "unknown") {
+        kind = "uwp";
+      }
       confidence = Math.max(confidence, 0.75);
     }
   }
@@ -148,7 +154,9 @@ export function classifyWindow(signals: WindowSignals): WindowClassification {
   // 3) Default: a plain native window. Prefer win32 unless className said WPF.
   if (kind === "unknown") {
     kind = proc || cls ? "win32" : "unknown";
-    if (kind === "win32") confidence = Math.max(confidence, 0.5);
+    if (kind === "win32") {
+      confidence = Math.max(confidence, 0.5);
+    }
   }
 
   return {
@@ -179,7 +187,9 @@ const BASE_ORDER: readonly Strategy[] = [
 function moveBefore(order: Strategy[], move: Strategy, before: Strategy): Strategy[] {
   const without = order.filter((s) => s !== move);
   const idx = without.indexOf(before);
-  if (idx < 0) return [move, ...without];
+  if (idx < 0) {
+    return [move, ...without];
+  }
   return [...without.slice(0, idx), move, ...without.slice(idx)];
 }
 

@@ -14,12 +14,16 @@ export function ensureDir(dir: string): void {
 }
 
 export function readJsonlSync<T>(filePath: string): T[] {
-  if (!fs.existsSync(filePath)) return [];
+  if (!fs.existsSync(filePath)) {
+    return [];
+  }
   const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
   const out: T[] = [];
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
+    if (trimmed.length === 0) {
+      continue;
+    }
     try {
       out.push(JSON.parse(trimmed) as T);
     } catch {
@@ -29,12 +33,12 @@ export function readJsonlSync<T>(filePath: string): T[] {
   return out;
 }
 
-export function appendJsonl<T>(filePath: string, value: T): void {
+export function appendJsonl(filePath: string, value: unknown): void {
   ensureDir(path.dirname(filePath));
   fs.appendFileSync(filePath, JSON.stringify(value) + "\n", "utf8");
 }
 
-export function rewriteJsonl<T>(filePath: string, values: ReadonlyArray<T>): void {
+export function rewriteJsonl(filePath: string, values: ReadonlyArray<unknown>): void {
   ensureDir(path.dirname(filePath));
   const tmp = filePath + ".tmp";
   fs.writeFileSync(tmp, values.map((v) => JSON.stringify(v)).join("\n") + "\n", "utf8");

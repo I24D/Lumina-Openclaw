@@ -72,7 +72,9 @@ function client(deps: PcToolsDeps): BridgeClient {
 
 async function resolveUia(query: string, controlType?: string): Promise<UiaFindResponse | null> {
   const args = ["--find", query, "--max-matches", "3"];
-  if (controlType) args.push("--control-type", controlType);
+  if (controlType) {
+    args.push("--control-type", controlType);
+  }
   const r = await runPythonSidecarJson<UiaFindResponse>("uia_tree", args, { timeoutMs: 15_000 });
   return r.ok ? (r.data ?? null) : null;
 }
@@ -90,9 +92,13 @@ async function pickCenter(
   | { ok: false; error: string; matches?: UiaMatch[] }
 > {
   const resolved = await resolveUia(query);
-  if (!resolved) return { ok: false, error: "uia_sidecar_failed" };
+  if (!resolved) {
+    return { ok: false, error: "uia_sidecar_failed" };
+  }
   const matches = resolved.matches ?? [];
-  if (matches.length === 0) return { ok: false, error: "no_match", matches };
+  if (matches.length === 0) {
+    return { ok: false, error: "no_match", matches };
+  }
   const top = matches[0]!;
   if (top.score < minScore || !top.center) {
     return { ok: false, error: "low_confidence", matches };
@@ -234,7 +240,7 @@ export function createPcObserveTool(deps: PcToolsDeps): AnyAgentTool {
         perception: perceptionLatest,
         freshnessMs:
           typeof perceptionLatest?.atISO === "string"
-            ? Math.max(0, Date.now() - Date.parse(String(perceptionLatest.atISO)))
+            ? Math.max(0, Date.now() - Date.parse(perceptionLatest.atISO))
             : null,
         hints: {
           nextStep:
@@ -266,6 +272,7 @@ function scrollVector(direction: ScrollDirection, notches: number): { dx: number
     case "right":
       return { dx: n, dy: 0 };
   }
+  throw new ToolInputError(`unsupported scroll direction: ${JSON.stringify(direction)}`);
 }
 
 export function createPcScrollTool(deps: PcToolsDeps): AnyAgentTool {
@@ -461,7 +468,7 @@ export function createPcDragTool(deps: PcToolsDeps): AnyAgentTool {
       const stepDelayMs = typeof params.stepDelayMs === "number" ? params.stepDelayMs : 8;
 
       // Resolve FROM endpoint.
-      let from: { x: number; y: number } | null = null;
+      let from: { x: number; y: number };
       let fromPicked: UiaMatch | null = null;
       if (params.fromQuery) {
         const picked = await pickCenter(params.fromQuery.trim(), 0.5);
@@ -493,7 +500,7 @@ export function createPcDragTool(deps: PcToolsDeps): AnyAgentTool {
       }
 
       // Resolve TO endpoint.
-      let to: { x: number; y: number } | null = null;
+      let to: { x: number; y: number };
       let toPicked: UiaMatch | null = null;
       if (params.toQuery) {
         const picked = await pickCenter(params.toQuery.trim(), 0.5);

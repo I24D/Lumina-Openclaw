@@ -69,7 +69,9 @@ function pickRecordedTarget(ctx: StrategyContext): RecordedTarget | null {
   // can search the UIA snapshot file. The engine handles loading; here
   // we use whichever is in scope.
   const enriched = (ctx.recorded as unknown as { element?: RecordedTarget }).element;
-  if (enriched && (enriched.automationId || enriched.name)) return enriched;
+  if (enriched && (enriched.automationId || enriched.name)) {
+    return enriched;
+  }
   return null;
 }
 
@@ -89,13 +91,17 @@ function bestUiaMatch(
 
 function scoreMatch(target: RecordedTarget, n: LiveUiaNode): number {
   let s = 0;
-  if (target.automationId && n.automationId && target.automationId === n.automationId) s = 1.0;
-  else if (target.name && n.name && target.name === n.name) s = Math.max(s, 0.85);
-  else if (target.name && n.name && n.name.toLowerCase().includes(target.name.toLowerCase())) {
+  if (target.automationId && n.automationId && target.automationId === n.automationId) {
+    s = 1;
+  } else if (target.name && n.name && target.name === n.name) {
+    s = Math.max(s, 0.85);
+  } else if (target.name && n.name && n.name.toLowerCase().includes(target.name.toLowerCase())) {
     s = Math.max(s, 0.6);
   }
-  if (target.controlType && n.controlType === target.controlType) s += 0.05;
-  return Math.min(1.0, s);
+  if (target.controlType && n.controlType === target.controlType) {
+    s += 0.05;
+  }
+  return Math.min(1, s);
 }
 
 async function forwardNaive(ctx: StrategyContext): Promise<ResolvedAction> {

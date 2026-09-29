@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import { Type } from "typebox";
+import { textOf } from "../shared/text.js";
 import {
   jsonResult,
   ToolAuthorizationError,
@@ -17,11 +16,10 @@ import {
   type SupabaseConfigOptions,
 } from "./supabase-client.js";
 
-type ToolDeps = SupabaseConfigOptions & {
+export type ToolDeps = SupabaseConfigOptions & {
   readonly warehousesPath?: string;
 };
 
-const DEFAULT_WAREHOUSES_PATH = "c:/I24D_WhatsApp/src/cuerpo/warehouses";
 const LUMINA_MEMORY_TABLES = [
   "long_term_memories",
   "knowledge_entries",
@@ -42,26 +40,19 @@ const MEMORY_KIND_VALUES = [
   "note",
 ] as const;
 
-const WAREHOUSE_PARTITIONS = [
-  ["1.1", "formal_sciences"],
-  ["1.2", "natural_sciences"],
-  ["1.3", "social_sciences"],
-  ["1.4", "humanities"],
-  ["1.5", "applied_sciences"],
-  ["1.6", "arts"],
-] as const;
-
-function errorResult(err: unknown) {
+export function errorResult(err: unknown) {
   return jsonResult({ ok: false, error: err instanceof Error ? err.message : String(err) });
 }
 
 function parseContentRange(value: string | null): number | null {
-  if (!value) return null;
+  if (!value) {
+    return null;
+  }
   const match = value.match(/\/(\d+)$/u);
   return match ? Number(match[1]) : null;
 }
 
-function clampLimit(value: unknown, fallback: number, maxRows: number): number {
+export function clampLimit(value: unknown, fallback: number, maxRows: number): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     return Math.min(fallback, maxRows);
   }
@@ -69,11 +60,7 @@ function clampLimit(value: unknown, fallback: number, maxRows: number): number {
 }
 
 function sanitizeSearchTerm(value: unknown): string {
-  return String(value ?? "")
-    .replace(/[(),]/gu, " ")
-    .replace(/\s+/gu, " ")
-    .trim()
-    .slice(0, 120);
+  return textOf(value).replace(/[(),]/gu, " ").replace(/\s+/gu, " ").trim().slice(0, 120);
 }
 
 function textSnippet(value: unknown, max = 700): string {
@@ -82,9 +69,13 @@ function textSnippet(value: unknown, max = 700): string {
 }
 
 function maybeParseJson(value: unknown): unknown {
-  if (typeof value !== "string") return value;
+  if (typeof value !== "string") {
+    return value;
+  }
   const trimmed = value.trim();
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return value;
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+    return value;
+  }
   try {
     return JSON.parse(trimmed);
   } catch {
@@ -93,12 +84,18 @@ function maybeParseJson(value: unknown): unknown {
 }
 
 function maybeDecodePayload(value: unknown): string {
-  if (typeof value !== "string" || value.length < 12) return typeof value === "string" ? value : "";
-  if (!/^[A-Za-z0-9+/=\r\n]+$/u.test(value) || value.length % 4 !== 0) return value;
+  if (typeof value !== "string" || value.length < 12) {
+    return typeof value === "string" ? value : "";
+  }
+  if (!/^[A-Za-z0-9+/=\r\n]+$/u.test(value) || value.length % 4 !== 0) {
+    return value;
+  }
   try {
     const decoded = Buffer.from(value, "base64").toString("utf8");
     const printable = decoded.replace(/[\t\r\n -~]/gu, "");
-    if (decoded.length > 0 && printable.length / decoded.length < 0.15) return decoded;
+    if (decoded.length > 0 && printable.length / decoded.length < 0.15) {
+      return decoded;
+    }
   } catch {
     // Not base64 text.
   }
@@ -118,7 +115,7 @@ function normalizeLongTermMemory(row: Record<string, unknown>) {
     meta.summary ?? parsedObj?.summary ?? parsedObj?.payload ?? row.summary,
     500,
   );
-  const userId = String(row.user_id ?? "");
+  const userId = textOf(row.user_id);
   return {
     table: "long_term_memories",
     id: row.id,
@@ -170,15 +167,21 @@ function normalizeStateDocument(row: Record<string, unknown>) {
     scope: row.scope,
     key: row.document_key,
     updatedAt: row.updated_at,
-    summary: `${row.scope ?? "state"}:${row.document_key ?? ""}`,
+    summary: `${textOf(row.scope, "state")}:${textOf(row.document_key)}`,
     snippet: textSnippet(row.payload, 900),
   };
 }
 
 export function normalizeLuminaMemoryRow(table: MemoryTable, row: Record<string, unknown>) {
-  if (table === "long_term_memories") return normalizeLongTermMemory(row);
-  if (table === "knowledge_entries") return normalizeKnowledgeEntry(row);
-  if (table === "interaction_log") return normalizeInteraction(row);
+  if (table === "long_term_memories") {
+    return normalizeLongTermMemory(row);
+  }
+  if (table === "knowledge_entries") {
+    return normalizeKnowledgeEntry(row);
+  }
+  if (table === "interaction_log") {
+    return normalizeInteraction(row);
+  }
   return normalizeStateDocument(row);
 }
 
@@ -190,7 +193,9 @@ async function countRows(
   const params = new URLSearchParams();
   params.set("select", "*");
   params.set("limit", "1");
-  for (const [key, value] of Object.entries(filters)) params.set(key, value);
+  for (const [key, value] of Object.entries(filters)) {
+    params.set(key, value);
+  }
   const response = await supabaseFetch(cfg, `/rest/v1/${table}?${params.toString()}`, {
     method: "GET",
     headers: { prefer: "count=exact" },
@@ -229,7 +234,9 @@ async function fetchMemoryRows(
 }
 
 function appendSearchFilter(table: MemoryTable, params: URLSearchParams, term: string): void {
-  if (!term) return;
+  if (!term) {
+    return;
+  }
   const pattern = `*${term}*`;
   if (table === "long_term_memories") {
     params.set("summary", `ilike.${pattern}`);
@@ -243,7 +250,9 @@ function appendSearchFilter(table: MemoryTable, params: URLSearchParams, term: s
 }
 
 function appendWarehouseFilter(params: URLSearchParams, warehouse: string | undefined): void {
-  if (!warehouse || warehouse === "all" || warehouse === "legacy") return;
+  if (!warehouse || warehouse === "all" || warehouse === "legacy") {
+    return;
+  }
   const prefix = warehouse === "lumina_openclaw" ? "lumina_openclaw" : warehouse;
   params.set("user_id", `like.${prefix}::*`);
 }
@@ -264,8 +273,8 @@ const LUMINA_OPENCLAW_WAREHOUSE = "lumina_openclaw";
 
 function resolveCanonicalUserId(value?: unknown): string {
   return (
-    String(value ?? "").trim() ||
-    String(process.env.LUMINA_CANONICAL_USER_ID ?? "").trim() ||
+    textOf(value).trim() ||
+    (process.env.LUMINA_CANONICAL_USER_ID ?? "").trim() ||
     "lumina-user:owner"
   );
 }
@@ -288,7 +297,9 @@ function memoryIdFor(input: {
 }
 
 function normalizeTags(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
   return [
     ...new Set(
       raw
@@ -300,67 +311,6 @@ function normalizeTags(raw: unknown): string[] {
         .filter(Boolean),
     ),
   ].slice(0, 16);
-}
-
-function resolveHostPath(input: string): string {
-  const normalized = input.replace(/\\/gu, "/");
-  const drive = normalized.match(/^([a-zA-Z]):\/(.+)$/u);
-  if (drive && process.platform !== "win32") {
-    return `/mnt/${drive[1]?.toLowerCase()}/${drive[2]}`;
-  }
-  return path.resolve(input);
-}
-
-function listChildDirs(root: string, rel = "", limit = 40): string[] {
-  const target = path.join(root, rel);
-  try {
-    return fs
-      .readdirSync(target, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort((a, b) => a.localeCompare(b))
-      .slice(0, limit);
-  } catch {
-    return [];
-  }
-}
-
-function buildWarehouseCatalog(rootInput: string, maxItems: number) {
-  const root = resolveHostPath(rootInput);
-  const exists = fs.existsSync(root);
-  const warehouseA = WAREHOUSE_PARTITIONS.map(([folder, domain]) => {
-    const repos = listChildDirs(root, path.join("warehouseA", folder), maxItems);
-    return { folder, domain, repoCount: repos.length, sampleRepos: repos.slice(0, 12) };
-  });
-  const warehouseCodexRepos = listChildDirs(
-    root,
-    path.join("warehouseCodex", "down_repos"),
-    maxItems,
-  );
-  return {
-    generatedAt: new Date().toISOString(),
-    root: rootInput,
-    resolvedRoot: root,
-    exists,
-    recommendation:
-      "Keep src/cuerpo/warehouses in place. Use Supabase as persistent memory and catalog/index only lightweight summaries for OpenClaw.",
-    warehouseA,
-    warehouseB: {
-      topLevel: listChildDirs(root, "warehouseB", maxItems),
-    },
-    warehouseCodex: {
-      topLevel: listChildDirs(root, "warehouseCodex", maxItems),
-      downReposCount: warehouseCodexRepos.length,
-      sampleRepos: warehouseCodexRepos.slice(0, 16),
-    },
-    shared: {
-      files: exists
-        ? ["index.ts", "shared/warehouseBase.ts", "shared/warehouseTypes.ts"].filter((file) =>
-            fs.existsSync(path.join(root, file)),
-          )
-        : [],
-    },
-  };
 }
 
 export function createLuminaMemoryStatusTool(deps: ToolDeps): AnyAgentTool {
@@ -507,8 +457,10 @@ export function createLuminaMemorySearchTool(deps: ToolDeps): AnyAgentTool {
           for (const row of fetched.rows) {
             const normalized = normalizeLuminaMemoryRow(table, row);
             if (input.warehouse === "legacy" && normalized.table === "long_term_memories") {
-              const userId = String((normalized as { userId?: unknown }).userId ?? "");
-              if (userId.includes("::")) continue;
+              const legacyUserId = textOf((normalized as { userId?: unknown }).userId);
+              if (legacyUserId.includes("::")) {
+                continue;
+              }
             }
             results.push(normalized);
           }
@@ -575,16 +527,18 @@ export function createLuminaMemoryRememberTool(deps: ToolDeps): AnyAgentTool {
             "Lumina memory writes are disabled. Set LUMINA_SUPABASE_ALLOW_WRITES=true to enable.",
           );
         }
-        const text = String(input.text ?? "").trim();
-        if (!text) throw new ToolInputError("text is required");
+        const text = textOf(input.text).trim();
+        if (!text) {
+          throw new ToolInputError("text is required");
+        }
         const kind = input.kind && MEMORY_KIND_VALUES.includes(input.kind) ? input.kind : "note";
         const tags = normalizeTags(input.tags);
-        const source = String(input.source ?? "openclaw").trim() || "openclaw";
+        const source = textOf(input.source, "openclaw").trim() || "openclaw";
         // This tool writes into the `lumina_openclaw` warehouse, and readers
         // (countRows below, plus the warehouse/kind split in parseMemoryRow)
         // expect `<warehouse>::<kind>`. Falling back to the generic canonical
         // user id stored rows that those queries could never find again.
-        const userId = String(input.userId ?? "").trim() || `${LUMINA_OPENCLAW_WAREHOUSE}::${kind}`;
+        const userId = textOf(input.userId).trim() || `${LUMINA_OPENCLAW_WAREHOUSE}::${kind}`;
         const importance =
           typeof input.importance === "number" && Number.isFinite(input.importance)
             ? Math.max(1, Math.min(5, Math.trunc(input.importance)))
@@ -625,7 +579,7 @@ export function createLuminaMemoryRememberTool(deps: ToolDeps): AnyAgentTool {
         const shouldWriteKnowledge =
           input.alsoKnowledgeEntry === true || typeof input.question === "string";
         if (shouldWriteKnowledge) {
-          const question = String(input.question ?? (tags.join(" ") || text.slice(0, 240))).trim();
+          const question = textOf(input.question, tags.join(" ") || text.slice(0, 240)).trim();
           const knowledgeResponse = await supabaseFetch(
             cfg,
             "/rest/v1/knowledge_entries?on_conflict=id&select=id,question,source,confidence,created_at",
@@ -664,72 +618,6 @@ export function createLuminaMemoryRememberTool(deps: ToolDeps): AnyAgentTool {
           memory: memoryParsed.data,
           knowledgeEntry,
         });
-      } catch (err) {
-        return errorResult(err);
-      }
-    },
-  };
-}
-
-export function createLuminaWarehouseCatalogTool(deps: ToolDeps): AnyAgentTool {
-  return {
-    name: "lumina_warehouse_catalog",
-    label: "Lumina Warehouse Catalog",
-    description:
-      "Catalogs src/cuerpo/warehouses without loading local AI/cerebro modules. Optionally persists the catalog in Supabase state.",
-    parameters: Type.Object({
-      warehousesPath: Type.Optional(Type.String({ maxLength: 500 })),
-      maxItems: Type.Optional(Type.Number({ minimum: 1, maximum: 200 })),
-      writeToSupabase: Type.Optional(Type.Boolean({ default: false })),
-    }),
-    async execute(_id, rawParams) {
-      // Narrowed once against this tool's schema; the tool runtime
-      // validates the payload before execute() is ever called.
-      const raw = rawParams as {
-        warehousesPath?: string;
-        maxItems?: number;
-        writeToSupabase?: boolean;
-      };
-      try {
-        const input = raw as {
-          warehousesPath?: unknown;
-          maxItems?: unknown;
-          writeToSupabase?: boolean;
-        };
-        const cfg = resolveSupabaseConfig(deps);
-        const root = String(input.warehousesPath ?? deps.warehousesPath ?? DEFAULT_WAREHOUSES_PATH);
-        const catalog = buildWarehouseCatalog(root, clampLimit(input.maxItems, 40, 200));
-
-        if (input.writeToSupabase === true) {
-          if (!cfg.allowWrites) {
-            throw new ToolAuthorizationError(
-              "Supabase writes are disabled. Set LUMINA_SUPABASE_ALLOW_WRITES=true to persist the warehouse catalog.",
-            );
-          }
-          const response = await supabaseFetch(
-            cfg,
-            "/rest/v1/lumina_state_documents?on_conflict=workspace_id,scope,document_key&select=workspace_id,scope,document_key,updated_at",
-            {
-              method: "POST",
-              headers: { prefer: "resolution=merge-duplicates,return=representation" },
-              body: JSON.stringify({
-                workspace_id: "lumina",
-                scope: "warehouse",
-                document_key: "catalog",
-                payload: catalog,
-                updated_at: new Date().toISOString(),
-              }),
-              timeoutMs: 20_000,
-            },
-          );
-          const parsed = await readSupabaseJson<unknown[]>(response);
-          if (!parsed.ok) {
-            return jsonResult({ ok: false, catalog, error: parsed.error, status: parsed.status });
-          }
-          return jsonResult({ ok: true, persisted: true, catalog, stateDocument: parsed.data });
-        }
-
-        return jsonResult({ ok: true, persisted: false, catalog });
       } catch (err) {
         return errorResult(err);
       }

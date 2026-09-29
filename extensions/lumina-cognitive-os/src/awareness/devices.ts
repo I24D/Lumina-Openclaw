@@ -25,14 +25,18 @@ const QUERIES: ReadonlyArray<{ class: DeviceInfo["class"]; psClass: string }> = 
 ];
 
 export async function readDevices(timeoutMs = 8_000): Promise<DeviceInfo[]> {
-  if (process.platform !== "win32") return [];
+  if (process.platform !== "win32") {
+    return [];
+  }
   const all: DeviceInfo[] = [];
   for (const q of QUERIES) {
     const r = await runPowerShellJson<Raw | Raw[]>(
       `Get-PnpDevice -Class ${q.psClass} -PresentOnly -ErrorAction SilentlyContinue | Select-Object FriendlyName, Status, Class`,
       timeoutMs,
     );
-    if (!r.ok) continue;
+    if (!r.ok) {
+      continue;
+    }
     const list = Array.isArray(r.data) ? r.data : r.data === null ? [] : [r.data];
     for (const row of list) {
       const name = row.FriendlyName ?? "unknown";

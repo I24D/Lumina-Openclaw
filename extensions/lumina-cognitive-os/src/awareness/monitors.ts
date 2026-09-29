@@ -43,9 +43,13 @@ const SCRIPT = `
 `;
 
 export async function readMonitors(timeoutMs = 4_000): Promise<MonitorInfo[]> {
-  if (process.platform !== "win32") return [];
+  if (process.platform !== "win32") {
+    return [];
+  }
   const r = await runPowerShellJson<RawScreen | RawScreen[]>(SCRIPT, timeoutMs);
-  if (!r.ok) return [];
+  if (!r.ok) {
+    return [];
+  }
   const list = Array.isArray(r.data) ? r.data : r.data === null ? [] : [r.data];
   return list.map((s, i) => ({
     index: i,

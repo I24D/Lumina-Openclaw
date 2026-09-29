@@ -41,7 +41,9 @@ export async function readDisks(timeoutMs = 6_000): Promise<{
   physical: DiskInfo[];
   volumes: VolumeInfo[];
 }> {
-  if (process.platform !== "win32") return { physical: [], volumes: [] };
+  if (process.platform !== "win32") {
+    return { physical: [], volumes: [] };
+  }
   const [pd, vol] = await Promise.all([
     runPowerShellJson<RawDisk | RawDisk[]>(
       `Get-PhysicalDisk | Select-Object FriendlyName, MediaType, HealthStatus, Size, BusType`,

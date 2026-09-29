@@ -35,6 +35,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ActionLogStore } from "../memory/action-log.js";
 import type { RecorderStore, RecordingEvent } from "../recorder/recorder-store.js";
+import { textOf } from "../shared/text.js";
 import { getStrategy } from "./strategies/registry.js";
 import type {
   LiveContext,
@@ -93,7 +94,7 @@ export class ReplayEngine {
   }
 
   list(): ReadonlyArray<ReplayRun> {
-    return Array.from(this.runs.values()).sort((a, b) =>
+    return Array.from(this.runs.values()).toSorted((a, b) =>
       a.createdAtISO.localeCompare(b.createdAtISO),
     );
   }
@@ -104,8 +105,12 @@ export class ReplayEngine {
 
   abort(id: string): boolean {
     const r = this.runs.get(id);
-    if (!r) return false;
-    if (r.status === "done" || r.status === "aborted" || r.status === "error") return false;
+    if (!r) {
+      return false;
+    }
+    if (r.status === "done" || r.status === "aborted" || r.status === "error") {
+      return false;
+    }
     r.abortRequested = true;
     return true;
   }
@@ -127,13 +132,19 @@ export class ReplayEngine {
     const maxSteps = Math.max(1, Math.min(5_000, params.maxSteps ?? 5_000));
 
     const recordingSummary = this.deps.store.summarize(sessionId);
-    if (!recordingSummary) throw new Error(`recording '${sessionId}' not found`);
+    if (!recordingSummary) {
+      throw new Error(`recording '${sessionId}' not found`);
+    }
 
     const strategy = getStrategy(strategyId);
-    if (!strategy) throw new Error(`unknown strategy '${strategyId}'`);
+    if (!strategy) {
+      throw new Error(`unknown strategy '${strategyId}'`);
+    }
 
     const events = this.deps.store.readEvents(sessionId, { limit: maxSteps });
-    if (events.length === 0) throw new Error(`recording '${sessionId}' has no events`);
+    if (events.length === 0) {
+      throw new Error(`recording '${sessionId}' has no events`);
+    }
 
     const runId = newRunId();
     const run: ReplayRun = {
@@ -177,7 +188,9 @@ export class ReplayEngine {
           await sleep(interStepDelayMs);
         }
       }
-      if (run.status === "running") run.status = "done";
+      if (run.status === "running") {
+        run.status = "done";
+      }
     } catch (e) {
       run.status = "error";
       this.deps.log?.append({
@@ -214,7 +227,6 @@ export class ReplayEngine {
     let dispatched = false;
     let verification: VerificationResult | undefined;
     let error: string | undefined;
-    let preScreenshotPath: string | null = null;
 
     const recordingDir = this.deps.store.sessionDir(sessionId);
 
@@ -222,7 +234,7 @@ export class ReplayEngine {
       // Load enriched recorded event with UIA element + window context if present.
       const enriched = enrichEvent(evt, recordingDir);
       const live = await this.deps.liveContextProvider();
-      preScreenshotPath = live.screenshotPath;
+      const preScreenshotPath = live.screenshotPath;
 
       const ctx: StrategyContext = {
         recorded: enriched,
@@ -240,7 +252,9 @@ export class ReplayEngine {
       } else {
         const r = await this.deps.actionDispatcher(resolved);
         dispatched = r.ok;
-        if (!r.ok) error = r.error;
+        if (!r.ok) {
+          error = r.error;
+        }
       }
 
       if (verifyEachStep && resolved.kind !== "skip" && dispatched) {
@@ -278,23 +292,35 @@ export class ReplayEngine {
 function enrichEvent(evt: RecordingEvent, recordingDir: string): RecordingEvent {
   // If the event referenced a UIA snapshot, pull the foreground element
   // bbox closest to the recorded mouse position so uia-grounded can use it.
-  if (!evt.pos || !evt.uia) return evt;
+  if (!evt.pos || !evt.uia) {
+    return evt;
+  }
   const uiaFile = path.join(recordingDir, evt.uia);
-  if (!fs.existsSync(uiaFile)) return evt;
+  if (!fs.existsSync(uiaFile)) {
+    return evt;
+  }
   try {
     const raw = JSON.parse(fs.readFileSync(uiaFile, "utf8")) as { nodes?: LiveUiaNode[] };
-    if (!raw.nodes || raw.nodes.length === 0) return evt;
+    if (!raw.nodes || raw.nodes.length === 0) {
+      return evt;
+    }
     let best: { node: LiveUiaNode; dist: number } | null = null;
     for (const n of raw.nodes) {
-      if (!n.bbox) continue;
+      if (!n.bbox) {
+        continue;
+      }
       const cx = n.bbox.x + Math.floor(n.bbox.w / 2);
       const cy = n.bbox.y + Math.floor(n.bbox.h / 2);
       const dx = cx - evt.pos.x;
       const dy = cy - evt.pos.y;
       const d = Math.sqrt(dx * dx + dy * dy);
-      if (!best || d < best.dist) best = { node: n, dist: d };
+      if (!best || d < best.dist) {
+        best = { node: n, dist: d };
+      }
     }
-    if (!best) return evt;
+    if (!best) {
+      return evt;
+    }
     return {
       ...evt,
       // `element` is consumed by the uia_grounded strategy.
@@ -312,7 +338,9 @@ function enrichEvent(evt: RecordingEvent, recordingDir: string): RecordingEvent 
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+  return new Promise<void>((r) => {
+    setTimeout(r, ms);
+  });
 }
 
 function newRunId(): string {
@@ -336,7 +364,9 @@ export function defaultLiveContextProvider(bridgeUrl: string): LiveContextProvid
       uiaNodes: null,
       windows: [],
     };
-    if (typeof fetch !== "function") return result;
+    if (typeof fetch !== "function") {
+      return result;
+    }
     try {
       const controller = new AbortController();
       const t = setTimeout(() => controller.abort(), 4_000);
@@ -370,11 +400,11 @@ export function defaultLiveContextProvider(bridgeUrl: string): LiveContextProvid
         const body = (await r.json()) as { windows?: unknown };
         if (Array.isArray(body.windows)) {
           (result as { windows: LiveContext["windows"] }).windows = body.windows.map((w) => {
-            const obj = w as { title?: string; pid?: number; process?: string };
+            const obj = w as { title?: unknown; pid?: unknown; process?: unknown };
             return {
-              title: String(obj.title ?? ""),
+              title: textOf(obj.title),
               pid: Number(obj.pid ?? 0),
-              process: String(obj.process ?? ""),
+              process: textOf(obj.process),
             };
           });
         }
@@ -397,15 +427,22 @@ export function defaultActionDispatcher(params: {
 }): ActionDispatcher {
   const base = params.bridgeUrl.replace(/\/+$/, "");
   return async (action: ResolvedAction) => {
-    if (action.kind === "skip") return { ok: true };
-    if (typeof fetch !== "function") return { ok: false, error: "fetch unavailable" };
+    if (action.kind === "skip") {
+      return { ok: true };
+    }
+    if (typeof fetch !== "function") {
+      return { ok: false, error: "fetch unavailable" };
+    }
     if (action.kind === "wait") {
-      await new Promise((r) => setTimeout(r, action.ms));
+      await new Promise<void>((r) => {
+        setTimeout(r, action.ms);
+      });
       return { ok: true };
     }
     const payload = toBridgePayload(action, params.allowedApps);
-    if (!payload)
+    if (!payload) {
       return { ok: false, error: `unsupported action kind: ${(action as { kind: string }).kind}` };
+    }
     try {
       const controller = new AbortController();
       const t = setTimeout(() => controller.abort(), 6_000);
@@ -416,7 +453,9 @@ export function defaultActionDispatcher(params: {
         signal: controller.signal,
       });
       clearTimeout(t);
-      if (!r.ok) return { ok: false, error: `bridge ${r.status}` };
+      if (!r.ok) {
+        return { ok: false, error: `bridge ${r.status}` };
+      }
       const body = (await r.json()) as { ok?: boolean; error?: string };
       return { ok: body.ok === true, error: body.error };
     } catch (e) {

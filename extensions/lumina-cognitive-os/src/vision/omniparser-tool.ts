@@ -80,12 +80,20 @@ export function createOmniParserTool(): AnyAgentTool {
         minConfidence?: number;
       };
       const imagePath = p.imagePath?.trim();
-      if (!imagePath) throw new ToolInputError("imagePath is required");
+      if (!imagePath) {
+        throw new ToolInputError("imagePath is required");
+      }
 
       const args: string[] = ["--image", imagePath];
-      if (typeof p.device === "string") args.push("--device", p.device);
-      if (!p.includeOcr) args.push("--no-ocr");
-      if (typeof p.maxElements === "number") args.push("--max-elements", String(p.maxElements));
+      if (typeof p.device === "string") {
+        args.push("--device", p.device);
+      }
+      if (!p.includeOcr) {
+        args.push("--no-ocr");
+      }
+      if (typeof p.maxElements === "number") {
+        args.push("--max-elements", String(p.maxElements));
+      }
 
       const r = await runPythonSidecarJson<SidecarResponse>("omniparser", args, {
         timeoutMs: 90_000,

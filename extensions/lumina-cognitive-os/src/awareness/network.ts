@@ -19,14 +19,24 @@ type RawProfile = { Name?: string; NetworkCategory?: string | number };
 type RawAdapter = { Name?: string; Status?: string; LinkSpeed?: string };
 
 function parseLinkSpeed(raw: string | undefined): number | null {
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   const m = /([\d.]+)\s*(g|m|k)?bps/i.exec(raw.trim());
-  if (!m) return null;
+  if (!m) {
+    return null;
+  }
   const n = Number(m[1]);
-  if (Number.isNaN(n)) return null;
+  if (Number.isNaN(n)) {
+    return null;
+  }
   const unit = (m[2] ?? "m").toLowerCase();
-  if (unit === "g") return n * 1000;
-  if (unit === "k") return n / 1000;
+  if (unit === "g") {
+    return n * 1000;
+  }
+  if (unit === "k") {
+    return n / 1000;
+  }
   return n;
 }
 

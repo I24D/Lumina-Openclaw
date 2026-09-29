@@ -198,7 +198,9 @@ export function validatePlan(input: unknown): PlanValidation {
   }
   const obj = input as Record<string, unknown>;
   const goal = typeof obj.goal === "string" ? obj.goal.trim() : "";
-  if (!goal) return { ok: false, error: "plan.goal is required" };
+  if (!goal) {
+    return { ok: false, error: "plan.goal is required" };
+  }
   const stepsIn = obj.steps;
   if (!Array.isArray(stepsIn) || stepsIn.length === 0) {
     return { ok: false, error: "plan.steps must be a non-empty array" };
@@ -214,12 +216,16 @@ export function validatePlan(input: unknown): PlanValidation {
     }
     const s = raw as Record<string, unknown>;
     const toolName = typeof s.toolName === "string" ? s.toolName : "";
-    if (!toolName) return { ok: false, error: `step #${i}.toolName missing` };
+    if (!toolName) {
+      return { ok: false, error: `step #${i}.toolName missing` };
+    }
     if (!KNOWN_TOOLS.has(toolName)) {
       return { ok: false, error: `step #${i} references unknown tool '${toolName}'` };
     }
     const description = typeof s.description === "string" ? s.description.trim() : "";
-    if (!description) return { ok: false, error: `step #${i}.description missing` };
+    if (!description) {
+      return { ok: false, error: `step #${i}.description missing` };
+    }
     const params =
       s.params && typeof s.params === "object" && !Array.isArray(s.params)
         ? (s.params as Record<string, unknown>)

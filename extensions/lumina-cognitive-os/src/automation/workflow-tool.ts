@@ -64,7 +64,9 @@ export function createWorkflowRunTool(
       // validates the payload before execute() is ever called.
       const params = rawParams as { recipeId: string };
       const id = params.recipeId?.trim();
-      if (!id) throw new ToolInputError("recipeId is required");
+      if (!id) {
+        throw new ToolInputError("recipeId is required");
+      }
       const recipe = engine.get(id);
       if (!recipe) {
         return jsonResult({

@@ -86,14 +86,23 @@ export function createUiResolveTool(): AnyAgentTool {
         maxNodes?: number;
       };
       const query = params.query?.trim();
-      if (!query) throw new ToolInputError("query is required");
+      if (!query) {
+        throw new ToolInputError("query is required");
+      }
 
       const args: string[] = ["--find", query];
-      if (typeof params.pid === "number") args.push("--pid", String(params.pid));
-      if (typeof params.maxDepth === "number") args.push("--max-depth", String(params.maxDepth));
-      if (typeof params.maxNodes === "number") args.push("--max-nodes", String(params.maxNodes));
-      if (typeof params.maxMatches === "number")
+      if (typeof params.pid === "number") {
+        args.push("--pid", String(params.pid));
+      }
+      if (typeof params.maxDepth === "number") {
+        args.push("--max-depth", String(params.maxDepth));
+      }
+      if (typeof params.maxNodes === "number") {
+        args.push("--max-nodes", String(params.maxNodes));
+      }
+      if (typeof params.maxMatches === "number") {
         args.push("--max-matches", String(params.maxMatches));
+      }
       if (typeof params.controlType === "string" && params.controlType.trim()) {
         args.push("--control-type", params.controlType.trim());
       }

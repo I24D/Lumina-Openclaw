@@ -3,13 +3,24 @@ import "./missing-configured-plugin-install.suite.test-support.js";
 // Missing configured plugin install tests cover doctor diagnostics for absent plugin installs.
 import fs from "node:fs";
 import path from "node:path";
+import { root as fsSafeRoot, type Root } from "@openclaw/fs-safe/root";
 import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it, vi } from "vitest";
 import { PLUGIN_CAPABILITY_CONSENT_REQUIRED } from "../../../../packages/gateway-protocol/src/capability-consent-error-details.js";
 import type { OpenClawConfig, PluginsConfig } from "../../../config/types.js";
+import {
+  installPackageDir,
+  requestDeferredPackageDirInstall,
+  resolvePackageDirInstallTransaction,
+} from "../../../infra/install-package-dir.js";
+import { normalizeComparablePath } from "../../../infra/install-package-dir.test-support.js";
 import { resolvePluginArtifactDeclaredSurface } from "../../../plugins/capability-artifact.js";
 import type { PluginCapabilityConsentHandler } from "../../../plugins/capability-consent.js";
 import { computeDeclaredSurfaceHash } from "../../../plugins/capability-summary.js";
+import {
+  attachPluginInstallTransaction,
+  resolvePluginInstallTransactionRequest,
+} from "../../../plugins/install-transaction.js";
 import type { PluginInstallArtifactConsentHandler } from "../../../plugins/install-types.js";
 import { resolveInstalledPluginIndexPolicyHash } from "../../../plugins/installed-plugin-index-policy.js";
 import { readPersistedInstalledPluginIndex } from "../../../plugins/installed-plugin-index-store.js";
@@ -672,181 +683,6 @@ describe("repairMissingConfiguredPluginInstalls", () => {
   );
 
   setupPluginInstallSuite();
-
-  it("maps a missing beta-channel plugin to a structured finding and dry-run effect offline", async () => {
-    mocks.resolveNpmSpecMetadata.mockImplementation(() => {
-      throw new Error("Health detection must not query the npm registry.");
-    });
-    mocks.listChannelPluginCatalogEntries.mockReturnValue([
-      {
-        id: "matrix",
-        pluginId: "matrix",
-        meta: { label: "Matrix" },
-        install: {
-          npmSpec: "@openclaw/plugin-matrix",
-          expectedIntegrity: "sha512-test",
-        },
-        trustedSourceLinkedOfficialInstall: true,
-      },
-    ]);
-
-    const {
-      configuredPluginInstallIssueToHealthFinding,
-      configuredPluginInstallIssueToRepairEffect,
-      detectConfiguredPluginInstallHealthIssues,
-    } = await import("./missing-configured-plugin-install.js");
-    const [issue] = await detectConfiguredPluginInstallHealthIssues({
-      cfg: {
-        update: { channel: "beta" },
-        channels: {
-          matrix: { enabled: true, homeserver: "https://matrix.example.org" },
-        },
-      },
-      env: testEnv,
-    });
-
-    expect(mocks.installPluginFromClawHub).not.toHaveBeenCalled();
-    expect(mocks.installPluginFromNpmSpec).not.toHaveBeenCalled();
-    expect(mocks.resolveNpmSpecMetadata).not.toHaveBeenCalled();
-    expect(mocks.writePersistedInstalledPluginIndexInstallRecordsWithLease).not.toHaveBeenCalled();
-    expect(issue).toEqual({
-      kind: "missing-install-record",
-      pluginId: "matrix",
-      installSpec: "@openclaw/plugin-matrix",
-    });
-    expect(
-      configuredPluginInstallIssueToHealthFinding(expectDefined(issue, "issue test invariant")),
-    ).toMatchObject({
-      checkId: "core/doctor/configured-plugin-installs",
-      severity: "warning",
-      target: "matrix",
-      fixHint: "Run `openclaw doctor --fix` to install @openclaw/plugin-matrix.",
-    });
-    expect(
-      configuredPluginInstallIssueToRepairEffect(expectDefined(issue, "issue test invariant")),
-    ).toEqual({
-      kind: "package",
-      action: "would-install-configured-plugin",
-      target: "matrix",
-      dryRunSafe: false,
-    });
-  });
-
-  it("maps package-update deferrals to structured findings without installing packages", async () => {
-    const missingDiscordPath = path.resolve("/missing/discord");
-    const records = {
-      discord: {
-        source: "npm",
-        spec: "@openclaw/discord",
-        installPath: missingDiscordPath,
-      },
-    };
-    mocks.loadInstalledPluginIndexInstallRecords.mockResolvedValue(records);
-    mocks.listChannelPluginCatalogEntries.mockReturnValue([
-      {
-        id: "discord",
-        pluginId: "discord",
-        meta: { label: "Discord" },
-        install: {
-          npmSpec: "@openclaw/discord",
-        },
-      },
-    ]);
-
-    const {
-      configuredPluginInstallIssueToHealthFinding,
-      configuredPluginInstallIssueToRepairEffect,
-      detectConfiguredPluginInstallHealthIssues,
-    } = await import("./missing-configured-plugin-install.js");
-    const [issue] = await detectConfiguredPluginInstallHealthIssues({
-      cfg: {
-        plugins: {
-          entries: {
-            discord: { enabled: true },
-          },
-        },
-        channels: {
-          discord: { enabled: true },
-        },
-      },
-      env: {
-        ...testEnv,
-        OPENCLAW_UPDATE_IN_PROGRESS: "1",
-        OPENCLAW_UPDATE_DEFER_CONFIGURED_PLUGIN_INSTALL_REPAIR: "1",
-      },
-    });
-
-    expect(mocks.installPluginFromClawHub).not.toHaveBeenCalled();
-    expect(mocks.installPluginFromNpmSpec).not.toHaveBeenCalled();
-    expect(issue).toEqual({
-      kind: "deferred-package-manager-repair",
-      pluginId: "discord",
-      installPath: missingDiscordPath,
-    });
-    expect(
-      configuredPluginInstallIssueToHealthFinding(expectDefined(issue, "issue test invariant")),
-    ).toMatchObject({
-      checkId: "core/doctor/configured-plugin-installs",
-      severity: "warning",
-      path: missingDiscordPath,
-      target: "discord",
-    });
-    expect(
-      configuredPluginInstallIssueToRepairEffect(expectDefined(issue, "issue test invariant")),
-    ).toEqual({
-      kind: "package",
-      action: "would-defer-configured-plugin-install-repair",
-      target: "discord",
-      dryRunSafe: true,
-    });
-  });
-
-  it("reports one finding when a configured plugin record points at a missing package", async () => {
-    const missingDiscordPath = path.resolve("/missing/discord");
-    const records = {
-      discord: {
-        source: "npm",
-        spec: "@openclaw/discord",
-        installPath: missingDiscordPath,
-      },
-    };
-    mocks.loadInstalledPluginIndexInstallRecords.mockResolvedValue(records);
-    mocks.listChannelPluginCatalogEntries.mockReturnValue([
-      {
-        id: "discord",
-        pluginId: "discord",
-        meta: { label: "Discord" },
-        install: {
-          npmSpec: "@openclaw/discord",
-        },
-      },
-    ]);
-
-    const { detectConfiguredPluginInstallHealthIssues } =
-      await import("./missing-configured-plugin-install.js");
-    const issues = await detectConfiguredPluginInstallHealthIssues({
-      cfg: {
-        plugins: {
-          entries: {
-            discord: { enabled: true },
-          },
-        },
-        channels: {
-          discord: { enabled: true },
-        },
-      },
-      env: testEnv,
-    });
-
-    expect(issues).toEqual([
-      {
-        kind: "missing-installed-payload",
-        pluginId: "discord",
-        installPath: missingDiscordPath,
-        installSpec: "@openclaw/discord",
-      },
-    ]);
-  });
 
   it("persists no-op baseline records with the active plugin policy", async () => {
     const cfg = {
@@ -4312,6 +4148,296 @@ describe("repairMissingConfiguredPluginInstalls", () => {
         expect(beforePersistentEffect).toHaveBeenCalled();
         expect(fs.existsSync(path.join(replacementDir, "package.json"))).toBe(true);
       } finally {
+        await closeOpenClawStateDatabaseByPathAsync(resolveOpenClawStateSqlitePath(env));
+      }
+    },
+  );
+
+  it.each([
+    "index-failure",
+    "success",
+    "cleanup-failure",
+    "cleanup-refusal",
+    "path-replaced",
+    "symlink-success",
+    "symlink-replaced",
+    "parent-symlink-success",
+    "parent-symlink-replaced",
+    "parent-target-replaced",
+  ] as const)(
+    "settles an alternate-path repair before retiring the old payload: %s",
+    async (phase) => {
+      const root = tempDirs.make("openclaw-doctor-retirement-");
+      const env = { ...testEnv, OPENCLAW_STATE_DIR: path.join(root, "state") };
+      const extensionsDir = path.join(root, "extensions");
+      const installDir = path.join(extensionsDir, "brave");
+      const sourceDir = path.join(root, "candidate");
+      const replacementDir = path.join(root, "npm", "node_modules", "@openclaw", "brave-plugin");
+      const cfg = {
+        tools: { web: { search: { provider: "brave" } } },
+      } satisfies OpenClawConfig;
+      const priorRecord = {
+        source: "npm" as const,
+        spec: "@openclaw/brave-plugin@2026.5.1-beta.1",
+        installPath: installDir,
+      };
+      mocks.resolveDefaultPluginExtensionsDir.mockReturnValue(extensionsDir);
+      const linkedParent =
+        phase === "parent-symlink-success" ||
+        phase === "parent-symlink-replaced" ||
+        phase === "parent-target-replaced";
+      const replacedParent =
+        phase === "parent-symlink-replaced" || phase === "parent-target-replaced";
+      const realExtensionsDir = path.join(root, "real-extensions");
+      const foreignExtensionsDir = path.join(root, "foreign-extensions");
+      const retainedParent = path.join(root, "retained-extensions");
+      if (linkedParent) {
+        fs.mkdirSync(realExtensionsDir);
+        fs.symlinkSync(realExtensionsDir, extensionsDir, "junction");
+      }
+      const linked = phase === "symlink-success" || phase === "symlink-replaced";
+      const oldTarget = linked ? path.join(root, "old-link-target") : installDir;
+      const foreignTarget = path.join(root, "foreign-link-target");
+      fs.mkdirSync(oldTarget, { recursive: true });
+      if (linked) {
+        fs.mkdirSync(extensionsDir, { recursive: true });
+        fs.symlinkSync(oldTarget, installDir, "junction");
+      }
+      fs.writeFileSync(path.join(installDir, "package.json"), '{"name":"brave"}');
+      const oldPayload = path.join(installDir, "index.ts");
+      fs.writeFileSync(oldPayload, "export const retained = true;\n");
+      fs.mkdirSync(sourceDir, { recursive: true });
+      createColdPluginFixture({
+        rootDir: sourceDir,
+        pluginId: "brave",
+        packageName: "@openclaw/brave-plugin",
+        packageVersion: "2026.5.12",
+      });
+      const newManifest = fs.readFileSync(path.join(sourceDir, "package.json"), "utf8");
+      mockBrokenBraveInstall(installDir, priorRecord);
+      await useRealInstallIndexWrites();
+      await seedInstalledPluginIndex({ brave: priorRecord }, { env, config: cfg, candidates: [] });
+      const before = await readPersistedInstalledPluginIndex({ env });
+      const failure = Object.assign(new Error(`fixture ${phase} failed`), { code: "EIO" });
+      const retainedPath = path.join(root, "retained-old-payload");
+      const effects: string[] = [];
+      let indexCommitted = false;
+      let oldPresentAtWrite = false;
+      const writeIndex = expectDefined(
+        mocks.writePersistedInstalledPluginIndexInstallRecordsWithLease.getMockImplementation(),
+        "real install-index writer",
+      );
+      mocks.writePersistedInstalledPluginIndexInstallRecordsWithLease.mockImplementationOnce(
+        async (records, options) => {
+          effects.push("index");
+          oldPresentAtWrite = fs.existsSync(oldPayload);
+          expect(fs.readFileSync(path.join(replacementDir, "package.json"), "utf8")).toBe(
+            newManifest,
+          );
+          if (phase === "index-failure") {
+            throw failure;
+          }
+          const receipt = await writeIndex(records, options);
+          indexCommitted = true;
+          if (replacedParent) {
+            fs.renameSync(
+              phase === "parent-symlink-replaced" ? extensionsDir : realExtensionsDir,
+              retainedParent,
+            );
+            if (phase === "parent-symlink-replaced") {
+              fs.mkdirSync(foreignExtensionsDir);
+              fs.symlinkSync(foreignExtensionsDir, extensionsDir, "junction");
+            } else {
+              fs.mkdirSync(realExtensionsDir);
+            }
+            fs.mkdirSync(installDir, { recursive: true });
+            fs.writeFileSync(oldPayload, "foreign payload");
+          }
+          if (phase === "path-replaced" || phase === "symlink-replaced") {
+            fs.renameSync(installDir, retainedPath);
+            if (linked) {
+              fs.mkdirSync(foreignTarget);
+              fs.symlinkSync(foreignTarget, installDir, "junction");
+            } else {
+              fs.mkdirSync(installDir);
+            }
+            fs.writeFileSync(oldPayload, "foreign payload");
+          }
+          return receipt;
+        },
+      );
+      mocks.installPluginFromNpmSpec.mockImplementationOnce(
+        async (
+          params: Parameters<
+            typeof import("../../../plugins/install.js").installPluginFromNpmSpec
+          >[0],
+        ) => {
+          const request = expectDefined(
+            resolvePluginInstallTransactionRequest(params),
+            "repair-owned deferred install request",
+          );
+          const assertOwned = expectDefined(request.assertOwned, "initiating repair authority");
+          // Keep discovery controlled, but publish and roll back real package directories.
+          const installed = await installPackageDir(
+            requestDeferredPackageDirInstall(
+              {
+                sourceDir,
+                targetDir: replacementDir,
+                mode: "update",
+                timeoutMs: 1_000,
+                copyErrorPrefix: "fixture publication failed",
+                hasDeps: false,
+                depsLogMessage: "",
+                beforePersistentApply: assertOwned,
+              },
+              assertOwned,
+            ),
+          );
+          expect(installed).toMatchObject({ ok: true });
+          const transaction = expectDefined(
+            resolvePackageDirInstallTransaction(installed),
+            "real directory install transaction",
+          );
+          return attachPluginInstallTransaction(
+            successfulInstall({
+              pluginId: "brave",
+              npmSpec: "@openclaw/brave-plugin",
+              version: "2026.5.12",
+              targetDir: replacementDir,
+            }),
+            {
+              commit: async () => {
+                await transaction.commit();
+                effects.push("package-commit");
+              },
+              rollback: async () => {
+                await transaction.rollback();
+                effects.push("package-rollback");
+              },
+            },
+          );
+        },
+      );
+      const prototype = Object.getPrototypeOf(await fsSafeRoot(extensionsDir)) as Root;
+      // oxlint-disable-next-line typescript/unbound-method -- Retain the intercepted Root receiver below.
+      const remove = prototype.remove;
+      const removeSpy = vi.spyOn(prototype, "remove").mockImplementation(async function (
+        this: Root,
+        target,
+        options,
+      ) {
+        if (
+          normalizeComparablePath(path.join(this.rootReal, target)) ===
+          normalizeComparablePath(linked ? installDir : oldPayload)
+        ) {
+          effects.push("retire");
+          if (phase === "cleanup-failure") {
+            throw failure;
+          }
+        }
+        await remove.call(this, target, options);
+      });
+      const onWarning = vi.fn();
+      try {
+        const { repairMissingConfiguredPluginInstalls } =
+          await import("./missing-configured-plugin-install.js");
+        const operation = repairMissingConfiguredPluginInstalls({
+          cfg,
+          env,
+          onWarning,
+          beforePersistentEffect: () => {
+            if (indexCommitted && phase === "cleanup-refusal") {
+              throw failure;
+            }
+          },
+        });
+        if (phase === "path-replaced" || phase === "symlink-replaced" || replacedParent) {
+          await expect(operation).rejects.toBeInstanceOf(AggregateError);
+        } else if (phase === "index-failure" || phase === "cleanup-refusal") {
+          await expect(operation).rejects.toBe(failure);
+        } else {
+          const result = await operation;
+          expect(result.repairedPluginIds).toEqual(["brave"]);
+          expect(result.warnings).toEqual(
+            phase === "cleanup-failure"
+              ? [
+                  `Failed to remove broken installed plugin "brave" at ${installDir}: ${String(failure)}`,
+                ]
+              : [],
+          );
+        }
+        if (phase === "index-failure") {
+          expect(await readPersistedInstalledPluginIndex({ env })).toEqual(before);
+          const observed = {
+            oldPresentAtWrite,
+            oldPayloadRetained: fs.existsSync(oldPayload),
+            replacementPresent: fs.existsSync(replacementDir),
+          };
+          expect(observed, `retirement state: ${JSON.stringify(observed)}`).toEqual({
+            oldPresentAtWrite: true,
+            oldPayloadRetained: true,
+            replacementPresent: false,
+          });
+          expect(effects).toEqual(["index", "package-rollback"]);
+        } else {
+          expect(oldPresentAtWrite).toBe(true);
+          expect(
+            (await readPersistedInstalledPluginIndex({ env }))?.installRecords.brave?.installPath,
+          ).toBe(replacementDir);
+          expect(fs.readFileSync(path.join(replacementDir, "package.json"), "utf8")).toBe(
+            newManifest,
+          );
+          expect(effects).toEqual(
+            phase === "cleanup-refusal" ||
+              phase === "path-replaced" ||
+              phase === "symlink-replaced" ||
+              replacedParent
+              ? ["index", "package-commit"]
+              : ["index", "package-commit", "retire"],
+          );
+        }
+        if (
+          phase === "success" ||
+          phase === "symlink-success" ||
+          phase === "parent-symlink-success"
+        ) {
+          expect(fs.lstatSync(installDir, { throwIfNoEntry: false })).toBeUndefined();
+        } else if (replacedParent) {
+          expect(fs.readFileSync(oldPayload, "utf8")).toBe("foreign payload");
+          expect(fs.readFileSync(path.join(retainedParent, "brave", "index.ts"), "utf8")).toBe(
+            "export const retained = true;\n",
+          );
+        } else if (phase === "path-replaced" || phase === "symlink-replaced") {
+          expect(fs.readFileSync(oldPayload, "utf8")).toBe("foreign payload");
+          expect(fs.readFileSync(path.join(retainedPath, "index.ts"), "utf8")).toBe(
+            "export const retained = true;\n",
+          );
+        } else {
+          expect(fs.readFileSync(oldPayload, "utf8")).toBe("export const retained = true;\n");
+        }
+        if (linked) {
+          expect(fs.readFileSync(path.join(oldTarget, "index.ts"), "utf8")).toBe(
+            "export const retained = true;\n",
+          );
+          if (phase === "symlink-replaced") {
+            expect(fs.lstatSync(installDir).isSymbolicLink()).toBe(true);
+            expect(fs.realpathSync(installDir)).toBe(fs.realpathSync(foreignTarget));
+            expect(fs.readFileSync(path.join(foreignTarget, "index.ts"), "utf8")).toBe(
+              "foreign payload",
+            );
+          }
+        }
+        if (linkedParent) {
+          expect(fs.lstatSync(extensionsDir).isSymbolicLink()).toBe(true);
+          expect(fs.realpathSync(extensionsDir)).toBe(
+            fs.realpathSync(
+              phase === "parent-symlink-replaced" ? foreignExtensionsDir : realExtensionsDir,
+            ),
+          );
+        }
+        expect(onWarning).toHaveBeenCalledTimes(phase === "cleanup-failure" ? 1 : 0);
+      } finally {
+        removeSpy.mockRestore();
         await closeOpenClawStateDatabaseByPathAsync(resolveOpenClawStateSqlitePath(env));
       }
     },

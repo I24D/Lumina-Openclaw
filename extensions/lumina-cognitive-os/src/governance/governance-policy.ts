@@ -263,25 +263,35 @@ export class GovernanceEngine {
     // Find matching rule
     let matchedRule: PolicyRule | undefined;
     for (const rule of this.policy.rules) {
-      if (!rule.enabled) continue;
+      if (!rule.enabled) {
+        continue;
+      }
 
       // Check category
-      if (rule.category !== context.category) continue;
+      if (rule.category !== context.category) {
+        continue;
+      }
 
       // Check action pattern
       const actionRegex = new RegExp(rule.actionPattern, "i");
-      if (!actionRegex.test(context.action)) continue;
+      if (!actionRegex.test(context.action)) {
+        continue;
+      }
 
       // Check target pattern if specified
       if (rule.targetPattern && context.target) {
         const targetRegex = new RegExp(rule.targetPattern, "i");
-        if (!targetRegex.test(context.target)) continue;
+        if (!targetRegex.test(context.target)) {
+          continue;
+        }
       }
 
       // Check time range condition
       if (rule.conditions?.timeRange) {
         const { start, end } = rule.conditions.timeRange;
-        if (currentTime < start || currentTime > end) continue;
+        if (currentTime < start || currentTime > end) {
+          continue;
+        }
       }
 
       matchedRule = rule;
@@ -355,8 +365,10 @@ export class GovernanceEngine {
     return this.policy.rules.map((r) => ({ ...r }));
   }
 
-  public getRecentDecisions(limit: number = 50): GovernanceDecision[] {
-    if (!fs.existsSync(this.auditLogFile)) return [];
+  public getRecentDecisions(limit = 50): GovernanceDecision[] {
+    if (!fs.existsSync(this.auditLogFile)) {
+      return [];
+    }
 
     try {
       const content = fs.readFileSync(this.auditLogFile, "utf-8");

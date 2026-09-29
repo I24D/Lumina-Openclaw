@@ -100,9 +100,13 @@ const UIA_FALLBACK: AppAdapter = {
  */
 export function resolveAdapter(processName?: string): AppAdapter {
   const proc = (processName ?? "").trim().toLowerCase();
-  if (!proc) return UIA_FALLBACK;
+  if (!proc) {
+    return UIA_FALLBACK;
+  }
   for (const adapter of ADAPTERS) {
-    if (adapter.matchProcesses.includes(proc)) return adapter;
+    if (adapter.matchProcesses.includes(proc)) {
+      return adapter;
+    }
   }
   return UIA_FALLBACK;
 }

@@ -24,6 +24,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getLuminaEnvVar } from "../env.js";
+import { textOf } from "../shared/text.js";
 import {
   generateSessionId,
   RecorderStore,
@@ -89,7 +90,9 @@ export class RecorderProcess {
   }
 
   async ensureSpawned(): Promise<void> {
-    if (this.isAlive()) return;
+    if (this.isAlive()) {
+      return;
+    }
     const python = pickPython();
     const scriptPath = resolveSidecarPath(python);
     this.buffer = "";
@@ -124,8 +127,11 @@ export class RecorderProcess {
       }, 8_000);
       this.pendingReady = (ok, err) => {
         clearTimeout(timeout);
-        if (ok) resolve();
-        else reject(new Error(err ?? "recorder ready failed"));
+        if (ok) {
+          resolve();
+        } else {
+          reject(new Error(err ?? "recorder ready failed"));
+        }
       };
     });
   }
@@ -216,7 +222,9 @@ export class RecorderProcess {
   }
 
   shutdown(): void {
-    if (!this.isAlive()) return;
+    if (!this.isAlive()) {
+      return;
+    }
     try {
       this.child!.stdin.write(JSON.stringify({ cmd: "exit" }) + "\n");
     } catch {
@@ -237,7 +245,9 @@ export class RecorderProcess {
     while ((nl = this.buffer.indexOf("\n")) >= 0) {
       const line = this.buffer.slice(0, nl).trim();
       this.buffer = this.buffer.slice(nl + 1);
-      if (!line) continue;
+      if (!line) {
+        continue;
+      }
       let msg: SidecarMsg;
       try {
         msg = JSON.parse(line) as SidecarMsg;
@@ -257,9 +267,9 @@ export class RecorderProcess {
         return;
       }
       case "started": {
-        const sessionId = String(msg.sessionId ?? "");
-        const sessionDir = String(msg.sessionDir ?? "");
-        const startedAtISO = String(msg.atISO ?? new Date().toISOString());
+        const sessionId = textOf(msg.sessionId);
+        const sessionDir = textOf(msg.sessionDir);
+        const startedAtISO = textOf(msg.atISO, new Date().toISOString());
         this.state = {
           kind: "recording",
           pid: this.child?.pid ?? -1,
@@ -282,7 +292,7 @@ export class RecorderProcess {
         this.state = { kind: "ready", pid: this.child?.pid ?? -1 };
         this.pendingStop?.({ ok: true, stats });
         this.pendingStop = null;
-        return;
+        break;
       }
       case "paused":
       case "resumed":
@@ -292,8 +302,8 @@ export class RecorderProcess {
         return;
       }
       case "error": {
-        const where = String(msg.where ?? "");
-        const message = String(msg.message ?? "");
+        const where = textOf(msg.where);
+        const message = textOf(msg.message);
         const composed = `${where}: ${message}`;
         if (where === "import" || where === "start") {
           this.pendingReady?.(false, composed);
@@ -301,22 +311,26 @@ export class RecorderProcess {
           this.pendingStart?.({ ok: false, error: composed });
           this.pendingStart = null;
         }
-        return;
+        break;
       }
       default:
-        return;
+        break;
     }
   }
 }
 
 function pickPython(): string {
   const explicit = getLuminaEnvVar("LUMINA_PYTHON");
-  if (explicit) return isWsl() ? windowsPathToWslExecutable(explicit) : explicit;
+  if (explicit) {
+    return isWsl() ? windowsPathToWslExecutable(explicit) : explicit;
+  }
   return process.platform === "win32" ? "python" : "python3";
 }
 
 function isWsl(): boolean {
-  if (process.platform !== "linux") return false;
+  if (process.platform !== "linux") {
+    return false;
+  }
   try {
     const v = fs.readFileSync("/proc/version", "utf8").toLowerCase();
     return v.includes("microsoft") || v.includes("wsl");
@@ -327,7 +341,9 @@ function isWsl(): boolean {
 
 function windowsPathToWslExecutable(value: string): string {
   const match = /^([A-Za-z]):[\\/](.*)$/u.exec(value);
-  if (!match) return value;
+  if (!match) {
+    return value;
+  }
   const drive = match[1] ?? "";
   const rest = match[2] ?? "";
   return `/mnt/${drive.toLowerCase()}/${rest.replace(/\\/gu, "/")}`;

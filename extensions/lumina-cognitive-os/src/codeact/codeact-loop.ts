@@ -53,7 +53,7 @@ export type CodeActStep = {
   readonly stdoutTruncated: boolean;
   readonly stderrTruncated: boolean;
   readonly killedByTimeout: boolean;
-  readonly final: unknown | undefined;
+  readonly final: unknown;
   readonly observations: ReadonlyArray<unknown>;
 };
 
@@ -141,14 +141,16 @@ export class CodeActEngine {
   }
 
   list(): ReadonlyArray<CodeActSession> {
-    return Array.from(this.sessions.values()).sort((a, b) =>
+    return Array.from(this.sessions.values()).toSorted((a, b) =>
       a.createdAtISO.localeCompare(b.createdAtISO),
     );
   }
 
   end(id: string, status: "done" | "aborted" = "aborted"): CodeActSession | null {
     const session = this.sessions.get(id);
-    if (!session) return null;
+    if (!session) {
+      return null;
+    }
     session.status = status;
     this.log?.append({
       action: "codeact.end",
@@ -166,7 +168,9 @@ export class CodeActEngine {
     timeoutMs?: number;
   }): Promise<{ session: CodeActSession; step: CodeActStep }> {
     const session = this.sessions.get(params.sessionId);
-    if (!session) throw new Error(`CodeAct session '${params.sessionId}' not found`);
+    if (!session) {
+      throw new Error(`CodeAct session '${params.sessionId}' not found`);
+    }
     if (session.status !== "open") {
       throw new Error(`CodeAct session '${session.id}' is ${session.status}; cannot step further`);
     }
@@ -177,7 +181,9 @@ export class CodeActEngine {
       );
     }
     const code = (params.code ?? "").trim();
-    if (!code) throw new Error("code is required");
+    if (!code) {
+      throw new Error("code is required");
+    }
 
     const verdict = preflightCheck({
       policy: this.policy,
@@ -247,7 +253,7 @@ export class CodeActEngine {
     try {
       parsed = JSON.parse(sidecarResult.stdout.trim());
     } catch (e) {
-      throw new Error(`code_executor returned non-JSON: ${(e as Error).message}`);
+      throw new Error(`code_executor returned non-JSON: ${(e as Error).message}`, { cause: e });
     }
     const { finalValue, observations } = scanStdout(parsed.stdout);
     const step: CodeActStep = {
@@ -299,13 +305,15 @@ const CODEACT_HEADER =
   "# Auto-prepended by Lumina CodeAct\nimport lumina_py_stubs as lumina  # noqa: F401\n";
 
 function prependCodeActImport(code: string): string {
-  if (/(^|\n)\s*import\s+lumina_py_stubs/.test(code)) return code;
+  if (/(^|\n)\s*import\s+lumina_py_stubs/.test(code)) {
+    return code;
+  }
   return CODEACT_HEADER + code;
 }
 
-function scanStdout(stdout: string): { finalValue: unknown | undefined; observations: unknown[] } {
+function scanStdout(stdout: string): { finalValue: unknown; observations: unknown[] } {
   const observations: unknown[] = [];
-  let finalValue: unknown | undefined;
+  let finalValue: unknown;
   for (const line of stdout.split(/\r?\n/)) {
     if (line.startsWith(FINAL_PREFIX)) {
       const payload = line.slice(FINAL_PREFIX.length);

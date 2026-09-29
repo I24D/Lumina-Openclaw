@@ -27,7 +27,7 @@ describe("Lumina Supabase tools", () => {
     process.env.SUPABASE_URL = "https://project.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role";
     const fetchMock = vi.fn(
-      async () =>
+      async (_url: string, _init?: RequestInit) =>
         new Response(JSON.stringify([{ id: 1, email: "dal@example.com" }]), {
           status: 200,
           headers: { "content-range": "0-0/1" },
@@ -45,12 +45,12 @@ describe("Lumina Supabase tools", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toContain("https://project.supabase.co/rest/v1/contacts?");
     expect(url).toContain("select=id%2Cemail");
     expect(url).toContain("limit=25");
     expect(url).toContain("email=ilike.%25%40example.com");
-    expect((init.headers as Headers).get("authorization")).toBe("Bearer test-service-role");
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-service-role");
     expect(JSON.stringify(result.details)).not.toContain("test-service-role");
     expect(result.details).toMatchObject({
       ok: true,
@@ -82,7 +82,8 @@ describe("Lumina Supabase tools", () => {
     process.env.SUPABASE_URL = "https://project.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role";
     const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify([{ id: 1, kind: "memory" }]), { status: 200 }),
+      async (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify([{ id: 1, kind: "memory" }]), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -94,10 +95,10 @@ describe("Lumina Supabase tools", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toContain("/rest/v1/lumina_memory?");
-    expect(init.method).toBe("POST");
-    expect(init.body).toBe(JSON.stringify({ kind: "memory", text: "remember me" }));
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(JSON.stringify({ kind: "memory", text: "remember me" }));
     expect(result.details).toMatchObject({ ok: true, action: "insert", table: "lumina_memory" });
   });
 

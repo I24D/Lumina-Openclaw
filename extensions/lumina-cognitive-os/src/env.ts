@@ -28,15 +28,21 @@ function parseEnvFile(content: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
-    if (line.length === 0 || line.startsWith("#")) continue;
+    if (line.length === 0 || line.startsWith("#")) {
+      continue;
+    }
     const eq = line.indexOf("=");
-    if (eq < 1) continue;
+    if (eq < 1) {
+      continue;
+    }
     const key = line.slice(0, eq).trim();
     let value = line.slice(eq + 1).trim();
     // Strip trailing inline comment that isn't inside quotes.
     if (!value.startsWith('"') && !value.startsWith("'")) {
       const hashIdx = value.indexOf(" #");
-      if (hashIdx >= 0) value = value.slice(0, hashIdx).trim();
+      if (hashIdx >= 0) {
+        value = value.slice(0, hashIdx).trim();
+      }
     }
     if (
       (value.startsWith('"') && value.endsWith('"')) ||

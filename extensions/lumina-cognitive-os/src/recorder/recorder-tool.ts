@@ -33,7 +33,9 @@ export type RecorderToolDeps = {
 function defaultToastDispatcher(): ToastDispatcher {
   const url = (process.env.LUMINA_BRIDGE_URL ?? "http://127.0.0.1:8765").replace(/\/+$/, "");
   return async (params) => {
-    if (typeof fetch !== "function") return;
+    if (typeof fetch !== "function") {
+      return;
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3_000);
     try {
@@ -172,7 +174,9 @@ export function createRecorderStopTool(deps: RecorderToolDeps): AnyAgentTool {
       const redactRequested = (getLuminaEnvVar("LUMINA_RECORDER_REDACT") ?? "0").trim() === "1";
       if (sessionId && redactRequested) {
         const r = deps.recorder.store.scrub(sessionId, defaultScrubbingPolicy());
-        if (r.ok) redactions = r.redactions;
+        if (r.ok) {
+          redactions = r.redactions;
+        }
       }
       const summary = sessionId ? deps.recorder.store.summarize(sessionId) : null;
       deps.log?.append({
@@ -283,7 +287,9 @@ export function createRecorderGetTool(deps: RecorderToolDeps): AnyAgentTool {
       // validates the payload before execute() is ever called.
       const p = rawParams as { sessionId: string; offset?: number; limit?: number };
       const id = p.sessionId?.trim();
-      if (!id) throw new ToolInputError("sessionId is required");
+      if (!id) {
+        throw new ToolInputError("sessionId is required");
+      }
       const summary = deps.recorder.store.summarize(id);
       if (!summary) {
         return jsonResult({ ok: false, error: `recording '${id}' not found` });
@@ -319,7 +325,9 @@ export function createRecorderDeleteTool(deps: RecorderToolDeps): AnyAgentTool {
       // validates the payload before execute() is ever called.
       const p = rawParams as { sessionId: string; confirm?: boolean };
       const id = p.sessionId?.trim();
-      if (!id) throw new ToolInputError("sessionId is required");
+      if (!id) {
+        throw new ToolInputError("sessionId is required");
+      }
       if (!p.confirm) {
         return jsonResult({
           ok: false,

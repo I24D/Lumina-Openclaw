@@ -15,8 +15,12 @@ import { jsonResult, type AnyAgentTool } from "../shared/tool-result.js";
 
 function partOfDay(d: Date): string {
   const h = d.getHours();
-  if (h < 12) return "buenos días";
-  if (h < 19) return "buenas tardes";
+  if (h < 12) {
+    return "buenos días";
+  }
+  if (h < 19) {
+    return "buenas tardes";
+  }
   return "buenas noches";
 }
 
@@ -60,12 +64,16 @@ export function createBootGreetingTool(): AnyAgentTool {
               maxResults: "1",
             }).toString(),
         );
-        if (!r.ok) return null;
+        if (!r.ok) {
+          return null;
+        }
         const j = (await r.json()) as {
           items?: Array<{ summary?: string; start?: { dateTime?: string; date?: string } }>;
         };
         const first = j.items?.[0];
-        if (!first) return null;
+        if (!first) {
+          return null;
+        }
         return {
           summary: first.summary ?? "",
           when: first.start?.dateTime ?? first.start?.date ?? "",
@@ -75,7 +83,9 @@ export function createBootGreetingTool(): AnyAgentTool {
         const r = await googleFetch(
           `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is:unread+newer_than:1d&maxResults=1`,
         );
-        if (!r.ok) return null;
+        if (!r.ok) {
+          return null;
+        }
         const j = (await r.json()) as { resultSizeEstimate?: number };
         return j.resultSizeEstimate ?? 0;
       });

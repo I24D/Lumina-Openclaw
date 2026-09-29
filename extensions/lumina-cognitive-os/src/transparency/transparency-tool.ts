@@ -58,7 +58,9 @@ export function createTransparencyPublishTool(log: ActivityLog): AnyAgentTool {
         ref?: unknown;
       };
       const summary = params.summary?.trim();
-      if (!summary) throw new ToolInputError("summary is required");
+      if (!summary) {
+        throw new ToolInputError("summary is required");
+      }
       const entry = log.push({
         category: params.category as ActivityCategory,
         summary,

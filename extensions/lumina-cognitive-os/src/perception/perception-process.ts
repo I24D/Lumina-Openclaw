@@ -75,7 +75,9 @@ export function createPerceptionBus(capacity = 200): PerceptionBus {
     },
     emit(ev) {
       ring.push(ev);
-      if (ring.length > capacity) ring.splice(0, ring.length - capacity);
+      if (ring.length > capacity) {
+        ring.splice(0, ring.length - capacity);
+      }
       ee.emit("event", ev);
     },
     recent(limit = 50) {
@@ -204,14 +206,18 @@ export class PerceptionProcess {
   }
 
   pause(): { ok: boolean; error?: string } {
-    if (!this.status.running || !this.proc) return { ok: false, error: "not_running" };
+    if (!this.status.running || !this.proc) {
+      return { ok: false, error: "not_running" };
+    }
     this.proc.stdin.write(JSON.stringify({ cmd: "pause" }) + "\n");
     this.status.paused = true;
     return { ok: true };
   }
 
   resume(): { ok: boolean; error?: string } {
-    if (!this.status.running || !this.proc) return { ok: false, error: "not_running" };
+    if (!this.status.running || !this.proc) {
+      return { ok: false, error: "not_running" };
+    }
     this.proc.stdin.write(JSON.stringify({ cmd: "resume" }) + "\n");
     this.status.paused = false;
     return { ok: true };
@@ -219,17 +225,23 @@ export class PerceptionProcess {
 
   setDesiredFps(fps: number): void {
     this.desiredFps = Math.max(0.5, Math.min(10, fps));
-    if (!this.status.running) this.status.fps = this.desiredFps;
+    if (!this.status.running) {
+      this.status.fps = this.desiredFps;
+    }
   }
 
   setDesiredThreshold(threshold: number): void {
     this.desiredThreshold = Math.max(0.001, Math.min(0.5, threshold));
-    if (!this.status.running) this.status.threshold = this.desiredThreshold;
+    if (!this.status.running) {
+      this.status.threshold = this.desiredThreshold;
+    }
   }
 
   setFps(fps: number): { ok: boolean; error?: string } {
     const bounded = Math.max(0.5, Math.min(10, fps));
-    if (!this.status.running || !this.proc) return { ok: false, error: "not_running" };
+    if (!this.status.running || !this.proc) {
+      return { ok: false, error: "not_running" };
+    }
     this.proc.stdin.write(JSON.stringify({ cmd: "set_fps", fps: bounded }) + "\n");
     this.status.fps = bounded;
     return { ok: true };
@@ -237,14 +249,18 @@ export class PerceptionProcess {
 
   setThreshold(threshold: number): { ok: boolean; error?: string } {
     const bounded = Math.max(0.001, Math.min(0.5, threshold));
-    if (!this.status.running || !this.proc) return { ok: false, error: "not_running" };
+    if (!this.status.running || !this.proc) {
+      return { ok: false, error: "not_running" };
+    }
     this.proc.stdin.write(JSON.stringify({ cmd: "set_threshold", r: bounded }) + "\n");
     this.status.threshold = bounded;
     return { ok: true };
   }
 
   shutdown(): { ok: boolean; error?: string } {
-    if (!this.status.running || !this.proc) return { ok: false, error: "not_running" };
+    if (!this.status.running || !this.proc) {
+      return { ok: false, error: "not_running" };
+    }
     try {
       this.proc.stdin.write(JSON.stringify({ cmd: "shutdown" }) + "\n");
     } catch {
@@ -270,8 +286,10 @@ export class PerceptionProcess {
     while ((nl = this.stdoutBuffer.indexOf("\n")) !== -1) {
       const line = this.stdoutBuffer.slice(0, nl).trim();
       this.stdoutBuffer = this.stdoutBuffer.slice(nl + 1);
-      if (!line) continue;
-      let parsed: PerceptionEvent | null = null;
+      if (!line) {
+        continue;
+      }
+      let parsed: PerceptionEvent | null;
       try {
         parsed = JSON.parse(line) as PerceptionEvent;
       } catch {

@@ -29,7 +29,9 @@ export type PyResult = {
 };
 
 function isWsl(): boolean {
-  if (process.platform !== "linux") return false;
+  if (process.platform !== "linux") {
+    return false;
+  }
   try {
     const version = fs.readFileSync("/proc/version", "utf8").toLowerCase();
     return version.includes("microsoft") || version.includes("wsl");
@@ -40,7 +42,9 @@ function isWsl(): boolean {
 
 function windowsPathToWslExecutable(value: string): string {
   const match = /^([A-Za-z]):[\\/](.*)$/u.exec(value);
-  if (!match) return value;
+  if (!match) {
+    return value;
+  }
   const drive = match[1] ?? "";
   const rest = match[2] ?? "";
   return `/mnt/${drive.toLowerCase()}/${rest.replace(/\\/gu, "/")}`;
@@ -52,7 +56,9 @@ function isWindowsPython(command: string): boolean {
 
 export function pickPython(): string {
   const explicit = getLuminaEnvVar("LUMINA_PYTHON");
-  if (explicit) return isWsl() ? windowsPathToWslExecutable(explicit) : explicit;
+  if (explicit) {
+    return isWsl() ? windowsPathToWslExecutable(explicit) : explicit;
+  }
   return process.platform === "win32" ? "python" : "python3";
 }
 
@@ -95,7 +101,9 @@ export async function runPythonSidecar(
     let stderr = "";
     let settled = false;
     const timer = setTimeout(() => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       try {
         child.kill("SIGKILL");
@@ -118,13 +126,17 @@ export async function runPythonSidecar(
       stderr += b.toString("utf8");
     });
     child.on("error", (err) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       resolve({ ok: false, stdout, stderr, code: -1, error: err.message });
     });
     child.on("close", (code) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       resolve({ ok: (code ?? -1) === 0, stdout, stderr, code: code ?? -1 });
@@ -137,6 +149,7 @@ export async function runPythonSidecar(
   });
 }
 
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- JSON results are typed by the caller.
 export async function runPythonSidecarJson<T = unknown>(
   sidecarName: string,
   args: readonly string[] = [],
@@ -147,7 +160,9 @@ export async function runPythonSidecarJson<T = unknown>(
     return { ok: false, error: r.error ?? r.stderr ?? `exit ${r.code}`, stderr: r.stderr };
   }
   const text = r.stdout.trim();
-  if (text.length === 0) return { ok: true, data: null as unknown as T };
+  if (text.length === 0) {
+    return { ok: true, data: null as unknown as T };
+  }
   try {
     return { ok: true, data: JSON.parse(text) as T };
   } catch (err) {

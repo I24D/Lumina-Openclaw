@@ -28,9 +28,13 @@ function makeDeps(over: Partial<SmartClickDeps> = {}): {
   let queue: Array<Partial<Response> & { json?: () => Promise<unknown> }> = [];
   const fakeFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
     const url = String(input);
-    let body: unknown = null;
+    let body: unknown;
     try {
-      body = init?.body ? JSON.parse(String(init.body)) : null;
+      body = init?.body
+        ? typeof init.body === "string"
+          ? JSON.parse(init.body)
+          : init.body
+        : null;
     } catch {
       body = init?.body ?? null;
     }
@@ -121,6 +125,7 @@ function setUiaTree(nodes: Array<{ name?: string; automationId?: string }> = [])
   });
 }
 
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- Test helper lets assertions ascribe the posted payload.
 function payload<T = unknown>(call: FetchCall): T {
   return call.body as T;
 }

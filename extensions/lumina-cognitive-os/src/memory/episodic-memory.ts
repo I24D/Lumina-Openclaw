@@ -60,7 +60,9 @@ export class EpisodicMemoryStore {
     };
     appendJsonl(this.filePath, ep);
     this.buf.push(ep);
-    if (this.buf.length > this.cacheLimit) this.buf.shift();
+    if (this.buf.length > this.cacheLimit) {
+      this.buf.shift();
+    }
     return ep;
   }
 
@@ -73,9 +75,15 @@ export class EpisodicMemoryStore {
     const out: Episode[] = [];
     for (let i = this.buf.length - 1; i >= 0 && out.length < limit; i--) {
       const ep = this.buf[i];
-      if (!ep) continue;
-      if (kinds && !kinds.has(ep.kind)) continue;
-      if (since > 0 && Date.parse(ep.atISO) < since) continue;
+      if (!ep) {
+        continue;
+      }
+      if (kinds && !kinds.has(ep.kind)) {
+        continue;
+      }
+      if (since > 0 && Date.parse(ep.atISO) < since) {
+        continue;
+      }
       if (tags) {
         let hit = false;
         for (const t of ep.tags) {
@@ -84,9 +92,13 @@ export class EpisodicMemoryStore {
             break;
           }
         }
-        if (!hit) continue;
+        if (!hit) {
+          continue;
+        }
       }
-      if (substr && !ep.summary.toLowerCase().includes(substr)) continue;
+      if (substr && !ep.summary.toLowerCase().includes(substr)) {
+        continue;
+      }
       out.push(ep);
     }
     return out;
@@ -94,6 +106,6 @@ export class EpisodicMemoryStore {
 
   /** Snapshot the last N entries regardless of filter — used by the panel. */
   tail(limit = 20): Episode[] {
-    return this.buf.slice(-limit).reverse();
+    return this.buf.slice(-limit).toReversed();
   }
 }

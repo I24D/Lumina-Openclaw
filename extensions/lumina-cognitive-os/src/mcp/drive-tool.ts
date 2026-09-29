@@ -52,16 +52,22 @@ export function createDriveTool(): AnyAgentTool {
         const r = await googleFetch(
           `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&pageSize=${max}&fields=files(id,name,mimeType,modifiedTime,size,owners(displayName))`,
         );
-        if (!r.ok) return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        if (!r.ok) {
+          return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        }
         return jsonResult({ ok: true, ...(await r.json()) });
       }
 
       if (action === "read") {
-        if (!params.fileId) throw new ToolInputError("fileId required for read");
+        if (!params.fileId) {
+          throw new ToolInputError("fileId required for read");
+        }
         const r = await googleFetch(
           `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(params.fileId)}?alt=media`,
         );
-        if (!r.ok) return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        if (!r.ok) {
+          return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        }
         const buf = Buffer.from(await r.arrayBuffer());
         const truncated = buf.length > 1_048_576;
         const slice = truncated ? buf.subarray(0, 1_048_576) : buf;
@@ -77,8 +83,12 @@ export function createDriveTool(): AnyAgentTool {
       if (action === "upload") {
         const name = params.name;
         const content = params.content;
-        if (!name) throw new ToolInputError("name required for upload");
-        if (content === undefined) throw new ToolInputError("content required for upload");
+        if (!name) {
+          throw new ToolInputError("name required for upload");
+        }
+        if (content === undefined) {
+          throw new ToolInputError("content required for upload");
+        }
         const mime = params.mimeType ?? "text/plain";
         const boundary = `lumina-${Date.now()}`;
         const metadata = JSON.stringify({ name, mimeType: mime });
@@ -96,13 +106,19 @@ export function createDriveTool(): AnyAgentTool {
             body,
           },
         );
-        if (!r.ok) return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        if (!r.ok) {
+          return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        }
         return jsonResult({ ok: true, file: await r.json() });
       }
 
       if (action === "share") {
-        if (!params.fileId) throw new ToolInputError("fileId required for share");
-        if (!params.email) throw new ToolInputError("email required for share");
+        if (!params.fileId) {
+          throw new ToolInputError("fileId required for share");
+        }
+        if (!params.email) {
+          throw new ToolInputError("email required for share");
+        }
         const role = params.role ?? "reader";
         const r = await googleFetch(
           `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(params.fileId)}/permissions`,
@@ -111,7 +127,9 @@ export function createDriveTool(): AnyAgentTool {
             body: JSON.stringify({ type: "user", role, emailAddress: params.email }),
           },
         );
-        if (!r.ok) return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        if (!r.ok) {
+          return jsonResult({ ok: false, error: `${r.status} ${await r.text()}` });
+        }
         return jsonResult({ ok: true, permission: await r.json() });
       }
 

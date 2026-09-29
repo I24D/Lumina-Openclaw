@@ -1,6 +1,7 @@
 /**
  * Requester completion calls, direct fallback, and source-delivery evidence.
  */
+import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { sanitizePendingFinalDeliveryText } from "../../../auto-reply/reply/pending-final-delivery-state.js";
 import {
   getRestartRecoveryTerminalDeliveryEvidence,
@@ -11,13 +12,17 @@ import type { RestartRecoveryTerminalDeliveryEvidence } from "../../../config/se
 import type { SessionEntry } from "../../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { waitForGatewayDispatch } from "../../../gateway/server-in-process-dispatch.js";
+import type { GatewayRecoveryTypingParams } from "../../../gateway/server-instance-runtime.types.js";
+import { getGatewayRecoveryRuntime } from "../../../gateway/server-recovery-runtime-context.js";
 import { sourceDeliveryTargetsMatch } from "../../../infra/outbound/source-delivery-plan.js";
 import { shouldPreserveUserFacingSessionStateForInputProvenance } from "../../../sessions/input-provenance.js";
 import { deriveSessionChatTypeFromKey } from "../../../sessions/session-chat-type-shared.js";
 import { isNonTerminalAgentRunStatus } from "../../../shared/agent-run-status.js";
+import type { DeliveryContext } from "../../../utils/delivery-context.types.js";
 import { buildAgentRunTerminalOutcomeFromWaitResult } from "../../agent-run-terminal-outcome.js";
 import { sanitizeAgentRunTerminalReplyText } from "../../agent-run-terminal-reply.js";
 import {
+  getGatewayAgentResult,
   hasCommittedSourceReplyDeliveryEvidence,
   hasMessagingToolDeliveryEvidence,
   hasUnaccountedMessagingToolAggregateEvidence,
@@ -27,8 +32,8 @@ import { hasVisibleCompletionResult } from "../../internal-event-contract.js";
 import type { AgentInternalEvent } from "../../internal-events.js";
 import { createAgentRunDirectAbortError } from "../../run-termination.js";
 import {
+  hasAnnounceSendEvidence,
   SourceOwnerChangedError,
-  sourceOwnerChangedResult,
   summarizeDeliveryError,
 } from "./subagent-announce-delivery-retry.js";
 import {
@@ -36,13 +41,17 @@ import {
   sendSubagentAnnounceMessage,
   tryResolveSubagentRequesterAgentId,
 } from "./subagent-announce-delivery.runtime.js";
-import type { SubagentAnnounceDeliveryResult } from "./subagent-announce-dispatch.js";
+import {
+  sourceOwnerChangedResult,
+  type SubagentAnnounceDeliveryResult,
+} from "./subagent-announce-dispatch.js";
 import type { SubagentCompletionToolHandoffRegistration } from "./subagent-announce-handoff.js";
 import { inferDeliveryTargetChatType } from "./subagent-announce-origin.js";
 
 export async function runAnnounceAgentCall(params: {
   agentParams: Record<string, unknown>;
   privateCompletion?: true;
+  typing?: Omit<GatewayRecoveryTypingParams, "isCurrent">;
   settleWakeSourceSessionKeys?: readonly string[];
   delegatedToolPolicyHandoff?: SubagentCompletionToolHandoffRegistration;
   expectFinal?: boolean;
@@ -52,6 +61,12 @@ export async function runAnnounceAgentCall(params: {
   isSourceSessionAdmissionAllowed?: () => boolean;
   resolveGatewayContext?: import("../../../gateway/server-methods/types.js").GatewayContextResolver;
 }): Promise<unknown> {
+  const typingRuntime = params.typing
+    ? params.resolveGatewayContext
+      ? params.resolveGatewayContext()?.recoveryRuntime
+      : getGatewayRecoveryRuntime()
+    : undefined;
+  let stopTyping: (() => void) | undefined;
   const deadline = new AbortController();
   const sourceLifecycle = new AbortController();
   const isSourceSessionAdmissionAllowed = params.isSourceSessionAdmissionAllowed;
@@ -115,6 +130,17 @@ export async function runAnnounceAgentCall(params: {
         }
         // Execution can be observed before acceptance on an already-running replay.
         clearTimeout(timer);
+        if (params.typing) {
+          stopTyping ??= typingRuntime?.startRecoveryTyping?.({
+            ...params.typing,
+            isCurrent: () =>
+              !executionSignal.aborted &&
+              params.isExecutionAllowed() &&
+              (params.resolveGatewayContext
+                ? params.resolveGatewayContext()?.recoveryRuntime === typingRuntime
+                : getGatewayRecoveryRuntime() === typingRuntime),
+          });
+        }
       },
       resolveGatewayContext: params.resolveGatewayContext,
     });
@@ -126,6 +152,7 @@ export async function runAnnounceAgentCall(params: {
     throw error;
   } finally {
     clearTimeout(timer);
+    stopTyping?.();
   }
 }
 
@@ -180,6 +207,7 @@ export function resolveRequesterRecoveryDelivery(
 
 export function resolvePrivateCompletionDeliveryResult(
   response: Record<string, unknown> | undefined,
+  origin?: DeliveryContext,
 ): SubagentAnnounceDeliveryResult {
   const outcome = buildAgentRunTerminalOutcomeFromWaitResult(response);
   if (outcome?.reason === "cancelled" && outcome.stopReason !== "restart") {
@@ -194,15 +222,44 @@ export function resolvePrivateCompletionDeliveryResult(
   }
   // Successful internal consumption may be silent or start the next child.
   // Queue acceptance alone is not consumption, and no external receipt is owed.
-  return response?.status === "ok" && response?.inputProcessingCompleted === true
-    ? { delivered: true, path: "direct" }
-    : {
-        delivered: false,
-        path: "direct",
-        reason: "completion_handoff_pending",
-        error: "private requester turn has not completed successfully",
-        disposition: "retryable",
-      };
+  const delivery: SubagentAnnounceDeliveryResult =
+    response?.status === "ok" && response?.inputProcessingCompleted === true
+      ? { delivered: true, path: "direct" }
+      : {
+          delivered: false,
+          path: "direct",
+          reason: "completion_handoff_pending",
+          error: "private requester turn has not completed successfully",
+          disposition: "retryable",
+        };
+  const result = getGatewayAgentResult(response);
+  if (
+    delivery.delivered &&
+    origin?.channel &&
+    origin.to &&
+    result &&
+    result.meta?.yielded !== true &&
+    result.meta?.continuationPending !== true &&
+    hasMessagingToolDeliveryToSource(result, origin, { requireFinalReply: true })
+  ) {
+    delivery.requesterVisibleFinalDelivered = true;
+  }
+  return delivery;
+}
+
+export function buildRequesterCompletionDeliveryResult(
+  finalCommitted: boolean,
+  text: unknown,
+): SubagentAnnounceDeliveryResult {
+  const finalAssistantVisibleText =
+    finalCommitted && typeof text === "string" ? truncateUtf16Safe(text.trim(), 12_000) : "";
+  return {
+    delivered: true,
+    path: "direct",
+    // A canceled partial payload or accepted handoff is not a visible final receipt.
+    ...(finalCommitted ? { requesterVisibleFinalDelivered: true } : {}),
+    ...(finalAssistantVisibleText ? { finalAssistantVisibleText } : {}),
+  };
 }
 
 export function isDirectMessageDeliveryTarget(
@@ -264,7 +321,7 @@ export async function deliverCompletionDirect(params: {
   internalEvents?: readonly AgentInternalEvent[];
   contentKind: "completed_result" | "failed_notice";
   signal?: AbortSignal;
-  onDeliveryResult?: (delivery: SubagentAnnounceDeliveryResult) => void;
+  onDeliveryResult?: (delivery: SubagentAnnounceDeliveryResult) => void | Promise<void>;
   isSourceSessionEffectsAllowed?: () => boolean;
 }): Promise<SubagentAnnounceDeliveryResult | undefined> {
   const content = resolveTextCompletionDirectFallback(params.internalEvents, params.contentKind);
@@ -287,6 +344,7 @@ export async function deliverCompletionDirect(params: {
   }
   const idempotencyKey = `${params.directIdempotencyKey}:text-direct`;
   let committedDelivery: SubagentAnnounceDeliveryResult | undefined;
+  let deliveryResultReported: Promise<void> | undefined;
   try {
     if (params.isSourceSessionEffectsAllowed?.() === false) {
       return sourceOwnerChangedResult();
@@ -313,14 +371,18 @@ export async function deliverCompletionDirect(params: {
           throw new SourceOwnerChangedError();
         }
       },
-      onDeliveryResult: () => {
+      onDeliveredPayload: () => {
         if (committedDelivery) {
           return;
         }
-        // Platform identity is committed before transcript mirroring, which
-        // may wait behind the requester's still-active SQLite writer.
+        // This single payload must finish every chunk before settling the
+        // announcement, still ahead of potentially blocked transcript mirroring.
         committedDelivery = { delivered: true, path: "direct", deliveredAt: Date.now() };
-        params.onDeliveryResult?.(committedDelivery);
+        deliveryResultReported = Promise.resolve(
+          params.onDeliveryResult?.(committedDelivery),
+        ).catch(() => {
+          // Bookkeeping failure cannot make a fully sent result retryable.
+        });
       },
       mirror: {
         sessionKey: params.requesterSessionKey,
@@ -352,6 +414,15 @@ export async function deliverCompletionDirect(params: {
       // retryable failure and send the same completion twice.
       return committedDelivery;
     }
+    if (hasAnnounceSendEvidence(err)) {
+      return {
+        delivered: false,
+        path: "direct",
+        terminal: true,
+        disposition: "permanent_failure",
+        error: `text completion direct delivery was incomplete; automatic retry would duplicate sent chunks: ${summarizeDeliveryError(err)}`,
+      };
+    }
     if (err instanceof SourceOwnerChangedError) {
       return sourceOwnerChangedResult();
     }
@@ -363,6 +434,8 @@ export async function deliverCompletionDirect(params: {
       path: "direct",
       error: `text completion direct delivery failed: ${summarizeDeliveryError(err)}`,
     };
+  } finally {
+    await deliveryResultReported;
   }
 }
 

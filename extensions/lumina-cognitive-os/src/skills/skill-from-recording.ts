@@ -49,14 +49,19 @@ export function buildSkillFromRecording(
   params: SkillFromRecordingParams,
 ): SkillFromRecordingResult {
   const summary = store.summarize(params.sessionId);
-  if (!summary) return { ok: false, error: `recording '${params.sessionId}' not found` };
+  if (!summary) {
+    return { ok: false, error: `recording '${params.sessionId}' not found` };
+  }
 
   const rawSkillName = (params.skillName ?? "").trim();
-  if (!rawSkillName) return { ok: false, error: "skillName is required" };
+  if (!rawSkillName) {
+    return { ok: false, error: "skillName is required" };
+  }
 
   const safeName = normalizeSkillName(rawSkillName);
-  if (!safeName)
+  if (!safeName) {
     return { ok: false, error: "skillName must contain lowercase letters/numbers/hyphens" };
+  }
 
   const skillId = `learned-${safeName}`.slice(0, 60);
   if (!SAFE_RE.test(skillId)) {
@@ -141,9 +146,15 @@ function deriveDescription(summary: RecordingSummary, sample: RecordingEvent[]):
   let clicks = 0;
   let keys = 0;
   for (const e of sample) {
-    if (e.window?.title) winTitles.add(e.window.title);
-    if (e.kind === "mouse.down") clicks++;
-    if (e.kind === "key.down") keys++;
+    if (e.window?.title) {
+      winTitles.add(e.window.title);
+    }
+    if (e.kind === "mouse.down") {
+      clicks++;
+    }
+    if (e.kind === "key.down") {
+      keys++;
+    }
   }
   const apps = Array.from(winTitles).slice(0, 3).join(", ") || "the desktop";
   return (
@@ -179,7 +190,9 @@ function buildNarrative(summary: RecordingSummary, sample: RecordingEvent[]): st
             : "";
     lines.push(`- t+${e.atMs}ms ${e.kind} ${detail} ${win}`.trim());
   }
-  if (sample.length > 20) lines.push(`- … and ${sample.length - 20} more`);
+  if (sample.length > 20) {
+    lines.push(`- … and ${sample.length - 20} more`);
+  }
   return lines.join("\n") + "\n";
 }
 

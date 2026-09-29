@@ -36,7 +36,7 @@ function parseArgs(): DebugOptions {
   const options: DebugOptions = {};
 
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
+    const arg = args[i] ?? "";
     const next = args[i + 1];
 
     switch (arg) {
@@ -179,7 +179,7 @@ async function runDebugger(options: DebugOptions): Promise<void> {
 }
 
 // Main entry point
-(async () => {
+void (async () => {
   try {
     const options = parseArgs();
     await runDebugger(options);

@@ -46,7 +46,9 @@ export function createRiskEvaluateTool(engine: RiskEngine): AnyAgentTool {
       const params = rawParams as { category: unknown; action: string; target?: string };
       const category = params.category as RiskCategory;
       const action = params.action?.trim();
-      if (!action) throw new ToolInputError("action is required");
+      if (!action) {
+        throw new ToolInputError("action is required");
+      }
       const decision = engine.evaluate({
         category,
         action,

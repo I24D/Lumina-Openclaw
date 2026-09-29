@@ -52,7 +52,7 @@ describe("SkillLoader — spec compliance", () => {
     const skill = loader.get("roll-dice")!;
     expect(skill).toBeTruthy();
     expect(skill.instructions).toContain("RANDOM % sides");
-    expect(skill.errors).toBeUndefined();
+    expect("errors" in skill).toBe(false);
     expect(loader.errors()).toEqual([]);
   });
 
@@ -219,7 +219,9 @@ describe("SkillLoader — readAsset", () => {
     const loader = new SkillLoader({ skillsDir: tmpDir });
     const r = loader.readAsset("read-me", "scripts/hello.py");
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.content).toBe("print('hi')");
+    if (r.ok) {
+      expect(r.content).toBe("print('hi')");
+    }
   });
 
   it("rejects path traversal", () => {
@@ -228,7 +230,9 @@ describe("SkillLoader — readAsset", () => {
     const loader = new SkillLoader({ skillsDir: tmpDir });
     const r = loader.readAsset("safe", "../outside.txt");
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/relative and inside/);
+    if (!r.ok) {
+      expect(r.error).toMatch(/relative and inside/);
+    }
   });
 
   it("rejects absolute path", () => {
@@ -247,7 +251,9 @@ describe("SkillLoader — readAsset", () => {
     const loader = new SkillLoader({ skillsDir: tmpDir });
     const r = loader.readAsset("limit", "big.bin", { maxBytes: 1024 });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/maxBytes/);
+    if (!r.ok) {
+      expect(r.error).toMatch(/maxBytes/);
+    }
   });
 
   it("supports binary (base64) encoding", () => {
@@ -256,14 +262,18 @@ describe("SkillLoader — readAsset", () => {
     const loader = new SkillLoader({ skillsDir: tmpDir });
     const r = loader.readAsset("bin", "data.bin", { encoding: "binary" });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.content).toBe(Buffer.from([0, 1, 2, 255]).toString("base64"));
+    if (r.ok) {
+      expect(r.content).toBe(Buffer.from([0, 1, 2, 255]).toString("base64"));
+    }
   });
 
   it("returns clear error when skill not found", () => {
     const loader = new SkillLoader({ skillsDir: tmpDir });
     const r = loader.readAsset("missing", "any.txt");
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/not found/);
+    if (!r.ok) {
+      expect(r.error).toMatch(/not found/);
+    }
   });
 });
 

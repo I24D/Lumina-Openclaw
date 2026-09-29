@@ -25,7 +25,9 @@ export function createIntentRunTool(): AnyAgentTool {
       // validates the payload before execute() is ever called.
       const params = rawParams as { utterance: string };
       const utt = params.utterance?.trim();
-      if (!utt) throw new ToolInputError("utterance is required");
+      if (!utt) {
+        throw new ToolInputError("utterance is required");
+      }
       const tpl = matchTemplate(utt);
       if (!tpl) {
         return jsonResult({

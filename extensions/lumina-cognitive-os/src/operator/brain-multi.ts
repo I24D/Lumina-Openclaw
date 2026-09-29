@@ -53,7 +53,7 @@ class BrainCache {
   private readonly maxEntries: number;
   private readonly ttlMs: number;
 
-  constructor(maxEntries: number = 100, ttlMs: number = 5_000) {
+  constructor(maxEntries = 100, ttlMs = 5_000) {
     this.cache = new Map();
     this.maxEntries = maxEntries;
     this.ttlMs = ttlMs; // Default 5 second TTL
@@ -71,7 +71,9 @@ class BrainCache {
   get(params: ThinkParams): ThinkResult | null {
     const key = this.computeKey(params);
     const entry = this.cache.get(key);
-    if (!entry) return null;
+    if (!entry) {
+      return null;
+    }
 
     // Check TTL
     if (Date.now() - entry.timestamp > this.ttlMs) {
@@ -88,7 +90,9 @@ class BrainCache {
     // Remove oldest if at capacity
     if (this.cache.size >= this.maxEntries) {
       const firstKey = this.cache.keys().next().value;
-      if (firstKey) this.cache.delete(firstKey);
+      if (firstKey) {
+        this.cache.delete(firstKey);
+      }
     }
 
     this.cache.set(key, { result, timestamp: Date.now() });
@@ -124,7 +128,9 @@ type BrainChoice = {
 
 function normalizeProvider(value: string | undefined): BrainProviderName | undefined {
   const v = value?.trim().toLowerCase();
-  if (!v) return undefined;
+  if (!v) {
+    return undefined;
+  }
   if (v === "auto" || v === "gemini" || v === "openai" || v === "anthropic" || v === "ollama") {
     return v;
   }
@@ -133,10 +139,18 @@ function normalizeProvider(value: string | undefined): BrainProviderName | undef
 
 function inferProviderFromModel(model: string | undefined): ConcreteBrainProvider | undefined {
   const v = model?.trim().toLowerCase();
-  if (!v) return undefined;
-  if (v.startsWith("gemini")) return "gemini";
-  if (v.includes("claude")) return "anthropic";
-  if (v.startsWith("gpt") || /^o\d/.test(v)) return "openai";
+  if (!v) {
+    return undefined;
+  }
+  if (v.startsWith("gemini")) {
+    return "gemini";
+  }
+  if (v.includes("claude")) {
+    return "anthropic";
+  }
+  if (v.startsWith("gpt") || /^o\d/.test(v)) {
+    return "openai";
+  }
   if (
     v.startsWith("gemma") ||
     v.startsWith("qwen") ||
@@ -153,7 +167,9 @@ function inferProviderFromModel(model: string | undefined): ConcreteBrainProvide
 function envFirst(names: readonly string[], opts: LoadEnvOptions): string | undefined {
   for (const name of names) {
     const v = getLuminaEnvVar(name, opts);
-    if (v) return v;
+    if (v) {
+      return v;
+    }
   }
   return undefined;
 }
@@ -168,7 +184,9 @@ function joinUrl(baseUrl: string, path: string): string {
 }
 
 async function readScreenshotBase64(params: ThinkParams): Promise<string | null> {
-  if (!params.screenshotPath) return null;
+  if (!params.screenshotPath) {
+    return null;
+  }
   try {
     const buf = await fs.promises.readFile(params.screenshotPath);
     return buf.toString("base64");
@@ -205,7 +223,9 @@ function resolveChoice(
       ["GEMINI_PC_OPERATOR_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
       envOpts,
     );
-    if (!apiKey) return null;
+    if (!apiKey) {
+      return null;
+    }
     return {
       provider: "gemini",
       apiKey,
@@ -218,7 +238,9 @@ function resolveChoice(
 
   const openai: BrainChoice | null = (() => {
     const apiKey = envFirst(["OPENAI_PC_OPERATOR_API_KEY", "OPENAI_API_KEY"], envOpts);
-    if (!apiKey) return null;
+    if (!apiKey) {
+      return null;
+    }
     return {
       provider: "openai",
       apiKey,
@@ -234,7 +256,9 @@ function resolveChoice(
 
   const anthropic: BrainChoice | null = (() => {
     const apiKey = envFirst(["ANTHROPIC_PC_OPERATOR_API_KEY", "ANTHROPIC_API_KEY"], envOpts);
-    if (!apiKey) return null;
+    if (!apiKey) {
+      return null;
+    }
     return {
       provider: "anthropic",
       apiKey,
@@ -302,20 +326,26 @@ function resolveFallbackChain(
   params: Pick<ThinkParams, "brainProvider" | "brainModel">,
 ): BrainChoice[] {
   const first = resolveChoice(opts, params);
-  if (!first) return [];
+  if (!first) {
+    return [];
+  }
 
   const configuredProvider =
     normalizeProvider(params.brainProvider) ?? normalizeProvider(opts.defaultProvider) ?? "auto";
   const pinned =
     configuredProvider !== "auto" || inferProviderFromModel(params.brainModel) !== undefined;
-  if (pinned) return [first];
+  if (pinned) {
+    return [first];
+  }
 
   // Auto path: return every configured choice in the standard priority
   // (gemini → openai → anthropic → ollama) skipping duplicates of `first`.
   const seen = new Set<ConcreteBrainProvider>([first.provider]);
   const chain: BrainChoice[] = [first];
   for (const name of ["gemini", "openai", "anthropic", "ollama"] as const) {
-    if (seen.has(name)) continue;
+    if (seen.has(name)) {
+      continue;
+    }
     const c = resolveChoice(opts, { brainProvider: name, brainModel: undefined });
     if (c) {
       seen.add(name);
@@ -383,7 +413,9 @@ async function callOpenAI(
   temperature: number,
   timeoutMs: number,
 ): Promise<ThinkResult> {
-  if (!choice.apiKey) throw new Error("OpenAI PC Operator requires OPENAI_API_KEY");
+  if (!choice.apiKey) {
+    throw new Error("OpenAI PC Operator requires OPENAI_API_KEY");
+  }
   const image = await readScreenshotBase64(params);
   const content: Array<Record<string, unknown>> = [{ type: "text", text: buildUserPrompt(params) }];
   if (image) {
@@ -413,7 +445,9 @@ async function callOpenAI(
     // max_completion_tokens; older chat models accept both.
     max_completion_tokens: 900,
   };
-  if (!reasoning) body.temperature = temperature;
+  if (!reasoning) {
+    body.temperature = temperature;
+  }
   const raw = (await fetchJson(
     fetchImpl,
     joinUrl(choice.baseUrl ?? "https://api.openai.com", "/v1/chat/completions"),
@@ -431,7 +465,9 @@ async function callOpenAI(
     usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
   const text = raw.choices?.[0]?.message?.content ?? "";
-  if (!text) throw new Error("openai returned no text");
+  if (!text) {
+    throw new Error("openai returned no text");
+  }
   return {
     action: coerceAction(extractJson(text)),
     rawText: text,
@@ -449,7 +485,9 @@ async function callAnthropic(
   temperature: number,
   timeoutMs: number,
 ): Promise<ThinkResult> {
-  if (!choice.apiKey) throw new Error("Anthropic PC Operator requires ANTHROPIC_API_KEY");
+  if (!choice.apiKey) {
+    throw new Error("Anthropic PC Operator requires ANTHROPIC_API_KEY");
+  }
   const image = await readScreenshotBase64(params);
   const content: Array<Record<string, unknown>> = [{ type: "text", text: buildUserPrompt(params) }];
   if (image) {
@@ -483,7 +521,9 @@ async function callAnthropic(
   };
   const text =
     raw.content?.find((part) => part.type === "text" && typeof part.text === "string")?.text ?? "";
-  if (!text) throw new Error("anthropic returned no text");
+  if (!text) {
+    throw new Error("anthropic returned no text");
+  }
   return {
     action: coerceAction(extractJson(text)),
     rawText: text,
@@ -503,7 +543,9 @@ async function callOllama(
 ): Promise<ThinkResult> {
   const image = await readScreenshotBase64(params);
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (choice.apiKey) headers.authorization = `Bearer ${choice.apiKey}`;
+  if (choice.apiKey) {
+    headers.authorization = `Bearer ${choice.apiKey}`;
+  }
   const raw = (await fetchJson(
     fetchImpl,
     joinUrl(choice.baseUrl ?? "http://127.0.0.1:11434", "/api/chat"),
@@ -532,7 +574,9 @@ async function callOllama(
     eval_count?: number;
   };
   const text = raw.message?.content ?? "";
-  if (!text) throw new Error("ollama returned no text");
+  if (!text) {
+    throw new Error("ollama returned no text");
+  }
   return {
     action: coerceAction(extractJson(text)),
     rawText: text,
@@ -565,9 +609,9 @@ async function callChoice(
       }).think(params);
       const raced = await Promise.race([
         geminiCall.then((r) => ({ ok: true as const, r })),
-        new Promise<{ ok: false }>((resolve) =>
-          setTimeout(() => resolve({ ok: false }), timeoutMs),
-        ),
+        new Promise<{ ok: false }>((resolve) => {
+          setTimeout(() => resolve({ ok: false }), timeoutMs);
+        }),
       ]);
       if (!raced.ok) {
         throw new TransientBrainError(
@@ -584,11 +628,14 @@ async function callChoice(
     case "ollama":
       return callOllama(fetchImpl, choice, params, temperature, timeoutMs);
   }
+  throw new Error(`unsupported brain provider: ${JSON.stringify(choice.provider)}`);
 }
 
 export function createMultiProviderBrain(opts: MultiProviderBrainOptions): BrainClient {
   const fetchImpl = opts.fetchImpl ?? (typeof fetch === "function" ? fetch : null);
-  if (!fetchImpl) throw new Error("fetch is unavailable; pass fetchImpl explicitly");
+  if (!fetchImpl) {
+    throw new Error("fetch is unavailable; pass fetchImpl explicitly");
+  }
   const temperature = opts.temperature ?? 0.2;
   const timeoutMs = Math.max(1_000, opts.perProviderTimeoutMs ?? 8_000);
 

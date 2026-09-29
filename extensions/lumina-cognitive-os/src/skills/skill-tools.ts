@@ -88,7 +88,9 @@ export function createSkillDescribeTool(loader: SkillLoader): AnyAgentTool {
       // validates the payload before execute() is ever called.
       const params = rawParams as { skillId: string };
       const id = params.skillId?.trim();
-      if (!id) throw new ToolInputError("skillId is required");
+      if (!id) {
+        throw new ToolInputError("skillId is required");
+      }
       const skill = loader.get(id);
       if (!skill) {
         return jsonResult({
@@ -166,8 +168,12 @@ export function createSkillReadAssetTool(loader: SkillLoader): AnyAgentTool {
       };
       const id = params.skillId?.trim();
       const rel = params.relPath?.trim();
-      if (!id) throw new ToolInputError("skillId is required");
-      if (!rel) throw new ToolInputError("relPath is required");
+      if (!id) {
+        throw new ToolInputError("skillId is required");
+      }
+      if (!rel) {
+        throw new ToolInputError("relPath is required");
+      }
       const result = loader.readAsset(id, rel, {
         maxBytes: params.maxBytes,
         encoding: params.binary ? "binary" : "utf8",
@@ -207,7 +213,9 @@ export function createSkillRunTool(loader: SkillLoader, log: ActionLogStore | nu
       // validates the payload before execute() is ever called.
       const params = rawParams as { skillId: string; input?: string; extraContext?: string };
       const id = params.skillId?.trim();
-      if (!id) throw new ToolInputError("skillId is required");
+      if (!id) {
+        throw new ToolInputError("skillId is required");
+      }
       const skill = loader.get(id);
       if (!skill) {
         return jsonResult({

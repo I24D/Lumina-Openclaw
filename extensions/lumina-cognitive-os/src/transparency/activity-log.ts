@@ -53,7 +53,9 @@ export class ActivityLog {
       ...input,
     };
     this.buf.unshift(entry);
-    if (this.buf.length > this.cap) this.buf.length = this.cap;
+    if (this.buf.length > this.cap) {
+      this.buf.length = this.cap;
+    }
     for (const l of this.listeners) {
       try {
         l(entry);

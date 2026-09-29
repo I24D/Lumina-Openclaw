@@ -42,7 +42,7 @@ export type EnvironmentSnapshot = {
 
 function cpuUsagePct(sampleMs = 300): Promise<number> {
   return new Promise((resolve) => {
-    const t0 = os.cpus().map((c) => ({ ...c.times }));
+    const t0 = os.cpus().map((c) => c.times);
     setTimeout(() => {
       const t1 = os.cpus();
       let idle = 0;
@@ -50,7 +50,9 @@ function cpuUsagePct(sampleMs = 300): Promise<number> {
       for (let i = 0; i < t1.length; i++) {
         const a = t0[i];
         const b = t1[i]?.times;
-        if (!a || !b) continue;
+        if (!a || !b) {
+          continue;
+        }
         idle += b.idle - a.idle;
         total +=
           b.user + b.nice + b.sys + b.idle + b.irq - (a.user + a.nice + a.sys + a.idle + a.irq);
@@ -188,7 +190,9 @@ export class AwarenessPoller {
   ) {}
 
   start(): void {
-    if (this.timer !== null) return;
+    if (this.timer !== null) {
+      return;
+    }
     void this.tick();
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
     if (typeof (this.timer as { unref?: () => void }).unref === "function") {
@@ -197,7 +201,9 @@ export class AwarenessPoller {
   }
 
   stop(): void {
-    if (this.timer === null) return;
+    if (this.timer === null) {
+      return;
+    }
     clearInterval(this.timer);
     this.timer = null;
   }
@@ -207,13 +213,17 @@ export class AwarenessPoller {
   }
 
   private async tick(): Promise<void> {
-    if (this.inFlight) return;
+    if (this.inFlight) {
+      return;
+    }
     this.inFlight = true;
     try {
       const snap = await readEnvironmentSnapshot();
       const events = diffSnapshots(this.last, snap);
       this.last = snap;
-      for (const ev of events) this.bus.emit(ev);
+      for (const ev of events) {
+        this.bus.emit(ev);
+      }
     } catch {
       // Never throw — this poller runs forever and must survive errors.
     } finally {

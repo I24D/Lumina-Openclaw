@@ -11,6 +11,7 @@
  */
 import { Type } from "typebox";
 import { runPythonSidecarJson } from "../shared/python.js";
+import { textOf } from "../shared/text.js";
 import { jsonResult, type AnyAgentTool } from "../shared/tool-result.js";
 
 export function createUiInvokeTool(): AnyAgentTool {
@@ -65,13 +66,27 @@ export function createUiInvokeTool(): AnyAgentTool {
         return jsonResult({ ok: false, error: "provide automationId or name" });
       }
       const args: string[] = ["--invoke"];
-      if (params.automationId) args.push("--automation-id", String(params.automationId));
-      if (params.name) args.push("--name", String(params.name));
-      if (params.controlType) args.push("--control-type", String(params.controlType));
-      if (params.action) args.push("--action", String(params.action));
-      if (typeof params.value === "string") args.push("--value", params.value);
-      if (params.nameMatch) args.push("--name-match", String(params.nameMatch));
-      if (typeof params.pid === "number") args.push("--pid", String(params.pid));
+      if (params.automationId) {
+        args.push("--automation-id", textOf(params.automationId));
+      }
+      if (params.name) {
+        args.push("--name", textOf(params.name));
+      }
+      if (params.controlType) {
+        args.push("--control-type", textOf(params.controlType));
+      }
+      if (params.action) {
+        args.push("--action", textOf(params.action));
+      }
+      if (typeof params.value === "string") {
+        args.push("--value", params.value);
+      }
+      if (params.nameMatch) {
+        args.push("--name-match", textOf(params.nameMatch));
+      }
+      if (typeof params.pid === "number") {
+        args.push("--pid", String(params.pid));
+      }
       const r = await runPythonSidecarJson<{ ok: boolean; [k: string]: unknown }>(
         "uia_tree",
         args,

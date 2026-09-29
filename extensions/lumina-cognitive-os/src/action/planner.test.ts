@@ -43,6 +43,8 @@ describe("validatePlan", () => {
       steps: [{ toolName: "lumina_clipboard", description: "read" }],
     });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.plan.stopOnError).toBe(false);
+    if (r.ok) {
+      expect(r.plan.stopOnError).toBe(false);
+    }
   });
 });

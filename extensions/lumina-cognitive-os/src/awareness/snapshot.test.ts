@@ -4,7 +4,10 @@
 import { describe, expect, it } from "vitest";
 import { diffSnapshots, type EnvironmentSnapshot } from "./snapshot.js";
 
-function baseSnap(): EnvironmentSnapshot {
+// The tests mutate a fresh copy per case; the production type stays readonly.
+type MutableSnapshot = { -readonly [K in keyof EnvironmentSnapshot]: EnvironmentSnapshot[K] };
+
+function baseSnap(): MutableSnapshot {
   return {
     atISO: new Date().toISOString(),
     cpu: { usagePct: 30, cores: 8, loadAvg: [0, 0, 0] },

@@ -21,7 +21,9 @@ export function createPlanStore(): PlanStore {
   return {
     register(plan) {
       plans.unshift(plan);
-      if (plans.length > 64) plans.length = 64;
+      if (plans.length > 64) {
+        plans.length = 64;
+      }
     },
     list() {
       return plans.slice();
@@ -75,7 +77,9 @@ export function createActionPlanTool(store: PlanStore): AnyAgentTool {
         }[];
       };
       const v = validatePlan(params);
-      if (!v.ok) throw new ToolInputError(v.error);
+      if (!v.ok) {
+        throw new ToolInputError(v.error);
+      }
       store.register(v.plan);
       return jsonResult({ ok: true, plan: v.plan });
     },

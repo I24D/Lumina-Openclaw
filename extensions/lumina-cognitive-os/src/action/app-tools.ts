@@ -100,7 +100,9 @@ export function createAppLaunchTool(deps: AppToolsDeps): AnyAgentTool {
       const raw = rawParams as { application: string };
       const params = raw as { application: string };
       const rawApp = params.application?.trim();
-      if (!rawApp) throw new ToolInputError("application is required");
+      if (!rawApp) {
+        throw new ToolInputError("application is required");
+      }
       // Lowercase for alias matching; fuzzy Start-Apps search in the Bridge
       // is also case-insensitive, so this is safe end-to-end.
       const app = rawApp.toLowerCase();

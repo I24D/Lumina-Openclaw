@@ -45,7 +45,9 @@ function execOnce(
     let stderr = "";
     let settled = false;
     const timer = setTimeout(() => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       try {
         child.kill("SIGKILL");
@@ -61,13 +63,17 @@ function execOnce(
       stderr += b.toString("utf8");
     });
     child.on("error", () => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       resolve({ ok: false, stdout, stderr, code: -1 });
     });
     child.on("close", (code) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       resolve({ ok: (code ?? -1) === 0, stdout, stderr, code: code ?? -1 });
@@ -109,7 +115,9 @@ async function captureWindows(outPath: string): Promise<CaptureResult> {
     ],
     20_000,
   );
-  if (!r.ok) throw new Error(`PowerShell capture failed: ${r.stderr || `exit ${r.code}`}`);
+  if (!r.ok) {
+    throw new Error(`PowerShell capture failed: ${r.stderr || `exit ${r.code}`}`);
+  }
   return { path: outPath, resolution: r.stdout.trim(), engine: "windows-powershell" };
 }
 
@@ -162,16 +170,26 @@ async function captureLinux(outPath: string): Promise<CaptureResult> {
 
 async function captureMacos(outPath: string): Promise<CaptureResult> {
   const r = await execOnce("screencapture", ["-x", outPath], 20_000);
-  if (!r.ok) throw new Error(`macOS screencapture failed: ${r.stderr || `exit ${r.code}`}`);
+  if (!r.ok) {
+    throw new Error(`macOS screencapture failed: ${r.stderr || `exit ${r.code}`}`);
+  }
   return { path: outPath, resolution: "unknown", engine: "macos-screencapture" };
 }
 
 export async function capturePrimaryScreen(outPath: string): Promise<CaptureResult> {
   await fs.mkdir(path.dirname(outPath), { recursive: true });
   const p = detectPlatform();
-  if (p === "windows") return captureWindows(outPath);
-  if (p === "wsl") return captureWsl(outPath);
-  if (p === "linux") return captureLinux(outPath);
-  if (p === "macos") return captureMacos(outPath);
+  if (p === "windows") {
+    return captureWindows(outPath);
+  }
+  if (p === "wsl") {
+    return captureWsl(outPath);
+  }
+  if (p === "linux") {
+    return captureLinux(outPath);
+  }
+  if (p === "macos") {
+    return captureMacos(outPath);
+  }
   throw new Error(`unsupported platform for screen capture: ${p}`);
 }

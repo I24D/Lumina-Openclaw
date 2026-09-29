@@ -176,7 +176,7 @@ describe("OperativeDaemon — end to end", () => {
     ]);
     const bus = new AwarenessEventBus();
     const log = new ActionLogStore(tmpDir);
-    const dispatcher = vi.fn<Parameters<ToastDispatcher>, ReturnType<ToastDispatcher>>();
+    const dispatcher = vi.fn<ToastDispatcher>();
     const daemon = new OperativeDaemon({
       bus,
       log,
@@ -185,13 +185,17 @@ describe("OperativeDaemon — end to end", () => {
       autoStart: true,
     });
     bus.emit({ kind: "battery.low", percent: 15 });
-    await new Promise((r) => setImmediate(r));
+    await new Promise<void>((r) => {
+      setImmediate(r);
+    });
     expect(dispatcher).toHaveBeenCalledTimes(1);
     expect(dispatcher.mock.calls[0]![0]!.title).toBe("Bat 15%");
 
     // Second emit within debounce window → no dispatch.
     bus.emit({ kind: "battery.low", percent: 14 });
-    await new Promise((r) => setImmediate(r));
+    await new Promise<void>((r) => {
+      setImmediate(r);
+    });
     expect(dispatcher).toHaveBeenCalledTimes(1);
 
     daemon.stop();
@@ -215,7 +219,9 @@ describe("OperativeDaemon — end to end", () => {
       toastDispatcher: dispatcher,
     });
     bus.emit({ kind: "battery.low", percent: 19 });
-    await new Promise((r) => setImmediate(r));
+    await new Promise<void>((r) => {
+      setImmediate(r);
+    });
     expect(dispatcher).not.toHaveBeenCalled();
     daemon.stop();
   });
@@ -234,11 +240,15 @@ describe("OperativeDaemon — end to end", () => {
     });
     daemon.stop();
     bus.emit({ kind: "network.offline" });
-    await new Promise((r) => setImmediate(r));
+    await new Promise<void>((r) => {
+      setImmediate(r);
+    });
     expect(dispatcher).not.toHaveBeenCalled();
     daemon.start();
     bus.emit({ kind: "network.offline" });
-    await new Promise((r) => setImmediate(r));
+    await new Promise<void>((r) => {
+      setImmediate(r);
+    });
     expect(dispatcher).toHaveBeenCalledTimes(1);
     daemon.stop();
   });

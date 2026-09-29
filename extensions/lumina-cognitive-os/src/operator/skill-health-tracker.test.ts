@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { SkillHealthTracker } from "./skill-health-tracker.js";
 
 describe("SkillHealthTracker", () => {

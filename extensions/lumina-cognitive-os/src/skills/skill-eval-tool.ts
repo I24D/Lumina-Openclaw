@@ -27,7 +27,9 @@ export function createSkillEvalTool(store: SkillEvalStore): AnyAgentTool {
       // validates the payload before execute() is ever called.
       const p = rawParams as { skillId: string; lastN?: number };
       const id = p.skillId?.trim();
-      if (!id) throw new ToolInputError("skillId is required");
+      if (!id) {
+        throw new ToolInputError("skillId is required");
+      }
       const stats = store.stats(id, p.lastN ?? 20);
       return jsonResult({ ok: true, stats });
     },

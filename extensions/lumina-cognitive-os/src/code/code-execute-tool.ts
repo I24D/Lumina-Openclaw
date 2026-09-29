@@ -123,8 +123,12 @@ export function createCodeExecuteTool(params: {
       };
       const language = (p.language as string)?.trim().toLowerCase();
       const code = p.code?.trim();
-      if (!language) throw new ToolInputError("language is required");
-      if (!code) throw new ToolInputError("code is required");
+      if (!language) {
+        throw new ToolInputError("language is required");
+      }
+      if (!code) {
+        throw new ToolInputError("code is required");
+      }
       const cwd = (p.cwd?.trim() || defaultCwd).replace(/\\/g, "/");
 
       // 1) Sandbox preflight

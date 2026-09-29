@@ -55,7 +55,9 @@ async function collectDeclaredToolNames(extensionDir: string): Promise<Set<strin
         await walk(full);
         continue;
       }
-      if (!entry.name.endsWith(".ts") || entry.name.endsWith(".test.ts")) continue;
+      if (!entry.name.endsWith(".ts") || entry.name.endsWith(".test.ts")) {
+        continue;
+      }
       const text = readFileSync(full, "utf8");
       // Match declared tool names: `name: "lumina_xyz"` inside object literals.
       const declPattern = /name:\s*"(lumina_[a-z0-9_]+)"/g;

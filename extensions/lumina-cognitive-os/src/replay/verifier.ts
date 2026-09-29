@@ -38,8 +38,12 @@ export async function verifyPostAction(params: {
       return { ok: true, policy: "uia_recheck", detail: "no expectation set" };
     }
     const present = params.postLive.uiaNodes.some((n) => {
-      if (policy.expect.automationId && n.automationId === policy.expect.automationId) return true;
-      if (policy.expect.name && n.name === policy.expect.name) return true;
+      if (policy.expect.automationId && n.automationId === policy.expect.automationId) {
+        return true;
+      }
+      if (policy.expect.name && n.name === policy.expect.name) {
+        return true;
+      }
       return false;
     });
     return {
@@ -87,11 +91,15 @@ async function fastPngChangeRatio(pathA: string, pathB: string): Promise<number>
     const a = fs.readFileSync(pathA);
     const b = fs.readFileSync(pathB);
     const len = Math.min(a.length, b.length);
-    if (len === 0) return 0;
+    if (len === 0) {
+      return 0;
+    }
     let changed = 0;
     const sampleStride = Math.max(1, Math.floor(len / 50_000)); // sample up to 50k bytes
     for (let i = 0; i < len; i += sampleStride) {
-      if (a[i] !== b[i]) changed++;
+      if (a[i] !== b[i]) {
+        changed++;
+      }
     }
     const sampled = Math.ceil(len / sampleStride);
     return sampled === 0 ? 0 : changed / sampled;

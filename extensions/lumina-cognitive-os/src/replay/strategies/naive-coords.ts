@@ -20,10 +20,14 @@ export const naiveCoordsStrategy: ReplayStrategy = {
         return { kind: "skip", reason: `non-actionable event: ${e.kind}` };
       case "mouse.down":
       case "mouse.up": {
-        if (!e.pos) return { kind: "skip", reason: "no pos" };
+        if (!e.pos) {
+          return { kind: "skip", reason: "no pos" };
+        }
         // Treat down+up sequences as a single click in the engine — here just
         // emit a click on mouse.down and skip mouse.up to halve dispatches.
-        if (e.kind === "mouse.up") return { kind: "skip", reason: "paired with mouse.down" };
+        if (e.kind === "mouse.up") {
+          return { kind: "skip", reason: "paired with mouse.down" };
+        }
         return {
           kind: "mouse_click",
           x: e.pos.x,
@@ -34,7 +38,9 @@ export const naiveCoordsStrategy: ReplayStrategy = {
         };
       }
       case "mouse.scroll": {
-        if (!e.pos) return { kind: "skip", reason: "no pos" };
+        if (!e.pos) {
+          return { kind: "skip", reason: "no pos" };
+        }
         return {
           kind: "mouse_scroll",
           x: e.pos.x,
@@ -45,7 +51,9 @@ export const naiveCoordsStrategy: ReplayStrategy = {
         };
       }
       case "key.down": {
-        if (!e.key) return { kind: "skip", reason: "no key" };
+        if (!e.key) {
+          return { kind: "skip", reason: "no key" };
+        }
         if (e.key.length === 1) {
           return { kind: "type_text", text: e.key, via: { source: "naive_coords" } };
         }
@@ -60,9 +68,15 @@ export const naiveCoordsStrategy: ReplayStrategy = {
 };
 
 function normalizeButton(raw: string | undefined): "left" | "right" | "middle" {
-  if (!raw) return "left";
+  if (!raw) {
+    return "left";
+  }
   const v = raw.toLowerCase();
-  if (v.includes("right")) return "right";
-  if (v.includes("middle") || v.includes("3")) return "middle";
+  if (v.includes("right")) {
+    return "right";
+  }
+  if (v.includes("middle") || v.includes("3")) {
+    return "middle";
+  }
   return "left";
 }
