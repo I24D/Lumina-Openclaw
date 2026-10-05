@@ -25,6 +25,24 @@ voice via **Start Talk** — there is no separate CLI surface.
 |    12 | `lumina_boot_greeting`                    | Morning briefing phrase.                                                   |
 |    12 | `lumina_wake_word`                        | Wake-word detector daemon.                                                 |
 
+## Cognitive core (M3GAN REAL)
+
+The core that turns perception into a continuous picture of the situation and keeps the body
+behind a safety supervisor. See [docs/M3GAN_REAL.md](../../docs/M3GAN_REAL.md) for the full map.
+
+| Tool                   | Purpose                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| `lumina_workspace`     | Global workspace: goal, people, place, attention, task, events, memories, body. |
+| `lumina_self_model`    | What Lumina knows about itself: body, sensors, tools, energy, limits.           |
+| `lumina_goal`          | Goals that persist across sessions, ranked by priority and deadline.            |
+| `lumina_world_observe` | Record where things are and how they are; claims never count as sensor data.    |
+| `lumina_world_query`   | "Where is X?", with confidence that decays over time and a stale flag.          |
+| `lumina_body`          | Review or request a body intent through the safety supervisor.                  |
+
+Config: `cognitiveCoreEnabled` (default on), `autonomyLevel` (0-5, default 3), `bodyMode`
+(`none` or `simulated`), `grantedCapabilities` and `preAuthorizedCapabilities` (Dal only; no
+tool can write them).
+
 ## Configuration
 
 Plugin config (per `openclaw.plugin.json`):
@@ -77,6 +95,9 @@ extensions/lumina-cognitive-os/
     ├── vision/                 Nivel 3
     ├── action/                 Nivel 4
     ├── agents/                 Nivel 5 — 12 named specialists + Director
+    ├── cognition/              M3GAN core — attention, router, loop, workspace, self model
+    ├── world/                  M3GAN core — world model + perception hook
+    ├── embodiment/             M3GAN core — body intents, safety supervisor, adapters
     ├── automation/             Nivel 9 — intent router + 9 templates
     ├── mcp/                    Nivel 11 — Gmail/Calendar/Drive
     ├── presence/               Nivel 12 — boot greeting + wake-word

@@ -31,6 +31,16 @@ export const DEFAULT_CONFIDENCE_THRESHOLDS: ConfidenceThresholds = {
   verify: 0.7,
 };
 
+/**
+ * Stricter cut-points for anything that moves a body in the physical world.
+ * A wrong click can be undone; a wrong grasp may not be (M3GAN spec §18:
+ * uncertain inferences never become important physical actions).
+ */
+export const PHYSICAL_CONFIDENCE_THRESHOLDS: ConfidenceThresholds = {
+  act: 0.95,
+  verify: 0.85,
+};
+
 /** One named contribution to an overall confidence score. */
 export type ConfidenceSignal = {
   /** Short identifier, e.g. "memory.hit" or "model.selfReport". */
@@ -101,6 +111,48 @@ export function combineSignals(signals: ReadonlyArray<ConfidenceSignal>): number
     total += weight;
   }
   return total > 0 ? clampConfidence(weighted / total) : 0;
+}
+
+/**
+ * What to do when confidence is not enough to act. The stance says *whether*
+ * to act; this says *how to close the gap*, preferring cheap evidence over
+ * bothering Dal, and preferring asking over inventing.
+ */
+export type LowConfidenceResolution =
+  /** Run a cheap confirming check, then act. */
+  | "verify"
+  /** Gather more perception (look again, listen longer) before deciding. */
+  | "observe_more"
+  /** Hand the question to a person. */
+  | "ask"
+  /** Do nothing: there is no safe way to close the gap right now. */
+  | "abstain";
+
+export type LowConfidenceContext = {
+  readonly stance: ConfidenceStance;
+  /** A sensor can plausibly raise confidence by looking again. */
+  readonly canObserve: boolean;
+  /** Someone is available to answer. */
+  readonly canAsk: boolean;
+};
+
+/**
+ * Pick the cheapest honest way forward for a stance below "act".
+ * Returns undefined for "act": there is no gap to close.
+ */
+export function resolveLowConfidence(
+  context: LowConfidenceContext,
+): LowConfidenceResolution | undefined {
+  if (context.stance === "act") {
+    return undefined;
+  }
+  if (context.stance === "verify") {
+    return "verify";
+  }
+  if (context.canObserve) {
+    return "observe_more";
+  }
+  return context.canAsk ? "ask" : "abstain";
 }
 
 /** Full assessment: combine signals, pick a stance, explain the outcome. */

@@ -8,6 +8,8 @@ import {
   combineSignals,
   DEFAULT_CONFIDENCE_THRESHOLDS,
   normalizeThresholds,
+  PHYSICAL_CONFIDENCE_THRESHOLDS,
+  resolveLowConfidence,
   stanceFor,
 } from "./uncertainty.js";
 
@@ -84,5 +86,48 @@ describe("assessConfidence", () => {
     expect(a.stance).toBe("ask");
     expect(a.signals).toHaveLength(0);
     expect(a.rationale).toContain("no usable signals");
+  });
+});
+
+describe("physical thresholds", () => {
+  it("are stricter than the digital defaults on both cut-points", () => {
+    expect(PHYSICAL_CONFIDENCE_THRESHOLDS.act).toBeGreaterThan(DEFAULT_CONFIDENCE_THRESHOLDS.act);
+    expect(PHYSICAL_CONFIDENCE_THRESHOLDS.verify).toBeGreaterThan(
+      DEFAULT_CONFIDENCE_THRESHOLDS.verify,
+    );
+  });
+
+  it("turn a confidence that is enough on screen into a check in the world", () => {
+    expect(stanceFor(0.92)).toBe("act");
+    expect(stanceFor(0.92, PHYSICAL_CONFIDENCE_THRESHOLDS)).toBe("verify");
+    expect(stanceFor(0.8, PHYSICAL_CONFIDENCE_THRESHOLDS)).toBe("ask");
+  });
+});
+
+describe("resolveLowConfidence", () => {
+  it("has nothing to resolve when the stance already allows acting", () => {
+    expect(resolveLowConfidence({ stance: "act", canObserve: true, canAsk: true })).toBeUndefined();
+  });
+
+  it("verifies when confidence is only borderline", () => {
+    expect(resolveLowConfidence({ stance: "verify", canObserve: false, canAsk: false })).toBe(
+      "verify",
+    );
+  });
+
+  it("prefers looking again over bothering a person", () => {
+    expect(resolveLowConfidence({ stance: "ask", canObserve: true, canAsk: true })).toBe(
+      "observe_more",
+    );
+  });
+
+  it("asks rather than invents when it cannot observe", () => {
+    expect(resolveLowConfidence({ stance: "ask", canObserve: false, canAsk: true })).toBe("ask");
+  });
+
+  it("abstains when there is no honest way to close the gap", () => {
+    expect(resolveLowConfidence({ stance: "ask", canObserve: false, canAsk: false })).toBe(
+      "abstain",
+    );
   });
 });

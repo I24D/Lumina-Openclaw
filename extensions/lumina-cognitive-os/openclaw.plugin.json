@@ -118,7 +118,13 @@
       "lumina_wake_word",
       "lumina_risk_recent",
       "lumina_transparency_publish",
-      "lumina_transparency_recent"
+      "lumina_transparency_recent",
+      "lumina_workspace",
+      "lumina_self_model",
+      "lumina_goal",
+      "lumina_world_observe",
+      "lumina_world_query",
+      "lumina_body"
     ]
   },
   "configSchema": {
@@ -219,6 +225,98 @@
         "type": "string",
         "default": "c:/I24D_WhatsApp/src/cuerpo/warehouses",
         "description": "Path to Lumina's existing warehouses. Catalog only; OpenClaw does not load experimental cerebro/local AI modules."
+      },
+      "recipesDir": {
+        "type": "string",
+        "description": "Directory of extra intent recipes for lumina_intent_run. Empty uses the built-in templates only."
+      },
+      "bridgeUrl": {
+        "type": "string",
+        "default": "http://127.0.0.1:8765",
+        "description": "Windows Bridge URL for UI automation and system context. LUMINA_BRIDGE_URL overrides."
+      },
+      "operativeEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Run the operative daemon that applies the operative rules."
+      },
+      "operativeRulesPath": {
+        "type": "string",
+        "description": "Path to the operative rules file. LUMINA_OPERATIVE_RULES overrides."
+      },
+      "codeActWorkspaceRoot": {
+        "type": "string",
+        "default": "c:/I24D_WhatsApp/codeact-workspace",
+        "description": "Workspace the CodeAct loop may write to. LUMINA_CODEACT_WORKSPACE overrides."
+      },
+      "recordingsDir": {
+        "type": "string",
+        "default": "c:/I24D_WhatsApp/recordings",
+        "description": "Where demonstrations are recorded for skill learning. LUMINA_RECORDINGS_DIR overrides."
+      },
+      "replayAllowedApps": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Apps a recorded demonstration may be replayed against. LUMINA_REPLAY_ALLOWED_APPS overrides."
+      },
+      "governancePolicyPath": {
+        "type": "string",
+        "description": "Governance policy JSON. Defaults to c:/I24D_WhatsApp/governance-policy.json; LUMINA_GOVERNANCE_POLICY_PATH overrides."
+      },
+      "cognitiveCoreEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Run the cognitive core: thalamic router, world model, global workspace, self model and the safety-gated body. The loop starts observe-only."
+      },
+      "autonomyLevel": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 5,
+        "default": 3,
+        "description": "Initiative ceiling L0-L5 for the cognitive loop and the body. L3 notices and proposes but asks first; L4+ may act alone on pre-authorized, reversible, low-risk work."
+      },
+      "bodyMode": {
+        "type": "string",
+        "enum": [
+          "none",
+          "simulated"
+        ],
+        "default": "none",
+        "description": "Body adapter. 'none' on a desktop (every physical intent is refused); 'simulated' exercises the body path symbolically. A physical robot needs its own adapter."
+      },
+      "grantedCapabilities": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "robot.stop",
+            "robot.look",
+            "robot.gesture",
+            "robot.navigate",
+            "robot.grasp",
+            "robot.handover"
+          ]
+        },
+        "default": [],
+        "description": "Body capabilities Dal grants. The model cannot grant itself any; only this config can."
+      },
+      "preAuthorizedCapabilities": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "robot.stop",
+            "robot.look",
+            "robot.gesture",
+            "robot.navigate",
+            "robot.grasp",
+            "robot.handover"
+          ]
+        },
+        "default": [],
+        "description": "Granted capabilities that may run without asking at L4+, only when reversible and low risk. Grasping and handing objects to people always ask."
       }
     }
   }

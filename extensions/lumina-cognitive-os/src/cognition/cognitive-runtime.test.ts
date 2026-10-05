@@ -1,0 +1,263 @@
+/**
+ * End-to-end tests for the assembled cognitive core, driven through its tools.
+ */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { AwarenessEventBus } from "../awareness/event-bus.js";
+import type { WorkingMemory } from "../memory/working-memory.js";
+import type { AnyAgentTool } from "../shared/tool-result.js";
+import { createCognitiveRuntime, type CognitiveRuntimeOptions } from "./cognitive-runtime.js";
+
+const NOW = Date.parse("2026-10-04T20:41:00.000Z");
+const dirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of dirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const working: WorkingMemory = {
+  currentProject: null,
+  activeWindow: { processName: "Code", title: "M3GAN REAL" },
+  activeFile: null,
+  currentIntent: "desarrollar M3GAN",
+  pinnedContext: [],
+  updatedAtISO: new Date(NOW).toISOString(),
+};
+
+const runtimeWith = (extra: Partial<CognitiveRuntimeOptions> = {}) => {
+  const memoryDir = fs.mkdtempSync(path.join(os.tmpdir(), "lumina-runtime-"));
+  dirs.push(memoryDir);
+  let engaged = false;
+  const bus = new AwarenessEventBus();
+  const runtime = createCognitiveRuntime({
+    memoryDir,
+    autonomyLevel: 4,
+    bodyMode: "none",
+    grantedCapabilities: [],
+    preAuthorizedCapabilities: [],
+    awarenessBus: bus,
+    emergencyStop: { isEngaged: () => engaged, onEngage: () => () => undefined },
+    environment: () => null,
+    working: () => working,
+    toolNames: () => ["lumina_risk_evaluate"],
+    activeModel: () => "ollama-cloud/glm-5.2",
+    now: () => NOW,
+    ...extra,
+  });
+  return { runtime, bus, engage: () => void (engaged = true) };
+};
+
+/** Run a tool and return its JSON payload. */
+const call = async (
+  tools: ReadonlyArray<AnyAgentTool>,
+  name: string,
+  params: Record<string, unknown>,
+) => {
+  const tool = tools.find((t) => t.name === name);
+  if (!tool) {
+    throw new Error(`no tool ${name}`);
+  }
+  const result = (await tool.execute(
+    "call",
+    params as never,
+    undefined as never,
+    undefined as never,
+  )) as {
+    details?: unknown;
+    content?: Array<{ text?: string }>;
+  };
+  return (result.details ?? JSON.parse(result.content?.[0]?.text ?? "{}")) as Record<string, any>;
+};
+
+const settle = () =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
+describe("createCognitiveRuntime", () => {
+  it("exposes the six cognitive-core tools", () => {
+    const { runtime } = runtimeWith();
+    expect(runtime.tools.map((t) => t.name)).toEqual([
+      "lumina_workspace",
+      "lumina_self_model",
+      "lumina_goal",
+      "lumina_world_observe",
+      "lumina_world_query",
+      "lumina_body",
+    ]);
+    runtime.dispose();
+  });
+
+  it("carries an awareness event through the router into a cycle the workspace shows", async () => {
+    const { runtime, bus } = runtimeWith();
+    bus.emit({ kind: "battery.critical", percent: 4 });
+    await settle();
+
+    const { workspace } = await call(runtime.tools, "lumina_workspace", {});
+    expect(workspace.recentEvents[0]).toMatchObject({
+      source: "awareness",
+      kind: "battery.critical",
+      admitted: true,
+    });
+    // Observe-only: the cycle ran, nothing was executed.
+    expect(workspace.activeTask).toMatchObject({ event: "battery.critical", executed: false });
+    expect(workspace.userContext).toEqual({
+      intent: "desarrollar M3GAN",
+      activeWindow: "M3GAN REAL",
+      pinned: [],
+    });
+    runtime.dispose();
+  });
+
+  it("remembers what the user says about the world and answers where things are", async () => {
+    const { runtime } = runtimeWith();
+    await call(runtime.tools, "lumina_world_observe", {
+      kind: "room",
+      label: "cocina",
+      id: "kitchen",
+      confidence: 1,
+    });
+    const keys = await call(runtime.tools, "lumina_world_observe", {
+      kind: "object",
+      label: "llaves",
+      placeId: "kitchen",
+      confidence: 1,
+    });
+    // An agent claim is capped below sensor evidence.
+    expect(keys.entity.confidence).toBe(0.9);
+    expect(keys.entity.source).toBe("agent");
+
+    const where = await call(runtime.tools, "lumina_world_query", {
+      action: "where",
+      target: "llaves",
+    });
+    expect(where.chain).toEqual(["llaves", "cocina"]);
+    runtime.dispose();
+  });
+
+  it("keeps goals and puts the top one in the workspace and self model", async () => {
+    const { runtime } = runtimeWith();
+    const created = await call(runtime.tools, "lumina_goal", {
+      action: "create",
+      title: "Construir M3GAN",
+      priority: 5,
+    });
+    expect(created.goal.title).toBe("Construir M3GAN");
+
+    const { workspace } = await call(runtime.tools, "lumina_workspace", {});
+    expect(workspace.currentGoal.title).toBe("Construir M3GAN");
+    const { self } = await call(runtime.tools, "lumina_self_model", {});
+    expect(self.currentTasks[0].title).toBe("Construir M3GAN");
+
+    const done = await call(runtime.tools, "lumina_goal", {
+      action: "complete",
+      id: created.goal.id,
+    });
+    expect(done.goal.status).toBe("done");
+    runtime.dispose();
+  });
+
+  it("knows it has no body on a desktop and refuses to pretend otherwise", async () => {
+    const { runtime } = runtimeWith();
+    const { self } = await call(runtime.tools, "lumina_self_model", {});
+    expect(self.body.mode).toBe("none");
+    expect(self.activeModel).toBe("ollama-cloud/glm-5.2");
+    expect(self.capabilities).toContain("lumina_risk_evaluate");
+
+    const moved = await call(runtime.tools, "lumina_body", {
+      action: "request",
+      type: "navigate_to",
+      targetId: "kitchen",
+    });
+    expect(moved.ok).toBe(false);
+    expect(moved.review.verdict).toBe("deny");
+    runtime.dispose();
+  });
+
+  it("moves a simulated body only with Dal's grant and pre-authorization", async () => {
+    const { runtime } = runtimeWith({
+      bodyMode: "simulated",
+      grantedCapabilities: ["robot.navigate", "robot.fly"],
+      preAuthorizedCapabilities: ["robot.navigate", "robot.grasp"],
+    });
+    runtime.world.observe({
+      id: "kitchen",
+      kind: "room",
+      label: "cocina",
+      confidence: 1,
+      source: "sensor",
+    });
+
+    const moved = await call(runtime.tools, "lumina_body", {
+      action: "request",
+      type: "navigate_to",
+      targetId: "kitchen",
+    });
+    expect(moved.ok).toBe(true);
+    expect(runtime.selfModel().body.placeId).toBe("kitchen");
+
+    // Unknown capabilities are dropped, and pre-authorizing something not granted grants nothing.
+    expect(runtime.selfModel().capabilities).not.toContain("robot.fly");
+    const grasp = await call(runtime.tools, "lumina_body", {
+      action: "review",
+      type: "grasp",
+      objectId: "kitchen",
+    });
+    expect(grasp.review.verdict).toBe("deny");
+    runtime.dispose();
+  });
+
+  it("refuses all motion while the emergency stop is engaged", async () => {
+    const { runtime, engage } = runtimeWith({
+      bodyMode: "simulated",
+      grantedCapabilities: ["robot.look"],
+    });
+    runtime.world.observe({
+      id: "dal",
+      kind: "person",
+      label: "Dal",
+      confidence: 0.99,
+      source: "sensor",
+    });
+    engage();
+
+    const look = await call(runtime.tools, "lumina_body", {
+      action: "request",
+      type: "look_at",
+      targetId: "dal",
+    });
+    expect(look.review.verdict).toBe("deny");
+    expect(runtime.selfModel().limitations[0]).toContain("Emergency stop");
+    runtime.dispose();
+  });
+
+  it("persists the world and goals across a restart", async () => {
+    const memoryDir = fs.mkdtempSync(path.join(os.tmpdir(), "lumina-runtime-"));
+    dirs.push(memoryDir);
+    const first = runtimeWith({ memoryDir }).runtime;
+    await call(first.tools, "lumina_world_observe", {
+      kind: "object",
+      label: "cargador",
+      confidence: 0.8,
+    });
+    await call(first.tools, "lumina_goal", { action: "create", title: "Cargar batería" });
+    first.dispose();
+
+    const second = runtimeWith({ memoryDir }).runtime;
+    expect(second.world.find("cargador")).toBeDefined();
+    expect(second.goals.open().map((g) => g.title)).toEqual(["Cargar batería"]);
+    second.dispose();
+  });
+
+  it("stops feeding the loop once disposed", async () => {
+    const { runtime, bus } = runtimeWith();
+    runtime.dispose();
+    bus.emit({ kind: "network.offline" });
+    await settle();
+    expect(runtime.router.recent()).toHaveLength(0);
+  });
+});

@@ -81,6 +81,8 @@ import {
   createCodeActStatusTool,
   createCodeActEndTool,
 } from "./src/codeact/codeact-tool.js";
+// Cognitive core (M3GAN): router, world model, workspace, self model, body
+import { createToolRecorder, startCognitiveCore } from "./src/cognition/plugin-wiring.js";
 import { loadLuminaEnv } from "./src/env.js";
 // Governance
 import {
@@ -431,74 +433,77 @@ export default definePluginEntry({
       return;
     }
 
+    // Records what was actually registered (several tools are conditional) for the self model.
+    const { register: registerTool, names: registeredToolNames } = createToolRecorder(api);
+
     // Env cache is warmed above so tool calls don't pay the read cost.
 
     // ── N10 Risk Engine ──────────────────────────────────────────
     const risk = new RiskEngine();
-    api.registerTool(createRiskEvaluateTool(risk));
-    api.registerTool(createRiskRecentTool(risk));
+    registerTool(createRiskEvaluateTool(risk));
+    registerTool(createRiskRecentTool(risk));
 
     // ── N1 Environment Awareness ─────────────────────────────────
     const awarenessBus = new AwarenessEventBus();
     const poller = new AwarenessPoller(cfg.awarenessIntervalMs, awarenessBus);
     const systemBridgeClient = createBridgeClient({ bridgeUrl: cfg.bridgeUrl });
     poller.start();
-    api.registerTool(createAwarenessSnapshotTool(poller));
-    api.registerTool(createAwarenessSubscribeTool(awarenessBus));
-    api.registerTool(createWindowsContextTool(systemBridgeClient));
+    registerTool(createAwarenessSnapshotTool(poller));
+    registerTool(createAwarenessSubscribeTool(awarenessBus));
+    registerTool(createWindowsContextTool(systemBridgeClient));
     // WhatsApp respond first: it is the fast one-call path (contact + message)
     // and the preferred tool for answering a notification quickly. The exact
     // metadata reply and status checks follow.
-    api.registerTool(createWhatsappRespondTool(systemBridgeClient));
-    api.registerTool(createPhoneLinkStatusTool(systemBridgeClient));
-    api.registerTool(createPhoneLinkReplyTool(systemBridgeClient));
+    registerTool(createWhatsappRespondTool(systemBridgeClient));
+    registerTool(createPhoneLinkStatusTool(systemBridgeClient));
+    registerTool(createPhoneLinkReplyTool(systemBridgeClient));
 
     // ── N2 Memory ────────────────────────────────────────────────
     const working = new WorkingMemoryStore(cfg.memoryDir);
     const episodic = new EpisodicMemoryStore(cfg.memoryDir);
     const actionLog = new ActionLogStore(cfg.memoryDir);
-    api.registerTool(createWorkingMemoryGetTool(working));
-    api.registerTool(createWorkingMemorySetTool(working));
-    api.registerTool(createEpisodicRememberTool(episodic));
-    api.registerTool(createEpisodicRecallTool(episodic));
+    registerTool(createWorkingMemoryGetTool(working));
+    registerTool(createWorkingMemorySetTool(working));
+    registerTool(createEpisodicRememberTool(episodic));
+    registerTool(createEpisodicRecallTool(episodic));
     // Spec 3 — semantic action log (auto-fed by workflow engine)
-    api.registerTool(createWorkingMemoryRecallTool(actionLog));
-    api.registerTool(createWorkingMemoryLogTool(actionLog));
+    registerTool(createWorkingMemoryRecallTool(actionLog));
+    registerTool(createWorkingMemoryLogTool(actionLog));
 
     // ── N3 Vision ────────────────────────────────────────────────
-    api.registerTool(createUiTreeTool());
+    registerTool(createUiTreeTool());
     // Spec 2 — natural-language → automationId/bbox resolver
-    api.registerTool(createUiResolveTool());
+    registerTool(createUiResolveTool());
     // Native UIA pattern action (Invoke/SetValue/Toggle) by identity — more
     // reliable than coordinate clicks for off-screen / non-foreground elements.
-    api.registerTool(createUiInvokeTool());
+    registerTool(createUiInvokeTool());
     // Live sight: current foreground + actionable elements from continuous
     // perception (served by the windows-bridge). Act-on-current-state in one step.
-    api.registerTool(createSightTool(cfg.bridgeUrl));
-    api.registerTool(createMultiMonitorTool());
+    registerTool(createSightTool(cfg.bridgeUrl));
+    registerTool(createMultiMonitorTool());
     // §3 router: classify the foreground window → recommended engine order.
-    api.registerTool(createWindowClassifyTool(cfg.bridgeUrl));
+    registerTool(createWindowClassifyTool(cfg.bridgeUrl));
 
     // ── N4 Action ────────────────────────────────────────────────
     const planStore = createPlanStore();
-    api.registerTool(createActionPlanTool(planStore));
-    api.registerTool(createBrowserDriverTool({ enabled: cfg.browserDriverEnabled }));
-    api.registerTool(createBrowserScreencastTool());
-    api.registerTool(createBrowserSessionTool());
+    registerTool(createActionPlanTool(planStore));
+    registerTool(createBrowserDriverTool({ enabled: cfg.browserDriverEnabled }));
+    registerTool(createBrowserScreencastTool());
+    registerTool(createBrowserSessionTool());
     // Smart Click / Type — closed-loop UIA-resolve → dispatch → verify.
     // Reuses Bridge + replayAllowedApps so the same per-process guard applies.
     const smartClickDeps = { bridgeUrl: cfg.bridgeUrl, allowedApps: cfg.replayAllowedApps };
     const smartClickTool = createSmartClickTool(smartClickDeps);
     const smartTypeTool = createSmartTypeTool(smartClickDeps);
-    api.registerTool(smartClickTool);
-    api.registerTool(smartTypeTool);
+    registerTool(smartClickTool);
+    registerTool(smartTypeTool);
     // PC Operator suite: unified observe + scroll + drag.
     const pcObserveTool = createPcObserveTool(smartClickDeps);
     const pcScrollTool = createPcScrollTool(smartClickDeps);
     const pcDragTool = createPcDragTool(smartClickDeps);
-    api.registerTool(pcObserveTool);
-    api.registerTool(pcScrollTool);
-    api.registerTool(pcDragTool);
+    registerTool(pcObserveTool);
+    registerTool(pcScrollTool);
+    registerTool(pcDragTool);
     // Browser DOM-aware smart tools (reuse browserDriverEnabled flag).
     const browserSmartClickTool = createBrowserSmartClickTool({
       enabled: cfg.browserDriverEnabled,
@@ -511,24 +516,24 @@ export default definePluginEntry({
       enabled: cfg.browserDriverEnabled,
     });
     const browserNaturalTool = createBrowserNaturalTool({ enabled: cfg.browserDriverEnabled });
-    api.registerTool(browserSmartClickTool);
-    api.registerTool(browserSmartTypeTool);
-    api.registerTool(browserDomObserveTool);
-    api.registerTool(browserDomScreenshotTool);
-    api.registerTool(browserNaturalTool);
+    registerTool(browserSmartClickTool);
+    registerTool(browserSmartTypeTool);
+    registerTool(browserDomObserveTool);
+    registerTool(browserDomScreenshotTool);
+    registerTool(browserNaturalTool);
 
     // App launcher/closer/discovery — Get-StartApps fuzzy fallback + close (WM_CLOSE).
     const appDeps = { bridgeUrl: cfg.bridgeUrl };
-    api.registerTool(createAppListTool(appDeps));
-    api.registerTool(createAppLaunchTool(appDeps));
-    api.registerTool(createAppCloseTool(appDeps));
+    registerTool(createAppListTool(appDeps));
+    registerTool(createAppLaunchTool(appDeps));
+    registerTool(createAppCloseTool(appDeps));
 
     // App Adapter Registry (§5): structural adapters preferred before generic
     // UIA — Office COM, Registry, Audio + a resolver that says which to use.
-    api.registerTool(createAdapterResolveTool());
-    api.registerTool(createOfficeTool());
-    api.registerTool(createRegistryTool());
-    api.registerTool(createAudioTool());
+    registerTool(createAdapterResolveTool());
+    registerTool(createOfficeTool());
+    registerTool(createRegistryTool());
+    registerTool(createAudioTool());
 
     // ── Camino A: PC Operator Loop (autonomous observe→think→act→verify) ─
     const pcOperatorCostMeter = new CostMeter({ log: actionLog });
@@ -565,13 +570,13 @@ export default definePluginEntry({
       costMeter: pcOperatorCostMeter,
       onLearnedSkillResult: (result) => pcOperatorSkillHealth.record(result),
     });
-    api.registerTool(createPcDoTool(pcOperatorEngine));
-    api.registerTool(createPcDoStatusTool(pcOperatorEngine));
-    api.registerTool(createPcDoListTool(pcOperatorEngine));
-    api.registerTool(createPcDoAbortTool(pcOperatorEngine));
-    api.registerTool(createPcDoCostSummaryTool(pcOperatorCostMeter));
-    api.registerTool(createPcDoSkillHealthTool(pcOperatorSkillHealth));
-    api.registerTool(createPcDoSkillResetTool(pcOperatorSkillHealth));
+    registerTool(createPcDoTool(pcOperatorEngine));
+    registerTool(createPcDoStatusTool(pcOperatorEngine));
+    registerTool(createPcDoListTool(pcOperatorEngine));
+    registerTool(createPcDoAbortTool(pcOperatorEngine));
+    registerTool(createPcDoCostSummaryTool(pcOperatorCostMeter));
+    registerTool(createPcDoSkillHealthTool(pcOperatorSkillHealth));
+    registerTool(createPcDoSkillResetTool(pcOperatorSkillHealth));
     api.logger.info(
       `[lumina-cognitive-os] PC Operator Loop ready (provider=${cfg.pcOperatorProvider}, model=${cfg.pcOperatorModel || "auto"}). Call lumina_pc_do to start.`,
     );
@@ -583,14 +588,14 @@ export default definePluginEntry({
       fps: cfg.perceptionFps,
     });
     const perceptionDeps = { process: perceptionProcess, bus: perceptionBus };
-    api.registerTool(createPerceptionStartTool(perceptionDeps));
-    api.registerTool(createPerceptionStopTool(perceptionDeps));
-    api.registerTool(createPerceptionPauseTool(perceptionDeps));
-    api.registerTool(createPerceptionResumeTool(perceptionDeps));
-    api.registerTool(createPerceptionTuneTool(perceptionDeps));
-    api.registerTool(createPerceptionStatusTool(perceptionDeps));
-    api.registerTool(createPerceptionRecentTool(perceptionDeps));
-    api.registerTool(createPerceptionHealthTool());
+    registerTool(createPerceptionStartTool(perceptionDeps));
+    registerTool(createPerceptionStopTool(perceptionDeps));
+    registerTool(createPerceptionPauseTool(perceptionDeps));
+    registerTool(createPerceptionResumeTool(perceptionDeps));
+    registerTool(createPerceptionTuneTool(perceptionDeps));
+    registerTool(createPerceptionStatusTool(perceptionDeps));
+    registerTool(createPerceptionRecentTool(perceptionDeps));
+    registerTool(createPerceptionHealthTool());
     // Always-on vision: start the continuous semantic perception loop so Lumina
     // "sees" — foreground app + its actionable UIA elements kept fresh — instead
     // of being blind between on-demand screenshots. Gated by config for privacy.
@@ -619,7 +624,7 @@ export default definePluginEntry({
       onEngage: (chord) =>
         api.logger.warn(`[lumina-cognitive-os] KILL SWITCH engaged via ${chord} — operator frozen`),
     });
-    api.registerTool(createKillSwitchTool({ process: killSwitchProcess }));
+    registerTool(createKillSwitchTool({ process: killSwitchProcess }));
     try {
       const ks = killSwitchProcess.start();
       api.logger.info(
@@ -630,27 +635,27 @@ export default definePluginEntry({
     }
 
     // ── N5 Director ──────────────────────────────────────────────
-    api.registerTool(createDirectorRouteTool());
+    registerTool(createDirectorRouteTool());
 
     // ── N9 Intent router ─────────────────────────────────────────
-    api.registerTool(createIntentRunTool());
+    registerTool(createIntentRunTool());
 
     // Spec 1 — Workflow recipes (auto-logged into action log)
     const workflowEngine = new WorkflowEngine({
       recipesDir: cfg.recipesDir || undefined,
       log: actionLog,
     });
-    api.registerTool(createWorkflowListTool(workflowEngine));
-    api.registerTool(
+    registerTool(createWorkflowListTool(workflowEngine));
+    registerTool(
       createWorkflowRunTool(workflowEngine, () => fetchWorkflowEnvironment(cfg.bridgeUrl)),
     );
 
     // ── Agent Skills (agentskills.io standard, Fase 1 plan integración) ──
     const skillLoader = new SkillLoader({ skillsDir: cfg.skillsDir });
-    api.registerTool(createSkillListTool(skillLoader));
-    api.registerTool(createSkillDescribeTool(skillLoader));
-    api.registerTool(createSkillReadAssetTool(skillLoader));
-    api.registerTool(createSkillRunTool(skillLoader, actionLog));
+    registerTool(createSkillListTool(skillLoader));
+    registerTool(createSkillDescribeTool(skillLoader));
+    registerTool(createSkillReadAssetTool(skillLoader));
+    registerTool(createSkillRunTool(skillLoader, actionLog));
     const loadedSkills = skillLoader.list().length;
     const loadErrors = skillLoader.errors().length;
     api.logger.info(
@@ -658,7 +663,7 @@ export default definePluginEntry({
     );
 
     // ── Fase 2: Code execute (sandboxed subprocess) ─────────────
-    api.registerTool(createCodeExecuteTool({ risk, log: actionLog }));
+    registerTool(createCodeExecuteTool({ risk, log: actionLog }));
 
     // ── Fase 3: Operative daemon (proactive Lumina) ─────────────
     const operative = new OperativeDaemon({
@@ -667,11 +672,11 @@ export default definePluginEntry({
       rulesPath: cfg.operativeRulesPath || undefined,
       autoStart: cfg.operativeEnabled,
     });
-    api.registerTool(createOperativeStatusTool(operative));
-    api.registerTool(createOperativeEnableTool(operative));
-    api.registerTool(createOperativeDisableTool(operative));
-    api.registerTool(createOperativeReloadTool(operative));
-    api.registerTool(createOperativeRecentTool(operative));
+    registerTool(createOperativeStatusTool(operative));
+    registerTool(createOperativeEnableTool(operative));
+    registerTool(createOperativeDisableTool(operative));
+    registerTool(createOperativeReloadTool(operative));
+    registerTool(createOperativeRecentTool(operative));
 
     // ── Fase 6: CodeAct loop (LLM-writes-Python pattern) ─────────
     const codeact = new CodeActEngine({
@@ -680,14 +685,14 @@ export default definePluginEntry({
       workspaceRoot: cfg.codeActWorkspaceRoot,
       bridgeUrl: cfg.bridgeUrl,
     });
-    api.registerTool(createCodeActStartTool(codeact));
-    api.registerTool(createCodeActStepTool(codeact));
-    api.registerTool(createCodeActStatusTool(codeact));
-    api.registerTool(createCodeActEndTool(codeact));
+    registerTool(createCodeActStartTool(codeact));
+    registerTool(createCodeActStepTool(codeact));
+    registerTool(createCodeActStatusTool(codeact));
+    registerTool(createCodeActEndTool(codeact));
 
     // ── LfD Fase A: Visual Engine (OmniParser, opt-in) ───────────
-    api.registerTool(createOmniParserTool());
-    api.registerTool(createOmniParserHealthTool());
+    registerTool(createOmniParserTool());
+    registerTool(createOmniParserHealthTool());
     // Wire the OmniParser sidecar into the vision_grounded replay strategy.
     configureOmniParserClient(async (params) => {
       const args: string[] = ["--image", params.imagePath];
@@ -706,14 +711,14 @@ export default definePluginEntry({
     // ── LfD Fase B: Recorder ─────────────────────────────────────
     const recorderStore = new RecorderStore(cfg.recordingsDir);
     const recorder = new RecorderProcess(recorderStore);
-    api.registerTool(createRecorderStartTool({ recorder, log: actionLog }));
-    api.registerTool(createRecorderStopTool({ recorder, log: actionLog }));
-    api.registerTool(createRecorderPauseTool({ recorder, log: actionLog }));
-    api.registerTool(createRecorderResumeTool({ recorder, log: actionLog }));
-    api.registerTool(createRecorderStatusTool({ recorder, log: actionLog }));
-    api.registerTool(createRecorderListTool({ recorder, log: actionLog }));
-    api.registerTool(createRecorderGetTool({ recorder, log: actionLog }));
-    api.registerTool(createRecorderDeleteTool({ recorder, log: actionLog }));
+    registerTool(createRecorderStartTool({ recorder, log: actionLog }));
+    registerTool(createRecorderStopTool({ recorder, log: actionLog }));
+    registerTool(createRecorderPauseTool({ recorder, log: actionLog }));
+    registerTool(createRecorderResumeTool({ recorder, log: actionLog }));
+    registerTool(createRecorderStatusTool({ recorder, log: actionLog }));
+    registerTool(createRecorderListTool({ recorder, log: actionLog }));
+    registerTool(createRecorderGetTool({ recorder, log: actionLog }));
+    registerTool(createRecorderDeleteTool({ recorder, log: actionLog }));
 
     // ── LfD Fase C: Replay Engine ────────────────────────────────
     const replayEngine = new ReplayEngine({
@@ -725,14 +730,14 @@ export default definePluginEntry({
         allowedApps: cfg.replayAllowedApps,
       }),
     });
-    api.registerTool(createReplayRunTool(replayEngine));
-    api.registerTool(createReplayStatusTool(replayEngine));
-    api.registerTool(createReplayListTool(replayEngine));
-    api.registerTool(createReplayAbortTool(replayEngine));
-    api.registerTool(createReplayStrategiesTool());
+    registerTool(createReplayRunTool(replayEngine));
+    registerTool(createReplayStatusTool(replayEngine));
+    registerTool(createReplayListTool(replayEngine));
+    registerTool(createReplayAbortTool(replayEngine));
+    registerTool(createReplayStrategiesTool());
 
     // ── LfD Fase D: Demo → Skill generator ───────────────────────
-    api.registerTool(
+    registerTool(
       createSkillFromRecordingTool({
         recorderStore,
         skillsDir: cfg.skillsDir,
@@ -742,39 +747,39 @@ export default definePluginEntry({
 
     // ── LfD Fase E: Skill eval tracker ───────────────────────────
     const skillEval = new SkillEvalStore(cfg.skillsDir);
-    api.registerTool(createSkillEvalTool(skillEval));
-    api.registerTool(createSkillEvalRecordTool(skillEval));
+    registerTool(createSkillEvalTool(skillEval));
+    registerTool(createSkillEvalRecordTool(skillEval));
 
     // ── N11 MCP ──────────────────────────────────────────────────
-    api.registerTool(createGmailTool());
-    api.registerTool(createCalendarTool());
-    api.registerTool(createDriveTool());
+    registerTool(createGmailTool());
+    registerTool(createCalendarTool());
+    registerTool(createDriveTool());
     const supabaseDeps = {
       envPath: cfg.envPath,
       schema: cfg.supabaseSchema,
       maxRows: cfg.supabaseMaxRows,
       allowWrites: cfg.supabaseAllowWrites,
     };
-    api.registerTool(createSupabaseStatusTool(supabaseDeps));
-    api.registerTool(createSupabaseSchemaTool(supabaseDeps));
-    api.registerTool(createSupabaseQueryTool(supabaseDeps));
-    api.registerTool(createSupabaseMutateTool(supabaseDeps));
+    registerTool(createSupabaseStatusTool(supabaseDeps));
+    registerTool(createSupabaseSchemaTool(supabaseDeps));
+    registerTool(createSupabaseQueryTool(supabaseDeps));
+    registerTool(createSupabaseMutateTool(supabaseDeps));
     const memoryDeps = { ...supabaseDeps, warehousesPath: cfg.warehousesPath };
-    api.registerTool(createLuminaMemoryStatusTool(memoryDeps));
-    api.registerTool(createLuminaMemorySearchTool(memoryDeps));
-    api.registerTool(createLuminaMemoryRememberTool(memoryDeps));
-    api.registerTool(createLuminaWarehouseCatalogTool(memoryDeps));
+    registerTool(createLuminaMemoryStatusTool(memoryDeps));
+    registerTool(createLuminaMemorySearchTool(memoryDeps));
+    registerTool(createLuminaMemoryRememberTool(memoryDeps));
+    registerTool(createLuminaWarehouseCatalogTool(memoryDeps));
     api.logger.info(
       `[lumina-cognitive-os] Supabase memory tools ready (schema=${cfg.supabaseSchema}, writes=${cfg.supabaseAllowWrites ? "enabled" : "disabled"}).`,
     );
 
     // ── N12 Presence ─────────────────────────────────────────────
-    api.registerTool(createBootGreetingTool());
+    registerTool(createBootGreetingTool());
     const wake = new WakeWordDaemon({
       model: cfg.wakeWordModel,
       threshold: 0.55,
     });
-    api.registerTool(createWakeWordTool(wake));
+    registerTool(createWakeWordTool(wake));
     if (cfg.wakeWordEnabled) {
       const r = wake.start();
       if (!r.ok) {
@@ -787,15 +792,31 @@ export default definePluginEntry({
     // ── N8 Transparency ──────────────────────────────────────────
     const activity = new ActivityLog();
     setActiveActivityLog(activity);
-    api.registerTool(createTransparencyPublishTool(activity));
-    api.registerTool(createTransparencyRecentTool(activity));
+    registerTool(createTransparencyPublishTool(activity));
+    registerTool(createTransparencyRecentTool(activity));
 
     // ── Governance (Microsoft Agent Governance Toolkit pattern) ──
     const governance = new GovernanceEngine(
       cfg.governancePolicyPath || "c:/I24D_WhatsApp/governance-policy.json",
     );
-    api.registerTool(createGovernanceEvaluateTool(governance));
-    api.registerTool(createGovernancePolicyTool(governance));
+    registerTool(createGovernanceEvaluateTool(governance));
+    registerTool(createGovernancePolicyTool(governance));
+
+    // ── Cognitive core (M3GAN REAL) ──────────────────────────────
+    // Router -> world model + attention queue -> observe-only loop, with the
+    // global workspace, self model and safety-gated body on top.
+    const cognition = startCognitiveCore({
+      pluginConfig: raw,
+      memoryDir: cfg.memoryDir,
+      awarenessBus,
+      environment: () => poller.current(),
+      working: () => working.get(),
+      activity,
+      toolNames: registeredToolNames,
+      registerTool,
+      liveConfig: () => api.runtime.config?.current?.() ?? api.config,
+      logger: api.logger,
+    });
 
     // Risk + awareness piped into the transparency log so the UI sees them.
     risk.on((d) => {
@@ -822,8 +843,9 @@ export default definePluginEntry({
     api.lifecycle.registerRuntimeLifecycle({
       id: "lumina-cognitive-os-cleanup",
       description:
-        "Stop the awareness poller, wake-word daemon, operative daemon, recorder, and perception sidecar.",
+        "Stop the cognitive core, awareness poller, wake-word daemon, operative daemon, recorder, and perception sidecar.",
       cleanup: () => {
+        cognition?.dispose();
         poller.stop();
         wake.stop();
         operative.stop();

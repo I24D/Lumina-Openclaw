@@ -49,6 +49,12 @@ Lumina can now turn a brief into persistent, inspectable OpenDesign artifacts fr
 
 See [Lumina Design and OpenDesign](docs/LUMINA_OPEN_DESIGN.md) for installation, architecture, security policy, validation, and troubleshooting.
 
+### M3GAN REAL cognitive core
+
+The `lumina-cognitive-os` extension carries the cognitive core for M3GAN REAL, the embodied agent built on Lumina: a thalamic router with an attention queue and preemption, a world model whose beliefs decay with time, a global workspace, a self model, and a body layer where the language model can only express intents and a safety supervisor decides what moves.
+
+See [M3GAN REAL — engineering map](docs/M3GAN_REAL.md) for what each section of the specification maps to, what is built, the safety properties, and the next phases.
+
 ```bash
 # macOS / Linux / WSL2
 curl -fsSL https://openclaw.ai/install.sh | bash

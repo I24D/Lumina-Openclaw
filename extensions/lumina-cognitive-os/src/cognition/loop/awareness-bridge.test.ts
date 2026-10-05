@@ -1,16 +1,17 @@
 /**
- * Tests for the awareness -> cognitive loop bridge.
+ * Tests for the awareness -> router -> cognitive loop path.
  */
 import { describe, expect, it, vi } from "vitest";
 import { AwarenessEventBus } from "../../awareness/event-bus.js";
 import { AttentionFilter } from "../attention.js";
+import { ThalamicRouter } from "../router/thalamic-router.js";
 import { attachAwareness } from "./awareness-bridge.js";
 import { CognitiveLoop, type CycleRecord } from "./cognitive-loop.js";
 
-const makeLoop = (run?: () => void) =>
+const makeLoop = (onCycle: (r: CycleRecord) => void, run?: () => void) =>
   new CognitiveLoop({
     level: 5,
-    attention: new AttentionFilter({ threshold: 0 }),
+    onCycle,
     reason: () => ({
       action: { summary: "handle it", riskTier: "SAFE", reversible: true, run },
       signals: [{ source: "test", value: 0.99 }],
@@ -23,11 +24,13 @@ const settle = () =>
   });
 
 describe("attachAwareness", () => {
-  it("turns a bus event into a completed cycle", async () => {
+  it("turns a bus event into a completed cycle through the router", async () => {
     const bus = new AwarenessEventBus();
+    const router = new ThalamicRouter({ attention: new AttentionFilter({ threshold: 0 }) });
     const run = vi.fn();
     const cycles: CycleRecord[] = [];
-    attachAwareness(bus, makeLoop(run), { onCycle: (r) => cycles.push(r) });
+    makeLoop((r) => cycles.push(r), run).consume(router);
+    attachAwareness(bus, router);
 
     bus.emit({ kind: "battery.critical", percent: 4 });
     await settle();
@@ -38,31 +41,33 @@ describe("attachAwareness", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("stops delivering once unsubscribed", async () => {
+  it("stops delivering once unsubscribed", () => {
     const bus = new AwarenessEventBus();
-    const cycles: CycleRecord[] = [];
-    const off = attachAwareness(bus, makeLoop(), { onCycle: (r) => cycles.push(r) });
+    const ingest = vi.fn();
+    const off = attachAwareness(bus, { ingest });
 
     bus.emit({ kind: "network.offline" });
-    await settle();
     off();
     bus.emit({ kind: "network.offline" });
-    await settle();
 
-    expect(cycles).toHaveLength(1);
+    expect(ingest).toHaveBeenCalledOnce();
   });
 
-  it("never lets a loop failure escape into the emitter", async () => {
+  it("never lets a router failure escape into the emitter", () => {
     const bus = new AwarenessEventBus();
-    const loop = makeLoop();
-    vi.spyOn(loop, "handle").mockRejectedValue(new Error("loop exploded"));
     const onError = vi.fn();
-    attachAwareness(bus, loop, { onError });
+    attachAwareness(
+      bus,
+      {
+        ingest: () => {
+          throw new Error("router exploded");
+        },
+      },
+      { onError },
+    );
 
     expect(() => bus.emit({ kind: "disk.low", drive: "C:", freePct: 3 })).not.toThrow();
-    await settle();
-
     expect(onError).toHaveBeenCalledOnce();
-    expect(onError.mock.calls[0]?.[0]).toMatchObject({ message: "loop exploded" });
+    expect(onError.mock.calls[0]?.[0]).toMatchObject({ message: "router exploded" });
   });
 });

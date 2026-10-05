@@ -190,6 +190,13 @@ export const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   // Transparency panel — audit stream published to the UI
   "lumina_transparency_publish",
   "lumina_transparency_recent",
+  // Cognitive core (M3GAN) — workspace, self model, goals, world model, body
+  "lumina_workspace",
+  "lumina_self_model",
+  "lumina_goal",
+  "lumina_world_observe",
+  "lumina_world_query",
+  "lumina_body",
 ]);
 
 export function validatePlan(input: unknown): PlanValidation {
