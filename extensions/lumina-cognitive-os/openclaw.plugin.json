@@ -1,17 +1,18 @@
 {
   "id": "lumina-cognitive-os",
   "activation": {
-    "onStartup": false
+    "onStartup": true
   },
   "enabledByDefault": false,
   "name": "Lumina Cognitive OS",
-  "description": "Cognitive layer Niveles 1-12: Risk Engine, Environment Awareness, Memory tiers (Working/Episodic), Vision (UI Automation + multimonitor), Action Planner + Browser driver, 12-agent Director, Intent Router, MCP Gmail/Calendar/Drive, Boot Greeting and Wake-Word. Every capability is exposed as an agent tool so the user can invoke it by voice via Start Talk.",
+  "description": "Cognitive layer Niveles 1-12: Risk Engine, Environment Awareness, Memory tiers (Working/Episodic), Vision (UI Automation + multimonitor), Action Planner + Browser driver, 12-agent Director, Intent Router, MCP Gmail/Calendar/Drive, Boot Greeting and Wake-Word. Every capability is exposed as an agent tool so the user can invoke it by voice via Start Talk. Hosts the M3GAN cognitive core: safety kernel, world model, people, privacy, health and the M3GAN dashboard.",
   "contracts": {
     "tools": [
       "lumina_risk_evaluate",
       "lumina_awareness_snapshot",
       "lumina_awareness_subscribe",
       "lumina_windows_context",
+      "lumina_whatsapp_respond",
       "lumina_phone_link_status",
       "lumina_phone_link_reply",
       "lumina_working_memory_get",
@@ -58,6 +59,7 @@
       "lumina_harness_health",
       "lumina_harness_task",
       "lumina_action_plan",
+      "lumina_plan_run",
       "lumina_perception_start",
       "lumina_perception_stop",
       "lumina_perception_pause",
@@ -103,10 +105,6 @@
       "lumina_gmail",
       "lumina_calendar",
       "lumina_drive",
-      "lumina_supabase_status",
-      "lumina_supabase_schema",
-      "lumina_supabase_query",
-      "lumina_supabase_mutate",
       "lumina_memory_status",
       "lumina_memory_search",
       "lumina_supabase_memory_remember",
@@ -124,7 +122,14 @@
       "lumina_goal",
       "lumina_world_observe",
       "lumina_world_query",
-      "lumina_body"
+      "lumina_body",
+      "lumina_behavior",
+      "lumina_safety",
+      "lumina_explain",
+      "lumina_privacy",
+      "lumina_people",
+      "lumina_mind",
+      "lumina_health"
     ]
   },
   "configSchema": {
@@ -214,12 +219,12 @@
         "default": 100,
         "minimum": 1,
         "maximum": 500,
-        "description": "Maximum rows returned by lumina_supabase_query."
+        "description": "Maximum rows returned per table by lumina_memory_search."
       },
       "supabaseAllowWrites": {
         "type": "boolean",
         "default": false,
-        "description": "Enable lumina_supabase_mutate. Keep false unless the user explicitly wants database writes."
+        "description": "Enable lumina_supabase_memory_remember writes. Keep false unless the user explicitly wants database writes."
       },
       "warehousesPath": {
         "type": "string",
@@ -317,6 +322,11 @@
         },
         "default": [],
         "description": "Granted capabilities that may run without asking at L4+, only when reversible and low risk. Grasping and handing objects to people always ask."
+      },
+      "ownerName": {
+        "type": "string",
+        "default": "Dal",
+        "description": "The owner, registered with the owner role when nobody holds it. Config is an owner channel; the agent cannot assign roles."
       }
     }
   }

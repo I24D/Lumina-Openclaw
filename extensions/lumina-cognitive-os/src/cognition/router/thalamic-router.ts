@@ -17,6 +17,10 @@ import { AttentionQueue, type InterruptDecision, type QueuedEvent } from "../att
  *              the expensive cognitive cycle drains; this is how "do not send
  *              every sensor to the language model" is enforced
  *
+ * Before any of that, an optional admission gate can drop an event outright:
+ * that is how privacy works (a camera that was switched off produces events
+ * nobody sees, routes or stores), without trusting any consumer to ignore them.
+ *
  * Transport is in-process today. The surface is deliberately small so a NATS,
  * MQTT or ROS 2 bridge can later sit behind `ingest()` without touching any
  * consumer.
@@ -45,6 +49,8 @@ export type IngestResult = {
   readonly queued: boolean;
   /** An older pending event dropped to make room. */
   readonly evicted?: CognitiveEvent;
+  /** True when the admission gate refused the event: nothing saw or kept it. */
+  readonly dropped?: boolean;
 };
 
 export type ThalamicRouterOptions = {
@@ -55,6 +61,8 @@ export type ThalamicRouterOptions = {
   readonly recentLimit?: number;
   /** A failing consumer is reported here instead of breaking the producer. */
   readonly onConsumerError?: (error: unknown, event: CognitiveEvent) => void;
+  /** Return false to drop an event before attention, routing and history (privacy). */
+  readonly admit?: (event: CognitiveEvent) => boolean;
 };
 
 function globToRegExp(glob: string): RegExp {
@@ -74,6 +82,7 @@ export class ThalamicRouter {
   private readonly now: () => number;
   private readonly recentLimit: number;
   private readonly onConsumerError: ThalamicRouterOptions["onConsumerError"];
+  private readonly admit: ThalamicRouterOptions["admit"];
   private readonly subscriptions = new Set<Subscription>();
   private readonly admittedListeners = new Set<AdmittedListener>();
   private readonly recentEvents: RoutedEvent[] = [];
@@ -84,6 +93,7 @@ export class ThalamicRouter {
     this.now = options.now ?? (() => Date.now());
     this.recentLimit = Math.max(1, options.recentLimit ?? 128);
     this.onConsumerError = options.onConsumerError;
+    this.admit = options.admit;
   }
 
   /** Receive every event matching `pattern`. Returns the unsubscribe function. */
@@ -108,6 +118,21 @@ export class ThalamicRouter {
   }
 
   ingest(event: CognitiveEvent): IngestResult {
+    if (this.admit && !this.admit(event)) {
+      return {
+        verdict: {
+          admitted: false,
+          salience: 0,
+          importance: 0,
+          urgency: 0,
+          novelty: 0,
+          reason: "dropped by the admission gate (privacy)",
+        },
+        delivered: 0,
+        queued: false,
+        dropped: true,
+      };
+    }
     const verdict = this.attention.consider(event, this.now());
     const routed: RoutedEvent = { event, verdict };
     this.recentEvents.unshift(routed);

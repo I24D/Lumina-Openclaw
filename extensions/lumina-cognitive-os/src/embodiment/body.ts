@@ -1,4 +1,4 @@
-import type { BodyMode } from "../cognition/self/self-model.js";
+import type { BodyMode } from "../contracts/self-model.js";
 /**
  * body.ts — The contract between cognition and a body.
  *

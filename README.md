@@ -51,9 +51,9 @@ See [Lumina Design and OpenDesign](docs/LUMINA_OPEN_DESIGN.md) for installation,
 
 ### M3GAN REAL cognitive core
 
-The `lumina-cognitive-os` extension carries the cognitive core for M3GAN REAL, the embodied agent built on Lumina: a thalamic router with an attention queue and preemption, a world model whose beliefs decay with time, a global workspace, a self model, and a body layer where the language model can only express intents and a safety supervisor decides what moves.
+The `lumina-cognitive-os` extension carries the cognitive core for M3GAN REAL, the embodied agent built on Lumina: a thalamic router with an attention queue and preemption, a world model whose beliefs decay with time, a global workspace, a self model, people with roles and consent, privacy states a person controls, a brainstem that watches health without any model, a safety kernel whose invariants are code, and a body layer where the language model can only express intents and a safety supervisor decides what moves. The M3GAN tab in the Control UI is the owner's dashboard.
 
-See [M3GAN REAL — engineering map](docs/M3GAN_REAL.md) for what each section of the specification maps to, what is built, the safety properties, and the next phases.
+See [Project M3GAN REAL](docs/m3gan/PROJECT_M3GAN_REAL.md) for the overview, then the [architecture](docs/m3gan/ARCHITECTURE.md), [roadmap](docs/m3gan/ROADMAP.md), [tasks](docs/m3gan/TASKS.md), [section map](docs/m3gan/SECTION_MAP.md) and [decision records](docs/m3gan/adr/). The live checkpoint is [M3GAN_STATUS.md](M3GAN_STATUS.md).
 
 ```bash
 # macOS / Linux / WSL2

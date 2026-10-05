@@ -1,41 +1,26 @@
 /**
- * attention.ts — Salience filter for the cognitive loop.
+ * attention.ts — Salience filter implementation for the cognitive loop.
  *
- * The plugin already has a pub/sub bus (`awareness/event-bus.ts`) that fires on
- * every environment change. Firing is cheap; *thinking* about an event is not.
- * Attention sits between them and answers one question: "is this worth a
- * cognitive cycle?"
- *
- * Salience is a weighted blend of three axes, each in [0,1]:
- *   - importance: how much this matters if true (mostly intrinsic to the kind)
- *   - urgency:    how much worse it gets by waiting
- *   - novelty:    how different this is from what we just saw
- *
- * Novelty is stateful and decays: the tenth "cpu.high" in a row is noise, but
- * the same event after an hour of quiet is information. That decay is what
- * stops a flapping sensor from monopolising the loop.
+ * Stable event/attention contracts live in ../contracts/attention.ts so
+ * producers outside cognition do not depend on this implementation layer.
  */
-
 import type { AwarenessChange } from "../awareness/event-bus.js";
+import type {
+  AttentionOptions,
+  AttentionVerdict,
+  CognitiveEvent,
+  SalienceWeights,
+} from "../contracts/attention.js";
 
-/** A normalized event from any source, not just environment awareness. */
-export type CognitiveEvent = {
-  /** Origin, e.g. "awareness", "whatsapp", "calendar", "user". */
-  readonly source: string;
-  /** Stable event type used for novelty tracking, e.g. "battery.low". */
-  readonly kind: string;
-  readonly atISO: string;
-  /** Intrinsic weight in [0,1]; defaults applied when omitted. */
-  readonly importance?: number;
-  readonly urgency?: number;
-  readonly payload?: unknown;
-};
-
-export type SalienceWeights = {
-  readonly importance: number;
-  readonly urgency: number;
-  readonly novelty: number;
-};
+export {
+  trustOf,
+  UNTRUSTED_SOURCES,
+  type AttentionOptions,
+  type AttentionVerdict,
+  type CognitiveEvent,
+  type EventTrust,
+  type SalienceWeights,
+} from "../contracts/attention.js";
 
 export const DEFAULT_SALIENCE_WEIGHTS: SalienceWeights = {
   importance: 0.45,
@@ -43,23 +28,8 @@ export const DEFAULT_SALIENCE_WEIGHTS: SalienceWeights = {
   novelty: 0.2,
 };
 
-export type AttentionVerdict = {
-  readonly admitted: boolean;
-  readonly salience: number;
-  readonly importance: number;
-  readonly urgency: number;
-  readonly novelty: number;
-  readonly reason: string;
-};
-
 const clamp01 = (n: number): number => (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0);
 
-/**
- * Baseline importance/urgency per awareness event kind.
- *
- * These are the "if I know nothing else" priors. A caller with better
- * information can always override them on the CognitiveEvent.
- */
 const AWARENESS_PRIORS: Record<string, { importance: number; urgency: number }> = {
   "battery.critical": { importance: 0.95, urgency: 0.95 },
   "battery.low": { importance: 0.6, urgency: 0.55 },
@@ -76,7 +46,6 @@ const AWARENESS_PRIORS: Record<string, { importance: number; urgency: number }> 
   "device.removed": { importance: 0.3, urgency: 0.2 },
 };
 
-/** Adapt an environment event onto the generic cognitive event shape. */
 export function fromAwareness(change: AwarenessChange, atISO?: string): CognitiveEvent {
   const prior = AWARENESS_PRIORS[change.kind] ?? { importance: 0.4, urgency: 0.3 };
   return {
@@ -88,14 +57,6 @@ export function fromAwareness(change: AwarenessChange, atISO?: string): Cognitiv
     payload: change,
   };
 }
-
-export type AttentionOptions = {
-  /** Salience at or above this is admitted. Default 0.35. */
-  readonly threshold?: number;
-  readonly weights?: Partial<SalienceWeights>;
-  /** How long until a repeated event is fully novel again. Default 15 min. */
-  readonly noveltyWindowMs?: number;
-};
 
 export class AttentionFilter {
   private readonly lastSeen = new Map<string, number>();
@@ -113,10 +74,6 @@ export class AttentionFilter {
     this.noveltyWindowMs = Math.max(1, options.noveltyWindowMs ?? 15 * 60 * 1000);
   }
 
-  /**
-   * Novelty for a kind: 0 right after it was seen, rising linearly back to 1
-   * across the novelty window. Unseen kinds are fully novel.
-   */
   noveltyFor(kind: string, nowMs: number): number {
     const last = this.lastSeen.get(kind);
     if (last === undefined) {
@@ -129,11 +86,6 @@ export class AttentionFilter {
     return clamp01(elapsed / this.noveltyWindowMs);
   }
 
-  /**
-   * Score an event and decide whether it deserves a cognitive cycle.
-   * Recording the sighting is a side effect, so a flood of identical events
-   * decays on its own.
-   */
   consider(event: CognitiveEvent, nowMs: number = Date.now()): AttentionVerdict {
     const importance = clamp01(event.importance ?? 0.4);
     const urgency = clamp01(event.urgency ?? 0.3);
@@ -154,7 +106,6 @@ export class AttentionFilter {
     return { admitted, salience, importance, urgency, novelty, reason };
   }
 
-  /** Drop novelty history (used by tests and by a loop restart). */
   reset(): void {
     this.lastSeen.clear();
   }

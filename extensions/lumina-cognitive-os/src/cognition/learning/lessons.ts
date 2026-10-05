@@ -1,27 +1,19 @@
 /**
- * lessons.ts — What the loop learned, kept across restarts.
+ * lessons.ts — Durable lesson ledger for the cognitive loop.
  *
- * The "learn" step of the cognitive loop is worthless if it evaporates with
- * the process. A lesson is a small, durable claim tied to an event kind:
- *
- *   "disk.low on C: -> clearing %TEMP% recovered space and Dal accepted it"
- *
- * Lessons carry a confidence that moves with evidence: every confirmation
- * nudges it up, every contradiction pulls it down, and a lesson that keeps
- * being wrong decays out of usefulness instead of being trusted forever.
- *
- * This is deliberately not a model: it is a ledger a reasoner can consult
- * cheaply before proposing the same thing twice.
+ * In the live gateway, lessons are stored as snapshots in OpenClaw's SQLite
+ * plugin state. Legacy lessons.jsonl is imported once when the durable store
+ * is empty. Non-live discovery/tests keep the JSONL fallback.
  */
+import fs from "node:fs";
 import path from "node:path";
 import { appendJsonl, ensureDir, newId, readJsonlSync, rewriteJsonl } from "../../memory/store.js";
+import { KeyedLog, type StateStorePort } from "../../shared/state-store.js";
 import { clampConfidence } from "../uncertainty.js";
 
 export type Lesson = {
   readonly id: string;
-  /** Event kind this lesson applies to, e.g. "disk.low". */
   readonly trigger: string;
-  /** The durable claim, phrased so it can be judged true or false later. */
   readonly claim: string;
   readonly confidence: number;
   readonly confirmations: number;
@@ -30,17 +22,108 @@ export type Lesson = {
   readonly updatedAtISO: string;
 };
 
-/** How hard a single piece of evidence moves confidence. */
+export type LessonStoreOptions = {
+  readonly dir: string;
+  readonly store?: StateStorePort<Lesson>;
+  readonly onError?: (error: unknown) => void;
+};
+
 const EVIDENCE_STEP = 0.15;
+
+function latestSnapshots(rows: ReadonlyArray<Lesson>): Lesson[] {
+  const byId = new Map<string, Lesson>();
+  for (const row of rows) {
+    const current = byId.get(row.id);
+    if (!current || current.updatedAtISO <= row.updatedAtISO) {
+      byId.set(row.id, row);
+    }
+  }
+  return [...byId.values()];
+}
 
 export class LessonStore {
   private lessons: Lesson[] = [];
   private readonly filePath: string;
+  private readonly log: KeyedLog<Lesson> | undefined;
+  private readonly onError: (error: unknown) => void;
+  private loading = false;
+  private pendingPersist: Lesson[] = [];
+  readonly ready: Promise<void>;
 
-  constructor(dir: string) {
-    this.filePath = path.join(dir, "lessons.jsonl");
-    ensureDir(dir);
-    this.lessons = readJsonlSync<Lesson>(this.filePath);
+  constructor(input: string | LessonStoreOptions) {
+    const options: LessonStoreOptions = typeof input === "string" ? { dir: input } : input;
+    this.filePath = path.join(options.dir, "lessons.jsonl");
+    this.onError = options.onError ?? (() => undefined);
+    ensureDir(options.dir);
+    const legacy = readJsonlSync<Lesson>(this.filePath);
+    this.lessons = latestSnapshots(legacy);
+
+    if (!options.store) {
+      this.ready = Promise.resolve();
+      return;
+    }
+
+    this.loading = true;
+    this.log = new KeyedLog(options.store, this.onError);
+    this.ready = this.log.hydrate().then(
+      async (stored) => {
+        const durable = stored.length > 0 ? latestSnapshots(stored) : latestSnapshots(legacy);
+        this.lessons = latestSnapshots([...durable, ...this.pendingPersist]);
+        if (stored.length === 0 && legacy.length > 0) {
+          for (const row of legacy) {
+            this.log?.append(row);
+          }
+        }
+        for (const row of this.pendingPersist) {
+          this.log?.append(row);
+        }
+        await this.log?.flush();
+        this.pendingPersist = [];
+        this.loading = false;
+        if (stored.length === 0 && legacy.length > 0) {
+          this.archiveLegacy();
+        }
+      },
+      (error: unknown) => {
+        this.loading = false;
+        this.onError(error);
+      },
+    );
+  }
+
+  private archiveLegacy(): void {
+    if (!fs.existsSync(this.filePath)) {
+      return;
+    }
+    const archived = `${this.filePath}.migrated`;
+    try {
+      if (!fs.existsSync(archived)) {
+        fs.renameSync(this.filePath, archived);
+      }
+    } catch (error) {
+      this.onError(error);
+    }
+  }
+
+  private persistSnapshot(lesson: Lesson, rewriteFallback = false): void {
+    if (this.log) {
+      if (this.loading) {
+        this.pendingPersist.push(structuredClone(lesson));
+      } else {
+        this.log.append(structuredClone(lesson));
+      }
+      return;
+    }
+    if (rewriteFallback) {
+      rewriteJsonl(this.filePath, this.lessons);
+    } else {
+      appendJsonl(this.filePath, lesson);
+    }
+  }
+
+  async flush(): Promise<void> {
+    await this.ready;
+    await this.log?.flush();
   }
 
   list(trigger?: string): ReadonlyArray<Lesson> {
@@ -51,10 +134,6 @@ export class LessonStore {
     return this.lessons.find((l) => l.id === id);
   }
 
-  /**
-   * Record a lesson. Re-learning an identical claim for the same trigger
-   * confirms the existing one instead of creating a duplicate.
-   */
   learn(
     params: { readonly trigger: string; readonly claim: string; readonly confidence?: number },
     nowISO: string = new Date().toISOString(),
@@ -79,7 +158,7 @@ export class LessonStore {
       updatedAtISO: nowISO,
     };
     this.lessons.push(lesson);
-    appendJsonl(this.filePath, lesson);
+    this.persistSnapshot(lesson);
     return lesson;
   }
 
@@ -96,7 +175,7 @@ export class LessonStore {
       updatedAtISO: nowISO,
     };
     this.lessons = this.lessons.map((l) => (l.id === id ? next : l));
-    rewriteJsonl(this.filePath, this.lessons);
+    this.persistSnapshot(next, true);
     return next;
   }
 
@@ -108,10 +187,6 @@ export class LessonStore {
     return this.adjust(id, -EVIDENCE_STEP, nowISO);
   }
 
-  /**
-   * Lessons worth acting on for a trigger, most trusted first.
-   * The floor keeps discredited lessons out of the reasoner's context.
-   */
   applicable(trigger: string, minConfidence = 0.5): ReadonlyArray<Lesson> {
     return this.lessons
       .filter((l) => l.trigger === trigger && l.confidence >= minConfidence)

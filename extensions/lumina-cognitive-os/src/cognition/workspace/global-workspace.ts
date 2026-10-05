@@ -18,7 +18,11 @@
  * what "updated continuously" means here.
  */
 import type { EnvironmentSnapshot } from "../../awareness/snapshot.js";
+import type { HealthSnapshot } from "../../brainstem/brainstem.js";
+import type { EnergyAdvice } from "../../brainstem/energy.js";
 import type { WorkingMemory } from "../../memory/working-memory.js";
+import type { PrivacyState } from "../../privacy/privacy-state.js";
+import type { PresenceState } from "../../social/presence.js";
 import { STALE_BELOW, type WorldModel } from "../../world/world-model.js";
 import type { GoalManager } from "../goals/goal-manager.js";
 import type { LessonStore } from "../learning/lessons.js";
@@ -35,6 +39,10 @@ export type WorkspaceSources = {
   readonly working?: () => WorkingMemory;
   readonly environment?: () => EnvironmentSnapshot | null;
   readonly self?: () => SelfModel;
+  readonly privacy?: () => PrivacyState;
+  readonly presence?: () => PresenceState;
+  readonly health?: () => HealthSnapshot;
+  readonly energy?: () => EnergyAdvice;
   readonly now?: () => number;
 };
 
@@ -107,6 +115,24 @@ export type GlobalWorkspaceSnapshot = {
     readonly emergencyStop: boolean;
     readonly placeId: string | null;
   } | null;
+  /** What Lumina may hear, see and keep: shown from code, never from the model (spec §98). */
+  readonly privacy: {
+    readonly microphone: boolean;
+    readonly camera: boolean;
+    readonly recording: boolean;
+    readonly privateMode: boolean;
+  } | null;
+  readonly presence: {
+    readonly speakerId: string | null;
+    readonly arrivals: ReadonlyArray<string>;
+    readonly departures: ReadonlyArray<string>;
+  } | null;
+  readonly health: { readonly overall: string; readonly atISO: string } | null;
+  readonly energy: {
+    readonly level: string;
+    readonly action: string;
+    readonly detail: string;
+  } | null;
 };
 
 export type WorkspaceLimits = {
@@ -136,6 +162,10 @@ export class GlobalWorkspace {
     const nowMs = this.now();
     const { goals, world, router, loop, lessons } = this.sources;
     const self = this.sources.self?.();
+    const privacy = this.sources.privacy?.();
+    const presence = this.sources.presence?.();
+    const health = this.sources.health?.();
+    const energy = this.sources.energy?.();
     const lastCycle = loop?.recent(1)[0];
     const focus = loop?.activeEvent() ?? router?.pendingEvents(1)[0];
 
@@ -225,6 +255,23 @@ export class GlobalWorkspace {
             placeId: self.body.placeId ?? null,
           }
         : null,
+      privacy: privacy
+        ? {
+            microphone: privacy.microphone,
+            camera: privacy.camera,
+            recording: privacy.recording,
+            privateMode: privacy.privateMode,
+          }
+        : null,
+      presence: presence
+        ? {
+            speakerId: presence.speakerId ?? null,
+            arrivals: presence.arrivals,
+            departures: presence.departures,
+          }
+        : null,
+      health: health ? { overall: health.overall, atISO: health.atISO } : null,
+      energy: energy ? { level: energy.level, action: energy.action, detail: energy.detail } : null,
     };
     this.latest = snapshot;
     return snapshot;

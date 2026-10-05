@@ -35,6 +35,14 @@ const reasonerFor =
     a ? { action: a, signals: [{ source: "test", value: confidence }] } : { signals: [] };
 
 describe("CognitiveLoop", () => {
+  it("does not report execution for a proposal without an executor", async () => {
+    const loop = new CognitiveLoop({ level: 5, reason: reasonerFor(action()), now: () => NOW });
+    const result = await loop.handle(event("disk.low"));
+    expect(result.outcome).toBe("execute");
+    expect(result.executed).toBe(false);
+    expect(result.reason).toContain("No executor");
+  });
+
   it("drops an event that attention rejects, without reasoning", () => {
     const reason = vi.fn(reasonerFor(action()));
     const loop = new CognitiveLoop({
@@ -155,7 +163,8 @@ describe("CognitiveLoop", () => {
   it("keeps running when an observer throws", async () => {
     const loop = new CognitiveLoop({
       level: 5,
-      reason: reasonerFor(action()),
+      // An attached executor: a run-less action is honestly recorded as not executed.
+      reason: reasonerFor(action({ run: vi.fn() })),
       onCycle: () => {
         throw new Error("bad observer");
       },
@@ -193,6 +202,35 @@ describe("CognitiveLoop", () => {
       await loop.handle(event(`kind.${i}`));
     }
     expect(loop.recent(100)).toHaveLength(3);
+  });
+});
+
+describe("CognitiveLoop and untrusted content", () => {
+  it("proposes instead of executing an action prompted by a web page", async () => {
+    const run = vi.fn();
+    const loop = new CognitiveLoop({
+      level: 5,
+      reason: reasonerFor(action({ run })),
+      attention: new AttentionFilter({ threshold: 0 }),
+      now: () => NOW,
+    });
+    const r = await loop.handle(event("instruction.found", { source: "web" }));
+
+    expect(run).not.toHaveBeenCalled();
+    expect(r.outcome).toBe("propose");
+    expect(r.reason).toContain("UNTRUSTED_CONTENT");
+  });
+
+  it("still executes the same action when the trigger is trusted", async () => {
+    const run = vi.fn();
+    const loop = new CognitiveLoop({
+      level: 5,
+      reason: reasonerFor(action({ run })),
+      attention: new AttentionFilter({ threshold: 0 }),
+      now: () => NOW,
+    });
+    await loop.handle(event("disk.low", { source: "awareness" }));
+    expect(run).toHaveBeenCalledOnce();
   });
 });
 

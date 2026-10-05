@@ -19,15 +19,20 @@
  *
  *   History is kept.   Storage is event-sourced: every observation is appended
  *                      with its provenance and the current state is a replay.
- *                      Nothing is silently deleted (spec §4.6).
+ *                      Nothing is silently deleted (spec §4.6). Durable copies
+ *                      go to the host's SQLite plugin store, one row each.
+ *
+ * Ids are persistent `<kind>_<ULID>` (spec §75): a name is only used to find an
+ * entity again, never to identify it. Forgetting is explicit and real: on
+ * request, an entity's observations are removed from the log (spec §97).
  *
  * Positions are symbolic first (`placeId` points at a room, surface or
  * container entity, which gives "cup on table in kitchen" for free) with an
  * optional metric pose for when a body with SLAM exists.
  */
-import path from "node:path";
-import { clampConfidence } from "../cognition/uncertainty.js";
-import { appendJsonl, ensureDir, readJsonlSync } from "../memory/store.js";
+import { clampConfidence } from "../contracts/uncertainty.js";
+import { newEntityId } from "../shared/ids.js";
+import { KeyedLog, type StateStorePort } from "../shared/state-store.js";
 
 export const ENTITY_KINDS = [
   "person",
@@ -146,6 +151,22 @@ export type ScoredEntity = {
   readonly confidence: number;
 };
 
+/** One sighting of an entity, kept for temporal questions (spec §54). */
+export type Sighting = {
+  readonly atISO: string;
+  readonly placeId?: string;
+  readonly confidence: number;
+  readonly source: Provenance;
+};
+
+/** A relation edge as seen from either end of the knowledge graph (spec §53). */
+export type GraphEdge = {
+  readonly subjectId: string;
+  readonly predicate: string;
+  readonly targetId: string;
+  readonly confidence: number;
+};
+
 export type Whereabouts = {
   readonly entity: WorldEntity;
   readonly confidence: number;
@@ -181,6 +202,9 @@ export const HALF_LIFE_MS: Readonly<Record<EntityKind, number>> = {
 /** Effective confidence under which a belief should be refreshed before use. */
 export const STALE_BELOW = 0.5;
 
+/** Sightings retained per entity for temporal questions. */
+export const HISTORY_LIMIT = 64;
+
 /** Ceiling for merged evidence: repeated sightings never become certainty. */
 const MAX_CONFIDENCE = 0.999;
 
@@ -200,14 +224,6 @@ function normalizeLabel(label: string): string {
     .replace(/\s+/gu, " ");
 }
 
-function slug(label: string): string {
-  return (
-    normalizeLabel(label)
-      .replace(/[^a-z0-9]+/gu, "_")
-      .replace(/^_|_$/gu, "") || "entity"
-  );
-}
-
 export function isEntityKind(value: unknown): value is EntityKind {
   return typeof value === "string" && (ENTITY_KINDS as ReadonlyArray<string>).includes(value);
 }
@@ -224,21 +240,66 @@ export function effectiveConfidence(entity: WorldEntity, nowMs: number): number 
 
 export class WorldModel {
   private readonly entities = new Map<string, WorldEntity>();
-  private readonly filePath: string | undefined;
+  private readonly sightings = new Map<string, Sighting[]>();
+  /** Every observation this process knows, stored and new, oldest first. */
+  private log: Observation[] = [];
+  private readonly store: KeyedLog<Observation> | undefined;
+  /** Forget requests made while stored observations were still loading. */
+  private readonly loadingPurges: Array<(obs: Observation) => boolean> = [];
+  private loading: boolean;
   private readonly now: () => number;
+  /** Resolves once stored observations are loaded (immediately without a store). */
+  readonly ready: Promise<void>;
 
-  /** `dir` enables persistence; omit it for an in-memory model (tests, simulation). */
-  constructor(options: { readonly dir?: string; readonly now?: () => number } = {}) {
+  /** Without `store` the model is session-only (tests, simulation). */
+  constructor(
+    options: {
+      readonly store?: StateStorePort<Observation>;
+      readonly now?: () => number;
+      readonly onError?: (error: unknown) => void;
+    } = {},
+  ) {
     this.now = options.now ?? (() => Date.now());
-    if (options.dir) {
-      ensureDir(options.dir);
-      this.filePath = path.join(options.dir, "world.jsonl");
-      for (const obs of readJsonlSync<Observation>(this.filePath)) {
-        if (isEntityKind(obs.kind) && typeof obs.label === "string") {
-          this.apply(obs);
-        }
-      }
+    this.loading = Boolean(options.store);
+    if (!options.store) {
+      this.ready = Promise.resolve();
+      return;
     }
+    const onError = options.onError ?? (() => undefined);
+    this.store = new KeyedLog(options.store, onError);
+    this.ready = this.store.hydrate().then(
+      (stored) => {
+        const valid = stored.filter(
+          (obs) =>
+            isEntityKind(obs.kind) &&
+            typeof obs.label === "string" &&
+            !this.loadingPurges.some((drop) => drop(obs)),
+        );
+        // Stored history first, then whatever this session observed while loading.
+        this.log = [...valid, ...this.log];
+        this.replay(this.log);
+        this.loadingPurges.length = 0;
+        this.loading = false;
+      },
+      (error: unknown) => {
+        this.loading = false;
+        onError(error);
+      },
+    );
+  }
+
+  private replay(log: ReadonlyArray<Observation>): void {
+    this.entities.clear();
+    this.sightings.clear();
+    for (const obs of log) {
+      this.apply(obs);
+    }
+  }
+
+  /** Resolves when every observation so far has been handed to the store. */
+  async flush(): Promise<void> {
+    await this.ready;
+    await this.store?.flush();
   }
 
   get size(): number {
@@ -255,15 +316,83 @@ export class WorldModel {
       throw new Error(`Unknown entity kind: ${String(observation.kind)}`);
     }
     const stamped: Observation = {
-      ...observation,
+      ...structuredClone(observation),
       label,
       atISO: observation.atISO ?? new Date(this.now()).toISOString(),
     };
-    const result = this.apply(stamped);
-    if (this.filePath) {
-      appendJsonl(this.filePath, { ...stamped, id: result.entity.id });
+    if (!Number.isFinite(Date.parse(stamped.atISO ?? ""))) {
+      throw new Error("An observation needs a valid timestamp.");
     }
+    const result = this.apply(stamped);
+    const record = { ...stamped, id: result.entity.id };
+    this.log.push(record);
+    this.store?.append(record);
     return result;
+  }
+
+  /**
+   * Remove every observation matching `drop` from the log and rebuild. This is
+   * the only deletion path, and it only runs on an explicit request (forget
+   * this entity, forget this session). Returns how many observations went.
+   */
+  private purge(drop: (obs: Observation) => boolean): number {
+    if (this.loading) {
+      this.loadingPurges.push(drop);
+    }
+    void this.ready.then(() => this.store?.remove(drop));
+    const kept = this.log.filter((obs) => !drop(obs));
+    const removed = this.log.length - kept.length;
+    if (removed > 0) {
+      this.log = kept;
+      this.replay(kept);
+    }
+    return removed;
+  }
+
+  /** Forget an entity entirely: its observations leave the log, not just the view. */
+  forget(id: string): number {
+    return this.purge((obs) => obs.id === id);
+  }
+
+  /** Forget everything observed at or after `sinceISO` ("forget this session"). */
+  forgetSince(sinceISO: string): number {
+    return this.purge((obs) => (obs.atISO ?? "") >= sinceISO);
+  }
+
+  /** Recent sightings of an entity, oldest first. */
+  history(id: string): ReadonlyArray<Sighting> {
+    return this.sightings.get(id) ?? [];
+  }
+
+  /** Edges leaving `id` (what it owns, where it is...), optionally one predicate. */
+  related(id: string, predicate?: string): ReadonlyArray<GraphEdge> {
+    const entity = this.entities.get(id);
+    return (entity?.relations ?? [])
+      .filter((r) => !predicate || r.predicate === predicate)
+      .map((r) => ({
+        subjectId: id,
+        predicate: r.predicate,
+        targetId: r.targetId,
+        confidence: r.confidence,
+      }));
+  }
+
+  /** Edges arriving at `id` (who owns it, what is on it...), optionally one predicate. */
+  relatedTo(id: string, predicate?: string): ReadonlyArray<GraphEdge> {
+    const out: GraphEdge[] = [];
+    for (const entity of this.entities.values()) {
+      for (const r of entity.relations) {
+        if (r.targetId === id && (!predicate || r.predicate === predicate)) {
+          out.push({
+            subjectId: entity.id,
+            predicate: r.predicate,
+            targetId: id,
+            confidence: r.confidence,
+          });
+        }
+      }
+    }
+    return out;
   }
 
   get(id: string): WorldEntity | undefined {
@@ -343,13 +472,28 @@ export class WorldModel {
     if (observation.id) {
       return observation.id;
     }
+    // A name only finds an existing entity; a new one gets an id that never depends on it.
     return (
       this.find(observation.label, observation.kind)?.id ??
-      `${observation.kind}_${slug(observation.label)}`
+      newEntityId(observation.kind, Date.parse(observation.atISO ?? "") || this.now())
     );
   }
 
-  /** Pure state transition shared by `observe` and replay. */
+  private remember(entity: WorldEntity, atISO: string, observed: number, source: Provenance): void {
+    const list = this.sightings.get(entity.id) ?? [];
+    list.push({
+      atISO,
+      confidence: observed,
+      source,
+      ...(entity.position?.placeId ? { placeId: entity.position.placeId } : {}),
+    });
+    if (list.length > HISTORY_LIMIT) {
+      list.splice(0, list.length - HISTORY_LIMIT);
+    }
+    this.sightings.set(entity.id, list);
+  }
+
+  /** State transition shared by `observe` and replay. */
   private apply(observation: Observation): ObserveResult {
     const id = this.resolveId(observation);
     const atISO = observation.atISO ?? new Date(this.now()).toISOString();
@@ -381,7 +525,19 @@ export class WorldModel {
         observations: 1,
       };
       this.entities.set(id, entity);
+      this.remember(entity, atISO, observed, observation.source);
       return { entity, created: true };
+    }
+
+    if (Date.parse(atISO) < Date.parse(previous.lastSeenISO)) {
+      // Preserve history without making an old sighting the current location.
+      this.remember(
+        { ...previous, position: observation.position },
+        atISO,
+        observed,
+        observation.source,
+      );
+      return { entity: previous, created: false };
     }
 
     const oldPlace = previous.position?.placeId;
@@ -392,11 +548,23 @@ export class WorldModel {
     // sensor already backs.
     const prior = effectiveConfidence(previous, Date.parse(atISO));
     const combined = Math.min(MAX_CONFIDENCE, 1 - (1 - prior) * (1 - observed));
-    const confidence = moved
-      ? observed
-      : sensed
-        ? combined
-        : Math.max(prior, Math.min(UNSENSED_CEILING, combined));
+    const changedClaim =
+      !sensed &&
+      ((observation.position !== undefined &&
+        JSON.stringify(observation.position) !== JSON.stringify(previous.position)) ||
+        Object.entries(observation.state ?? {}).some(
+          ([key, value]) => previous.state[key] !== value,
+        ) ||
+        Object.entries(observation.properties ?? {}).some(
+          ([key, value]) => previous.properties[key] !== value,
+        ) ||
+        relations.length > 0);
+    const confidence =
+      moved || changedClaim
+        ? observed
+        : sensed
+          ? combined
+          : Math.max(prior, Math.min(UNSENSED_CEILING, combined));
 
     const mergedRelations = new Map(
       previous.relations.map((r) => [`${r.predicate}\u0000${r.targetId}`, r]),
@@ -418,6 +586,7 @@ export class WorldModel {
       observations: previous.observations + 1,
     };
     this.entities.set(id, entity);
+    this.remember(entity, atISO, observed, observation.source);
     return { entity, created: false, ...(moved ? { movedFrom: oldPlace } : {}) };
   }
 }

@@ -1,0 +1,64 @@
+/* ===========================================
+   M3GAN Tab - Lumina's cognitive core
+   =========================================== */
+
+.m3gan {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.m3gan__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.m3gan__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.m3gan__card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.m3gan__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.m3gan__tree {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.m3gan__tree li {
+  margin: 4px 0;
+}
+
+.m3gan__node {
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.m3gan__list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.m3gan__pre {
+  margin: 0;
+  max-height: 420px;
+  overflow: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -1,101 +1,24 @@
 /**
- * self-model.ts — What Lumina knows about itself, stated honestly.
+ * self-model.ts — Live self-model derivation.
  *
- * M3GAN spec §12: a computational representation of the system's own name,
- * capabilities, sensors, tools, body, energy, active model, limits, current
- * tasks and functional state. It is what lets Lumina answer "can you do X?"
- * from fact rather than from a guess, and what keeps a planner from proposing
- * a grasp to a system with no hands.
- *
- * Two rules shape it:
- *
- *   Derived, not stored.  The self model is rebuilt from the live sources
- *                         (awareness, kill switch, body adapter, goals, router)
- *                         every time, so it cannot drift from reality.
- *
- *   No overclaiming.      States are functional (attention, load, uncertainty,
- *                         confidence). Consciousness and feelings are not
- *                         technical facts the system can demonstrate, so the
- *                         model never asserts them.
+ * Stable self-model types live in ../../contracts/self-model.ts so embodiment
+ * and hardware layers do not depend upward on cognition/.
  */
-import type { AutonomyLevel } from "../autonomy-levels.js";
+import { LOW_BATTERY_PERCENT } from "../../brainstem/energy.js";
+import type { SelfModel, SelfModelInput } from "../../contracts/self-model.js";
+
+export {
+  SENSOR_KINDS,
+  type BodyMode,
+  type SelfModel,
+  type SelfModelInput,
+  type SensorKind,
+  type SensorStatus,
+} from "../../contracts/self-model.js";
 
 export const SELF_NATURE =
   "Artificial agent. Its internal states are functional (attention, priority, uncertainty, " +
   "confidence, task load, resource use); it makes no claim to consciousness or feelings.";
-
-export type BodyMode = "none" | "simulated" | "physical";
-
-export const SENSOR_KINDS = [
-  "camera",
-  "microphone",
-  "depth",
-  "touch",
-  "proximity",
-  "imu",
-  "force",
-  "joint_position",
-  "temperature",
-  "environmental",
-  "chemical",
-  "screen",
-  "battery",
-] as const;
-export type SensorKind = (typeof SENSOR_KINDS)[number];
-
-export type SensorStatus = {
-  readonly id: string;
-  readonly kind: SensorKind;
-  readonly available: boolean;
-  readonly detail?: string;
-};
-
-export type SelfModelInput = {
-  readonly name: string;
-  readonly atISO: string;
-  readonly body: {
-    readonly mode: BodyMode;
-    readonly adapterId: string;
-    /** Symbolic place of the body in the world model, when known. */
-    readonly placeId?: string;
-  };
-  readonly emergencyStop: boolean;
-  readonly sensors: ReadonlyArray<SensorStatus>;
-  /** Tools and granted capabilities the agent can actually use. */
-  readonly capabilities: ReadonlyArray<string>;
-  readonly battery: { readonly percent: number; readonly charging: boolean } | null;
-  readonly activeModel?: string;
-  readonly autonomyLevel: AutonomyLevel;
-  readonly tasks: ReadonlyArray<{
-    readonly id: string;
-    readonly title: string;
-    readonly score: number;
-  }>;
-  readonly attentionTarget?: string;
-  readonly pendingEvents: number;
-};
-
-export type SelfModel = {
-  readonly name: string;
-  readonly nature: string;
-  readonly atISO: string;
-  readonly body: SelfModelInput["body"] & { readonly emergencyStop: boolean };
-  readonly sensors: ReadonlyArray<SensorStatus>;
-  readonly capabilities: ReadonlyArray<string>;
-  readonly energy: { readonly batteryPercent: number | null; readonly charging: boolean | null };
-  readonly activeModel: string | null;
-  readonly autonomyLevel: AutonomyLevel;
-  readonly limitations: ReadonlyArray<string>;
-  readonly currentTasks: SelfModelInput["tasks"];
-  readonly functionalState: {
-    readonly attentionTarget: string | null;
-    readonly pendingEvents: number;
-    readonly openTasks: number;
-  };
-};
-
-/** Battery level under which the self model flags energy as a limitation. */
-export const LOW_BATTERY_PERCENT = 20;
 
 function deriveLimitations(input: SelfModelInput): string[] {
   const out: string[] = [];
@@ -129,7 +52,6 @@ function deriveLimitations(input: SelfModelInput): string[] {
   return out;
 }
 
-/** Assemble the self model from live facts. Pure: same input, same output. */
 export function buildSelfModel(input: SelfModelInput): SelfModel {
   return {
     name: input.name,
@@ -154,7 +76,6 @@ export function buildSelfModel(input: SelfModelInput): SelfModel {
   };
 }
 
-/** Whether the self model says a capability is usable right now. */
 export function canUse(self: SelfModel, capability: string): boolean {
   return !self.body.emergencyStop && self.capabilities.includes(capability);
 }

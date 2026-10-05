@@ -82,7 +82,12 @@ import {
   createCodeActEndTool,
 } from "./src/codeact/codeact-tool.js";
 // Cognitive core (M3GAN): router, world model, workspace, self model, body
-import { createToolRecorder, startCognitiveCore } from "./src/cognition/plugin-wiring.js";
+import {
+  createEpisodicMemory,
+  createToolRecorder,
+  hostDeps,
+  startCognitiveCore,
+} from "./src/cognition/plugin-wiring.js";
 import { loadLuminaEnv } from "./src/env.js";
 // Governance
 import {
@@ -99,7 +104,6 @@ import {
   createWorkingMemoryLogTool,
 } from "./src/memory/action-log-tool.js";
 import { ActionLogStore } from "./src/memory/action-log.js";
-import { EpisodicMemoryStore } from "./src/memory/episodic-memory.js";
 import {
   createWorkingMemoryGetTool,
   createWorkingMemorySetTool,
@@ -202,13 +206,6 @@ import {
   createLuminaMemoryRememberTool,
 } from "./src/supabase/lumina-memory-tools.js";
 import { createLuminaWarehouseCatalogTool } from "./src/supabase/lumina-warehouse-catalog.js";
-// Supabase
-import {
-  createSupabaseStatusTool,
-  createSupabaseSchemaTool,
-  createSupabaseQueryTool,
-  createSupabaseMutateTool,
-} from "./src/supabase/supabase-tools.js";
 // Transparency
 import { ActivityLog } from "./src/transparency/activity-log.js";
 import { setActiveActivityLog } from "./src/transparency/singleton.js";
@@ -226,15 +223,6 @@ import { createUiTreeTool } from "./src/vision/ui-automation.js";
 import { createUiInvokeTool } from "./src/vision/ui-invoke.js";
 import { createUiResolveTool } from "./src/vision/ui-resolve.js";
 import { createWindowClassifyTool } from "./src/vision/window-classify-tool.js";
-
-// Global error handlers — catch unhandled rejections and uncaught exceptions
-// to prevent silent failures in long-running gateway sessions.
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("[lumina-cognitive-os] Unhandled Rejection at:", promise, "reason:", reason);
-});
-process.on("uncaughtException", (err, origin) => {
-  console.error("[lumina-cognitive-os] Uncaught Exception:", err, "origin:", origin);
-});
 
 type CognitiveConfig = {
   enabled?: boolean;
@@ -432,6 +420,10 @@ export default definePluginEntry({
       api.logger.info("[lumina-cognitive-os] disabled by config");
       return;
     }
+    // Pollers, sidecars, the hotkey and timers start only in the gateway's live registration;
+    // discovery and CLI loads only describe the tools.
+    const host = hostDeps(api);
+    const { live } = host;
 
     // Records what was actually registered (several tools are conditional) for the self model.
     const { register: registerTool, names: registeredToolNames } = createToolRecorder(api);
@@ -447,7 +439,9 @@ export default definePluginEntry({
     const awarenessBus = new AwarenessEventBus();
     const poller = new AwarenessPoller(cfg.awarenessIntervalMs, awarenessBus);
     const systemBridgeClient = createBridgeClient({ bridgeUrl: cfg.bridgeUrl });
-    poller.start();
+    if (live) {
+      poller.start();
+    }
     registerTool(createAwarenessSnapshotTool(poller));
     registerTool(createAwarenessSubscribeTool(awarenessBus));
     registerTool(createWindowsContextTool(systemBridgeClient));
@@ -460,7 +454,7 @@ export default definePluginEntry({
 
     // ── N2 Memory ────────────────────────────────────────────────
     const working = new WorkingMemoryStore(cfg.memoryDir);
-    const episodic = new EpisodicMemoryStore(cfg.memoryDir);
+    const episodic = createEpisodicMemory(host, cfg.memoryDir);
     const actionLog = new ActionLogStore(cfg.memoryDir);
     registerTool(createWorkingMemoryGetTool(working));
     registerTool(createWorkingMemorySetTool(working));
@@ -599,7 +593,7 @@ export default definePluginEntry({
     // Always-on vision: start the continuous semantic perception loop so Lumina
     // "sees" — foreground app + its actionable UIA elements kept fresh — instead
     // of being blind between on-demand screenshots. Gated by config for privacy.
-    if (cfg.perceptionAutoStart) {
+    if (cfg.perceptionAutoStart && live) {
       try {
         const started = perceptionProcess.start();
         api.logger.info(
@@ -625,13 +619,15 @@ export default definePluginEntry({
         api.logger.warn(`[lumina-cognitive-os] KILL SWITCH engaged via ${chord} — operator frozen`),
     });
     registerTool(createKillSwitchTool({ process: killSwitchProcess }));
-    try {
-      const ks = killSwitchProcess.start();
-      api.logger.info(
-        `[lumina-cognitive-os] kill-switch hotkey: ${ks.ok ? "armed (Ctrl+Alt+K)" : `unavailable: ${ks.error}`}`,
-      );
-    } catch (err) {
-      api.logger.warn(`[lumina-cognitive-os] kill-switch start error: ${(err as Error).message}`);
+    if (live) {
+      try {
+        const ks = killSwitchProcess.start();
+        api.logger.info(
+          `[lumina-cognitive-os] kill-switch hotkey: ${ks.ok ? "armed (Ctrl+Alt+K)" : `unavailable: ${ks.error}`}`,
+        );
+      } catch (err) {
+        api.logger.warn(`[lumina-cognitive-os] kill-switch start error: ${(err as Error).message}`);
+      }
     }
 
     // ── N5 Director ──────────────────────────────────────────────
@@ -754,17 +750,15 @@ export default definePluginEntry({
     registerTool(createGmailTool());
     registerTool(createCalendarTool());
     registerTool(createDriveTool());
-    const supabaseDeps = {
+    // Raw table access (status/schema/query/mutate) belongs to the lumina-supabase plugin;
+    // this one keeps only Lumina's memory view of the same database.
+    const memoryDeps = {
       envPath: cfg.envPath,
       schema: cfg.supabaseSchema,
       maxRows: cfg.supabaseMaxRows,
       allowWrites: cfg.supabaseAllowWrites,
+      warehousesPath: cfg.warehousesPath,
     };
-    registerTool(createSupabaseStatusTool(supabaseDeps));
-    registerTool(createSupabaseSchemaTool(supabaseDeps));
-    registerTool(createSupabaseQueryTool(supabaseDeps));
-    registerTool(createSupabaseMutateTool(supabaseDeps));
-    const memoryDeps = { ...supabaseDeps, warehousesPath: cfg.warehousesPath };
     registerTool(createLuminaMemoryStatusTool(memoryDeps));
     registerTool(createLuminaMemorySearchTool(memoryDeps));
     registerTool(createLuminaMemoryRememberTool(memoryDeps));
@@ -780,7 +774,7 @@ export default definePluginEntry({
       threshold: 0.55,
     });
     registerTool(createWakeWordTool(wake));
-    if (cfg.wakeWordEnabled) {
+    if (cfg.wakeWordEnabled && live) {
       const r = wake.start();
       if (!r.ok) {
         api.logger.warn(`[lumina-cognitive-os] wake-word daemon failed to start: ${r.error}`);
@@ -806,16 +800,18 @@ export default definePluginEntry({
     // Router -> world model + attention queue -> observe-only loop, with the
     // global workspace, self model and safety-gated body on top.
     const cognition = startCognitiveCore({
-      pluginConfig: raw,
+      ...host,
       memoryDir: cfg.memoryDir,
       awarenessBus,
       environment: () => poller.current(),
       working: () => working.get(),
+      episodicMemory: episodic,
+      plans: planStore,
       activity,
       toolNames: registeredToolNames,
       registerTool,
-      liveConfig: () => api.runtime.config?.current?.() ?? api.config,
-      logger: api.logger,
+      sensorDaemons: { microphone: wake, camera: perceptionProcess },
+      perceptionBus,
     });
 
     // Risk + awareness piped into the transparency log so the UI sees them.

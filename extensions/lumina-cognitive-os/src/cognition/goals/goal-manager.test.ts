@@ -5,7 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { GoalManager } from "./goal-manager.js";
+import { MemoryStateStore } from "../../shared/state-store.js";
+import { GoalManager, type Goal } from "./goal-manager.js";
 
 let dir = "";
 
@@ -108,5 +109,25 @@ describe("GoalManager", () => {
     const g = m.create({ title: "only" });
     m.abandon(g.id);
     expect(m.next()).toBeUndefined();
+  });
+
+  it("migrates legacy JSONL into the durable keyed store once", async () => {
+    const legacy = new GoalManager(dir);
+    const created = legacy.create({ title: "survive migration", priority: 5 });
+    const store = new MemoryStateStore<Goal>();
+
+    const migrated = new GoalManager({ dir, store });
+    await migrated.ready;
+    await migrated.flush();
+
+    expect(migrated.get(created.id)?.title).toBe("survive migration");
+    expect((await store.entries()).length).toBeGreaterThan(0);
+    expect(fs.existsSync(path.join(dir, "goals.jsonl.migrated"))).toBe(true);
+
+    migrated.complete(created.id);
+    await migrated.flush();
+    const restarted = new GoalManager({ dir, store });
+    await restarted.ready;
+    expect(restarted.get(created.id)?.status).toBe("done");
   });
 });

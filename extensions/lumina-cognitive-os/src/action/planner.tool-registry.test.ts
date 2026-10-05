@@ -9,9 +9,8 @@
  * When you add a new tool to any lumina-* extension, register it in
  * KNOWN_TOOLS *at the same commit* — this test will fail otherwise.
  *
- * Scope: only the lumina-* extensions authored by the I24D team
- * (lumina-presence, lumina-memory, lumina-observation, lumina-input-control,
- * lumina-claude-bridge, lumina-pc, lumina-cognitive-os).
+ * Scope: every lumina-* extension in this checkout, discovered from disk so a
+ * new one is covered the day it lands.
  */
 import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
@@ -23,15 +22,13 @@ import { KNOWN_TOOLS } from "./planner.js";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const EXTENSIONS_ROOT = path.resolve(HERE, "..", "..", "..");
 
-const LUMINA_EXTENSIONS = [
-  "lumina-presence",
-  "lumina-memory",
-  "lumina-observation",
-  "lumina-input-control",
-  "lumina-claude-bridge",
-  "lumina-pc",
-  "lumina-cognitive-os",
-] as const;
+async function luminaExtensions(): Promise<string[]> {
+  const entries = await readdir(EXTENSIONS_ROOT, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("lumina-"))
+    .map((entry) => entry.name)
+    .toSorted();
+}
 
 /**
  * Walk one Lumina extension's src/ tree and collect every string literal that
@@ -74,7 +71,7 @@ async function collectDeclaredToolNames(extensionDir: string): Promise<Set<strin
 async function collectAllLuminaToolNames(): Promise<Map<string, string>> {
   // toolName → which extension declared it
   const toolOwners = new Map<string, string>();
-  for (const ext of LUMINA_EXTENSIONS) {
+  for (const ext of await luminaExtensions()) {
     const extDir = path.join(EXTENSIONS_ROOT, ext);
     const declared = await collectDeclaredToolNames(extDir);
     for (const name of declared) {
@@ -91,7 +88,11 @@ async function collectAllLuminaToolNames(): Promise<Map<string, string>> {
 }
 
 describe("action planner KNOWN_TOOLS contract", () => {
-  it("has every declared lumina_* tool from all 7 Lumina extensions", async () => {
+  it("covers the Lumina extensions in this checkout", async () => {
+    expect(await luminaExtensions()).toContain("lumina-cognitive-os");
+  });
+
+  it("has every declared lumina_* tool from every Lumina extension", async () => {
     const declared = await collectAllLuminaToolNames();
     // Filter: some `name: "lumina_..."` matches are inline object schemas
     // (parameter objects, sub-fields, etc.) rather than tool declarations.
@@ -119,15 +120,11 @@ describe("action planner KNOWN_TOOLS contract", () => {
 
   it("flags any tool registered by more than one lumina-* extension", async () => {
     const declared = await collectAllLuminaToolNames();
+    // Two plugins declaring one name collide at load time; one owner per tool.
     const duplicates = [...declared.entries()].filter(([, owner]) => owner.includes("+"));
-    // Currently `lumina_input_control` is exposed by both `lumina-pc` (as a
-    // legacy alias for the input-control routing) and `lumina-input-control`
-    // (the canonical owner). Accept that specific overlap for now; anything
-    // else is a bug worth investigating.
-    const unexpected = duplicates.filter(([name]) => name !== "lumina_input_control");
     expect(
-      unexpected,
-      `Unexpected duplicate tool registrations:\n  ${unexpected.map(([n, o]) => `${n} in ${o}`).join("\n  ")}`,
+      duplicates,
+      `Duplicate tool registrations:\n  ${duplicates.map(([n, o]) => `${n} in ${o}`).join("\n  ")}`,
     ).toHaveLength(0);
   });
 });

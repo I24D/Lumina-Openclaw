@@ -107,12 +107,21 @@ export async function runPowerShell(
 }
 
 // oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- JSON results are typed by the caller.
+/**
+ * Pipes everything `script` outputs into ConvertTo-Json. The script runs inside a
+ * script block: Windows PowerShell 5.1 rejects a line that starts with `|`
+ * ("An empty pipe element is not allowed"), which PowerShell 7 accepts, and a
+ * block also keeps multi-statement scripts whole.
+ */
+export function jsonPipeline(script: string): string {
+  return `& {\n${script}\n} | ConvertTo-Json -Depth 8 -Compress`;
+}
+
 export async function runPowerShellJson<T = unknown>(
   script: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
-  const full = `${script}\n| ConvertTo-Json -Depth 8 -Compress`;
-  const r = await runPowerShell(full, timeoutMs);
+  const r = await runPowerShell(jsonPipeline(script), timeoutMs);
   if (!r.ok) {
     return { ok: false, error: r.error ?? r.stderr ?? `exit ${r.code}` };
   }

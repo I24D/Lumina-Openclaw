@@ -5,7 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LessonStore } from "./lessons.js";
+import { MemoryStateStore } from "../../shared/state-store.js";
+import { LessonStore, type Lesson } from "./lessons.js";
 
 let dir = "";
 
@@ -74,5 +75,27 @@ describe("LessonStore", () => {
     s.learn({ trigger: "ram.high", claim: "low", confidence: 0.6 });
     s.learn({ trigger: "ram.high", claim: "high", confidence: 0.95 });
     expect(s.applicable("ram.high")[0]?.claim).toBe("high");
+  });
+
+  it("migrates legacy lessons and persists later evidence in the keyed store", async () => {
+    const legacy = new LessonStore(dir);
+    const learned = legacy.learn({
+      trigger: "camera.dark",
+      claim: "turn on a light",
+      confidence: 0.6,
+    });
+    const store = new MemoryStateStore<Lesson>();
+
+    const migrated = new LessonStore({ dir, store });
+    await migrated.ready;
+    expect(migrated.get(learned.id)?.claim).toBe("turn on a light");
+    expect(fs.existsSync(path.join(dir, "lessons.jsonl.migrated"))).toBe(true);
+
+    migrated.confirm(learned.id);
+    await migrated.flush();
+    const restarted = new LessonStore({ dir, store });
+    await restarted.ready;
+    expect(restarted.get(learned.id)?.confirmations).toBe(1);
+    expect(restarted.get(learned.id)?.confidence).toBeGreaterThan(0.6);
   });
 });

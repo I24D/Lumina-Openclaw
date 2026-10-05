@@ -12,6 +12,8 @@
  * (cancellation, audit, approval) are preserved.
  */
 
+import { newEntityId } from "../shared/ids.js";
+
 export type PlanStep = {
   readonly id: string;
   readonly toolName: string;
@@ -20,6 +22,17 @@ export type PlanStep = {
   readonly description: string;
   /** Pre-classified risk so the user knows what's coming. */
   readonly risk?: "SAFE" | "WARNING" | "HIGH_RISK" | "CRITICAL";
+  // M3GAN spec §15: each action declares what must hold, what should happen,
+  // how sure the planner is, and how to undo it. Optional so existing plans
+  // stay valid; missing fields are reported as warnings.
+  /** The subgoal this step serves, e.g. "localizar taza" under "preparar café". */
+  readonly subgoal?: string;
+  readonly preconditions?: ReadonlyArray<string>;
+  readonly expectedOutcome?: string;
+  /** Planner's confidence the step does what it says, in [0,1]. */
+  readonly confidence?: number;
+  /** How to undo the step, when it can be undone. */
+  readonly rollback?: string;
 };
 
 export type ActionPlan = {
@@ -31,8 +44,13 @@ export type ActionPlan = {
 };
 
 export type PlanValidation =
-  | { readonly ok: true; readonly plan: ActionPlan }
+  | { readonly ok: true; readonly plan: ActionPlan; readonly warnings: ReadonlyArray<string> }
   | { readonly ok: false; readonly error: string };
+
+const RISKY: ReadonlySet<string> = new Set(["HIGH_RISK", "CRITICAL"]);
+
+const optionalText = (value: unknown, max: number): string | undefined =>
+  typeof value === "string" && value.trim() ? value.trim().slice(0, max) : undefined;
 
 /** Tool names we know about and trust to appear in plans. Keep this in
  *  sync with the contracts of every Lumina extension. */
@@ -124,6 +142,7 @@ export const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   "lumina_browser_screencast",
   "lumina_browser_session",
   "lumina_action_plan",
+  "lumina_plan_run",
   "lumina_director_route",
   "lumina_intent_run",
   "lumina_gmail",
@@ -150,11 +169,14 @@ export const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   "lumina_memory_status",
   "lumina_memory_search",
   "lumina_warehouse_catalog",
+  "lumina_supabase_memory_remember",
+  // lumina-supabase — data plane, and the opt-in admin plane
   "lumina_supabase_status",
   "lumina_supabase_schema",
   "lumina_supabase_query",
   "lumina_supabase_mutate",
-  "lumina_supabase_memory_remember",
+  "lumina_supabase_admin_sql",
+  "lumina_supabase_admin_project",
   // Browser smart tools (2026-07-03) — DOM-aware click/type via Playwright sidecar
   "lumina_browser_smart_click",
   "lumina_browser_smart_type",
@@ -197,6 +219,13 @@ export const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   "lumina_world_observe",
   "lumina_world_query",
   "lumina_body",
+  "lumina_behavior",
+  "lumina_safety",
+  "lumina_explain",
+  "lumina_privacy",
+  "lumina_people",
+  "lumina_mind",
+  "lumina_health",
 ]);
 
 export function validatePlan(input: unknown): PlanValidation {
@@ -216,6 +245,7 @@ export function validatePlan(input: unknown): PlanValidation {
     return { ok: false, error: "plan.steps cannot exceed 32 entries" };
   }
   const steps: PlanStep[] = [];
+  const warnings: string[] = [];
   for (let i = 0; i < stepsIn.length; i++) {
     const raw = stepsIn[i];
     if (!raw || typeof raw !== "object") {
@@ -238,21 +268,54 @@ export function validatePlan(input: unknown): PlanValidation {
         ? (s.params as Record<string, unknown>)
         : {};
     const risk = s.risk as PlanStep["risk"];
+    let confidence: number | undefined;
+    if (s.confidence !== undefined) {
+      if (typeof s.confidence !== "number" || !(s.confidence >= 0 && s.confidence <= 1)) {
+        return { ok: false, error: `step #${i}.confidence must be a number in [0,1]` };
+      }
+      confidence = s.confidence;
+    }
+    if (s.preconditions !== undefined && !Array.isArray(s.preconditions)) {
+      return { ok: false, error: `step #${i}.preconditions must be an array of strings` };
+    }
+    const preconditions = Array.isArray(s.preconditions)
+      ? s.preconditions
+          .filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+          .slice(0, 8)
+      : undefined;
+    const expectedOutcome = optionalText(s.expectedOutcome, 240);
+    const rollback = optionalText(s.rollback, 240);
+    const subgoal = optionalText(s.subgoal, 120);
+    if (!expectedOutcome) {
+      warnings.push(`step #${i} has no expectedOutcome: success cannot be checked`);
+    }
+    if (risk && RISKY.has(risk) && !rollback) {
+      warnings.push(`step #${i} is ${risk} and has no rollback`);
+    }
+    if (confidence !== undefined && confidence < 0.7) {
+      warnings.push(`step #${i} has low confidence (${confidence}): verify before running it`);
+    }
     steps.push({
       id: `step-${i + 1}`,
       toolName,
       params,
       description,
       risk,
+      ...(subgoal ? { subgoal } : {}),
+      ...(preconditions && preconditions.length > 0 ? { preconditions } : {}),
+      ...(expectedOutcome ? { expectedOutcome } : {}),
+      ...(confidence !== undefined ? { confidence } : {}),
+      ...(rollback ? { rollback } : {}),
     });
   }
   const stopOnError = obj.stopOnError !== false;
   const plan: ActionPlan = {
-    id: `plan-${Date.now().toString(36)}`,
+    // A millisecond timestamp collided when two plans were registered at once.
+    id: newEntityId("plan"),
     goal,
     steps,
     createdAtISO: new Date().toISOString(),
     stopOnError,
   };
-  return { ok: true, plan };
+  return { ok: true, plan, warnings };
 }

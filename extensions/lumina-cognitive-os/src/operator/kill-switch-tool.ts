@@ -4,7 +4,11 @@
  * `lumina_kill_switch` with action:
  *   - status : report whether the operator is frozen + hotkey process state.
  *   - engage : trip it now from software (same effect as the panic hotkey).
- *   - reset  : re-arm so the operator can run again (frozen state is sticky).
+ *
+ * Re-arming is deliberately not here. M3GAN spec §45: the system can never
+ * hand itself back authority over its own stop mechanisms, so a person re-arms
+ * it from the M3GAN tab of the Control UI (the authenticated owner channel). The agent can
+ * always stop; it can never un-stop.
  *
  * The physical hotkey (kill_switch.py via KillSwitchProcess) trips the same
  * switch; this tool is the software-side twin so "para todo" by voice works
@@ -27,32 +31,32 @@ export function createKillSwitchTool(deps: KillSwitchToolDeps = {}): AnyAgentToo
     description:
       "Parada de emergencia global del operador de PC. action='status' informa si está congelado " +
       "(y el estado del hotkey). action='engage' congela YA: el loop se aborta y ningún click/tecleo " +
-      "llega al Bridge. action='reset' re-arma para volver a operar (el estado congelado es persistente, " +
-      "no se limpia solo). El hotkey físico por defecto es Ctrl+Alt+K.",
+      "llega al Bridge. Re-armar no se hace desde aquí: lo hace una persona en la pestaña M3GAN del Control UI. " +
+      "El hotkey físico por defecto es Ctrl+Alt+K.",
     parameters: Type.Object({
-      action: Type.Union([Type.Literal("status"), Type.Literal("engage"), Type.Literal("reset")], {
+      action: Type.Union([Type.Literal("status"), Type.Literal("engage")], {
         default: "status",
-        description: "status | engage | reset",
+        description: "status | engage",
       }),
       reason: Type.Optional(Type.String({ description: "Motivo al hacer engage (auditoría)." })),
     }),
     async execute(_id, rawParams) {
       // Narrowed once against this tool's schema; the tool runtime
       // validates the payload before execute() is ever called.
-      const raw = rawParams as { action: "status" | "engage" | "reset"; reason?: string };
-      const params = raw as { action?: "status" | "engage" | "reset"; reason?: string };
+      const params = rawParams as { action?: "status" | "engage"; reason?: string };
       const action = params.action ?? "status";
-      let state = killSwitch.getState();
-      if (action === "engage") {
-        state = killSwitch.engage(params.reason?.trim() || "tool");
-      } else if (action === "reset") {
-        state = killSwitch.reset();
-      }
+      const state =
+        action === "engage"
+          ? killSwitch.engage(params.reason?.trim() || "tool")
+          : killSwitch.getState();
       return jsonResult({
         ok: true,
         action,
         state,
         hotkey: deps.process?.getStatus() ?? null,
+        ...(state.engaged
+          ? { rearm: "A person re-arms it from the M3GAN tab of the Control UI." }
+          : {}),
       });
     },
   };

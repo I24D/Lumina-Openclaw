@@ -14,6 +14,9 @@ const ROOT = resolveRepoRoot(import.meta.url);
 const CHECK = process.argv.includes("--check");
 const DOCS_FORMAT_MAX_BUFFER_BYTES = 1024 * 1024 * 16;
 const DOCS_FORMAT_MAX_COMMAND_LINE_BYTES = 24 * 1024;
+// cmd.exe caps its whole command line at 8191 characters, well below CreateProcess's limit; the
+// headroom covers the shim path and the /d /s /c switches.
+const WINDOWS_CMD_MAX_COMMAND_LINE_BYTES = 7 * 1024;
 const FAILURE_OUTPUT_TAIL_BYTES = 16 * 1024;
 
 type CommandResult = {
@@ -163,11 +166,18 @@ export function runOxfmt(files: string[], params: OxfmtParams = {}, deps: Format
   const repoRoot = params.repoRoot ?? ROOT;
   const spawnSyncImpl = deps.spawnSync ?? spawnSync;
   const prefixArgs = ["--write", "--threads=1", "--config", path.join(repoRoot, ".oxfmtrc.jsonc")];
-  for (const chunk of chunkFilesForCommand(
-    files,
-    prefixArgs,
-    params.maxCommandLineBytes ?? DOCS_FORMAT_MAX_COMMAND_LINE_BYTES,
-  )) {
+  const viaCmdExe =
+    resolveOxfmtInvocation([], {
+      comSpec: params.comSpec,
+      existsSync: deps.existsSync,
+      nodeExecPath: params.nodeExecPath,
+      platform: params.platform,
+      repoRoot,
+    }).windowsVerbatimArguments === true;
+  const maxCommandLineBytes =
+    params.maxCommandLineBytes ??
+    (viaCmdExe ? WINDOWS_CMD_MAX_COMMAND_LINE_BYTES : DOCS_FORMAT_MAX_COMMAND_LINE_BYTES);
+  for (const chunk of chunkFilesForCommand(files, prefixArgs, maxCommandLineBytes)) {
     const invocation = resolveOxfmtInvocation([...prefixArgs, ...chunk], {
       comSpec: params.comSpec,
       existsSync: deps.existsSync,

@@ -65,6 +65,36 @@ describe("format-docs", () => {
     ]);
   });
 
+  it("keeps each cmd.exe batch under its 8191-character command line limit", () => {
+    const calls: string[][] = [];
+    const files = Array.from(
+      { length: 600 },
+      (_, index) => `docs/section-${index}/a-reasonably-long-page-name.md`,
+    );
+
+    runOxfmt(
+      files,
+      {
+        comSpec: "C:\\Windows\\System32\\cmd.exe",
+        platform: "win32",
+        repoRoot: "C:\\repo",
+      },
+      {
+        existsSync: (candidate: string) => candidate.endsWith("oxfmt.cmd"),
+        spawnSync: (_command: string, args: string[]) => {
+          calls.push(args);
+          return { status: 0, stderr: "", stdout: "" };
+        },
+      },
+    );
+
+    expect(calls.length).toBeGreaterThan(1);
+    expect(calls.every((args) => (args[3] ?? "").length < 8191)).toBe(true);
+    expect(calls.flatMap((args) => files.filter((file) => args[3]?.includes(file)))).toHaveLength(
+      files.length,
+    );
+  });
+
   it("reports git and oxfmt spawn diagnostics", () => {
     const root = createTempDir("openclaw-format-docs-failures-");
 

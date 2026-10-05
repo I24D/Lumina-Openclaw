@@ -1,23 +1,17 @@
 /**
- * goal-manager.ts — Goals that outlive a session.
+ * goal-manager.ts — Durable goals that outlive a session.
  *
- * A chat assistant forgets what it was trying to do the moment the window
- * closes. This is the store that fixes that: goals persist to disk, carry a
- * priority and optional deadline, and declare their own success conditions so
- * completion is checkable rather than a matter of opinion.
- *
- * Ranking lives here too (the spec's "priority engine"): a goal's score blends
- * its declared priority with deadline pressure and how long it has been
- * ignored, so nothing quietly starves.
- *
- * Persistence reuses `memory/store.ts` rather than inventing a second format.
+ * In the live gateway, goals are event-sourced as snapshots in OpenClaw's
+ * SQLite plugin state. Legacy goals.jsonl is imported once when the durable
+ * store is empty, then archived. Tests and non-live discovery keep the JSONL
+ * fallback so they never contend with the live gateway store.
  */
+import fs from "node:fs";
 import path from "node:path";
 import { appendJsonl, ensureDir, newId, readJsonlSync, rewriteJsonl } from "../../memory/store.js";
+import { KeyedLog, type StateStorePort } from "../../shared/state-store.js";
 
 export type GoalStatus = "active" | "blocked" | "done" | "abandoned";
-
-/** 1 = lowest, 5 = highest. Out-of-range values are clamped on write. */
 export type GoalPriority = 1 | 2 | 3 | 4 | 5;
 
 export type Goal = {
@@ -26,12 +20,10 @@ export type Goal = {
   readonly detail?: string;
   readonly priority: GoalPriority;
   readonly deadlineISO?: string;
-  /** Checkable statements; all must hold for the goal to count as done. */
   readonly successConditions: ReadonlyArray<string>;
   readonly status: GoalStatus;
   readonly createdAtISO: string;
   readonly updatedAtISO: string;
-  /** Set when this goal was spawned by a larger one. */
   readonly parentId?: string;
 };
 
@@ -44,12 +36,17 @@ export type CreateGoalInput = {
   readonly parentId?: string;
 };
 
+export type GoalManagerOptions = {
+  readonly dir: string;
+  readonly store?: StateStorePort<Goal>;
+  readonly onError?: (error: unknown) => void;
+};
+
 const clampPriority = (n: number | undefined): GoalPriority => {
   const v = Math.round(Number.isFinite(n) ? (n as number) : 3);
   return Math.min(5, Math.max(1, v)) as GoalPriority;
 };
 
-/** Goals that are still live work. */
 export const OPEN_STATUSES: ReadonlyArray<GoalStatus> = ["active", "blocked"];
 
 export type RankedGoal = {
@@ -58,14 +55,103 @@ export type RankedGoal = {
   readonly reason: string;
 };
 
+function latestSnapshots(rows: ReadonlyArray<Goal>): Goal[] {
+  const byId = new Map<string, Goal>();
+  for (const row of rows) {
+    const current = byId.get(row.id);
+    if (!current || current.updatedAtISO <= row.updatedAtISO) {
+      byId.set(row.id, row);
+    }
+  }
+  return [...byId.values()];
+}
+
 export class GoalManager {
   private goals: Goal[] = [];
   private readonly filePath: string;
+  private readonly log: KeyedLog<Goal> | undefined;
+  private readonly onError: (error: unknown) => void;
+  private loading = false;
+  private pendingPersist: Goal[] = [];
+  readonly ready: Promise<void>;
 
-  constructor(dir: string) {
-    this.filePath = path.join(dir, "goals.jsonl");
-    ensureDir(dir);
-    this.goals = readJsonlSync<Goal>(this.filePath);
+  constructor(input: string | GoalManagerOptions) {
+    const options: GoalManagerOptions = typeof input === "string" ? { dir: input } : input;
+    this.filePath = path.join(options.dir, "goals.jsonl");
+    this.onError = options.onError ?? (() => undefined);
+    ensureDir(options.dir);
+    const legacy = readJsonlSync<Goal>(this.filePath);
+    this.goals = latestSnapshots(legacy);
+
+    if (!options.store) {
+      this.ready = Promise.resolve();
+      return;
+    }
+
+    this.loading = true;
+    this.log = new KeyedLog(options.store, this.onError);
+    this.ready = this.log.hydrate().then(
+      async (stored) => {
+        const durable = stored.length > 0 ? latestSnapshots(stored) : latestSnapshots(legacy);
+        const merged = latestSnapshots([...durable, ...this.pendingPersist]);
+        this.goals = merged;
+
+        // Import legacy first so a mutation made during hydration remains the newest snapshot.
+        if (stored.length === 0 && legacy.length > 0) {
+          for (const row of legacy) {
+            this.log?.append(row);
+          }
+        }
+        for (const row of this.pendingPersist) {
+          this.log?.append(row);
+        }
+        await this.log?.flush();
+        this.pendingPersist = [];
+        this.loading = false;
+        if (stored.length === 0 && legacy.length > 0) {
+          this.archiveLegacy();
+        }
+      },
+      (error: unknown) => {
+        this.loading = false;
+        this.onError(error);
+      },
+    );
+  }
+
+  private archiveLegacy(): void {
+    if (!fs.existsSync(this.filePath)) {
+      return;
+    }
+    const archived = `${this.filePath}.migrated`;
+    try {
+      if (!fs.existsSync(archived)) {
+        fs.renameSync(this.filePath, archived);
+      }
+    } catch (error) {
+      this.onError(error);
+    }
+  }
+
+  private persistSnapshot(goal: Goal, rewriteFallback = false): void {
+    if (this.log) {
+      if (this.loading) {
+        this.pendingPersist.push(structuredClone(goal));
+      } else {
+        this.log.append(structuredClone(goal));
+      }
+      return;
+    }
+    if (rewriteFallback) {
+      rewriteJsonl(this.filePath, this.goals);
+    } else {
+      appendJsonl(this.filePath, goal);
+    }
+  }
+
+  async flush(): Promise<void> {
+    await this.ready;
+    await this.log?.flush();
   }
 
   create(input: CreateGoalInput, nowISO: string = new Date().toISOString()): Goal {
@@ -86,7 +172,7 @@ export class GoalManager {
       parentId: input.parentId,
     };
     this.goals.push(goal);
-    appendJsonl(this.filePath, goal);
+    this.persistSnapshot(goal);
     return goal;
   }
 
@@ -102,7 +188,6 @@ export class GoalManager {
     return this.goals.filter((g) => OPEN_STATUSES.includes(g.status));
   }
 
-  /** Patch a goal and rewrite the file; returns undefined for an unknown id. */
   update(
     id: string,
     patch: Partial<Omit<Goal, "id" | "createdAtISO">>,
@@ -112,10 +197,6 @@ export class GoalManager {
     if (!current) {
       return undefined;
     }
-    // Spread only the keys the caller actually set: under
-    // exactOptionalPropertyTypes an explicit `undefined` is not the same as
-    // "leave it alone", and blindly spreading a Partial would widen required
-    // fields like `title` to `string | undefined`.
     const next: Goal = {
       ...current,
       ...(patch.title !== undefined ? { title: patch.title } : {}),
@@ -130,7 +211,7 @@ export class GoalManager {
       updatedAtISO: nowISO,
     };
     this.goals = this.goals.map((g) => (g.id === id ? next : g));
-    rewriteJsonl(this.filePath, this.goals);
+    this.persistSnapshot(next, true);
     return next;
   }
 
@@ -142,13 +223,6 @@ export class GoalManager {
     return this.update(id, { status: "abandoned" }, nowISO);
   }
 
-  /**
-   * Score open goals so the loop knows what to work on.
-   *
-   * priority contributes the baseline, an approaching deadline adds pressure,
-   * and staleness adds a slow drip so a low-priority goal eventually surfaces
-   * instead of starving forever.
-   */
   rank(nowMs: number = Date.now()): ReadonlyArray<RankedGoal> {
     const ranked = this.open().map((goal) => {
       const priorityScore = (goal.priority - 1) / 4;
@@ -162,7 +236,6 @@ export class GoalManager {
             deadlineScore = 1;
             deadlineNote = "overdue";
           } else {
-            // Full pressure inside 1h, none beyond a week.
             deadlineScore = Math.min(1, Math.max(0, 1 - Math.log10(hoursLeft) / Math.log10(168)));
             deadlineNote = `${hoursLeft.toFixed(1)}h left`;
           }
@@ -182,7 +255,6 @@ export class GoalManager {
     );
   }
 
-  /** Highest-scoring open goal, or undefined when there is nothing to do. */
   next(nowMs?: number): RankedGoal | undefined {
     return this.rank(nowMs)[0];
   }

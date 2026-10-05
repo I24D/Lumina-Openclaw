@@ -23,26 +23,21 @@ import { renderLoadingState } from "../../components/loading-state.ts";
 import { uiDevGatewayResourceUrl } from "../../dev-gateway.ts";
 import { t } from "../../i18n/index.ts";
 import { registerLoginEnglish } from "../../i18n/locales/en-login.ts";
-import { resolveEmbedSandbox } from "../../lib/chat/tool-display.ts";
 import { postWidgetTheme, registerWidgetThemeFrame } from "../../lib/widget-theme.ts";
 import { OpenClawLightDomContentsElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import { renderCustomPluginUiDisabled } from "../../plugins/control-ui-disabled.ts";
 import { renderPluginContribution } from "../../plugins/control-ui-view.ts";
-import type { renderLogbook } from "./logbook-view.ts";
+import {
+  answerLuminaDesignFrameRequest,
+  BUNDLED_TAB_VIEWS,
+  resolvePluginTabSandbox,
+  type BundledPluginTabView,
+} from "./bundled-tabs.ts";
 import { openPluginFrameSession } from "./plugin-frame-session-navigation.ts";
 import { pluginTabKey } from "./route.ts";
 
 registerLoginEnglish();
-
-/**
- * Views shipped with the Control UI use this adapter. Native plugin entries
- * mount through the contribution runtime; descriptor paths use sandboxed frames.
- */
-type BundledPluginTabView = {
-  render: (props: Parameters<typeof renderLogbook>[0]) => unknown;
-  stop: (host: object) => void;
-};
 
 type BundledPluginTabViewState =
   | { status: "idle" }
@@ -73,41 +68,6 @@ function pluginFrameGrantCoversTab(
 
 const EXTERNAL_AUTH_REFRESH_TIMEOUT_MS = 10_000;
 const EXTERNAL_AUTH_PROBE_TIMEOUT_MS = 5_000;
-const TRUSTED_SAME_ORIGIN_TABS = new Set(["lumina-open-design/design"]);
-
-export function resolveLuminaDesignHostMethod(action: unknown): string | null {
-  if (action === "create") {
-    return "lumina.openDesign.create";
-  }
-  if (action === "studio") {
-    return "lumina.openDesign.studio";
-  }
-  return null;
-}
-
-export function resolvePluginTabSandbox(
-  pluginId: string,
-  tabId: string,
-  mode: Parameters<typeof resolveEmbedSandbox>[0],
-): string {
-  // Lumina Design is a bundled, authenticated operator surface. It needs
-  // same-origin access to call its route-scoped Gateway API from the frame.
-  if (TRUSTED_SAME_ORIGIN_TABS.has(`${pluginId}/${tabId}`)) {
-    return `${resolveEmbedSandbox("trusted")} allow-forms`;
-  }
-  return resolveEmbedSandbox(mode);
-}
-
-// Keyed by pluginId/tabId: tab ids are only unique within their plugin.
-const BUNDLED_TAB_VIEWS: Record<string, () => Promise<BundledPluginTabView>> = {
-  "logbook/logbook": async () => {
-    const [{ renderLogbook }, { stopLogbookPolling }] = await Promise.all([
-      import("./logbook-view.ts"),
-      import("./logbook-controller.ts"),
-    ]);
-    return { render: renderLogbook, stop: stopLogbookPolling };
-  },
-};
 
 export class PluginPage extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) pluginId = "";
@@ -170,45 +130,15 @@ export class PluginPage extends OpenClawLightDomContentsElement {
   };
 
   private readonly handlePluginFrameMessage = (event: MessageEvent) => {
-    if (this.tabKey() !== "lumina-open-design/design" || event.origin !== window.location.origin) {
+    if (this.tabKey() !== "lumina-open-design/design") {
       return;
     }
-    const frame = this.querySelector("iframe");
-    if (!frame?.contentWindow || event.source !== frame.contentWindow) {
-      return;
-    }
-    const data = event.data;
-    if (!data || typeof data !== "object" || Array.isArray(data)) {
-      return;
-    }
-    const request = data as { type?: unknown; id?: unknown; action?: unknown; payload?: unknown };
-    const method = resolveLuminaDesignHostMethod(request.action);
-    if (
-      request.type !== "lumina-open-design:request" ||
-      typeof request.id !== "string" ||
-      !/^[A-Za-z0-9-]{1,80}$/u.test(request.id) ||
-      !method
-    ) {
-      return;
-    }
-    const source = frame.contentWindow;
-    const respond = (message: Record<string, unknown>) => {
-      source.postMessage(
-        { type: "lumina-open-design:response", id: request.id, ...message },
-        event.origin,
-      );
-    };
-    const client = this.context?.gateway.snapshot.client;
-    if (!client || this.context?.gateway.snapshot.phase !== "connected") {
-      respond({ ok: false, error: "Gateway unavailable" });
-      return;
-    }
-    void client
-      .request(method, request.payload ?? {}, { timeoutMs: 30_000 })
-      .then((result) => respond({ ok: true, result }))
-      .catch((error: unknown) =>
-        respond({ ok: false, error: error instanceof Error ? error.message : String(error) }),
-      );
+    answerLuminaDesignFrameRequest({
+      event,
+      frame: this.querySelector("iframe"),
+      client: this.context?.gateway.snapshot.client ?? null,
+      connected: this.context?.gateway.snapshot.phase === "connected",
+    });
   };
 
   override connectedCallback() {

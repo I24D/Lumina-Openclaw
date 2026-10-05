@@ -1,3 +1,4 @@
+import type { ThalamicRouter } from "../cognition/router/thalamic-router.js";
 /**
  * world-perception.ts — Lets any perception update the world model.
  *
@@ -7,40 +8,20 @@
  * model therefore sees every sighting, including the ones too dull to earn a
  * cognitive cycle.
  */
-import type { CognitiveEvent } from "../cognition/attention.js";
-import type { ThalamicRouter } from "../cognition/router/thalamic-router.js";
-import {
-  isEntityKind,
-  type Observation,
-  type ObserveResult,
-  type WorldModel,
-} from "./world-model.js";
-
-/** Event kind producers use for a plain sighting. */
-export const WORLD_OBSERVED_KIND = "world.observed";
+import { trustOf, type CognitiveEvent } from "../contracts/attention.js";
+import { m3ganEvent, payloadOf } from "../events/catalog.js";
+import type { Observation, ObserveResult, WorldModel } from "./world-model.js";
 
 /** The observation an event carries, if it carries a well-formed one. */
 export function observationFrom(event: CognitiveEvent): Observation | undefined {
-  const payload = event.payload;
-  if (!payload || typeof payload !== "object" || !("observation" in payload)) {
-    return undefined;
-  }
-  const candidate = (payload as { observation: unknown }).observation;
-  if (!candidate || typeof candidate !== "object") {
-    return undefined;
-  }
-  const obs = candidate as Partial<Observation>;
-  if (
-    !isEntityKind(obs.kind) ||
-    typeof obs.label !== "string" ||
-    typeof obs.confidence !== "number"
-  ) {
+  const obs = payloadOf(event, "world.observed")?.observation;
+  if (!obs || !obs.label.trim() || !Number.isFinite(Date.parse(obs.atISO ?? event.atISO))) {
     return undefined;
   }
   return {
-    ...(obs as Observation),
+    ...obs,
     atISO: obs.atISO ?? event.atISO,
-    source: obs.source ?? "sensor",
+    source: trustOf(event) === "untrusted" ? "agent" : obs.source,
   };
 }
 
@@ -50,15 +31,15 @@ export function observedEvent(
   observation: Observation,
   atISO?: string,
 ): CognitiveEvent {
-  return {
+  // A routine sighting is low priority for thought (catalog priors); the world model still records it.
+  return m3ganEvent(
     source,
-    kind: WORLD_OBSERVED_KIND,
-    atISO: atISO ?? observation.atISO ?? new Date().toISOString(),
-    // A routine sighting is low priority for thought; the world model still records it.
-    importance: 0.2,
-    urgency: 0.1,
-    payload: { observation },
-  };
+    "world.observed",
+    { observation },
+    {
+      atISO: atISO ?? observation.atISO ?? new Date().toISOString(),
+    },
+  );
 }
 
 /** Subscribe `world` to every observation passing through `router`. */

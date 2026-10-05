@@ -14,6 +14,7 @@
 import { Type } from "typebox";
 import { jsonResult, ToolInputError, type AnyAgentTool } from "../shared/tool-result.js";
 import { SPECIALISED_AGENTS } from "./catalog.js";
+import { delegationResult, newDelegationTask } from "./delegation.js";
 import { routeIntent } from "./director.js";
 
 export function createDirectorRouteTool(): AnyAgentTool {
@@ -36,35 +37,57 @@ export function createDirectorRouteTool(): AnyAgentTool {
       if (!intent) {
         throw new ToolInputError("intent is required");
       }
-      const result = routeIntent(intent, params.topK ?? 3);
+      const routed = routeIntent(intent, params.topK ?? 3);
+      const top =
+        routed.top === null
+          ? null
+          : {
+              id: routed.top.agent.id,
+              displayName: routed.top.agent.displayName,
+              mission: routed.top.agent.mission,
+              tools: routed.top.agent.tools,
+              personality: routed.top.agent.personality,
+              score: routed.top.score,
+              hits: routed.top.hits,
+            };
+      const task = newDelegationTask(intent, top?.id);
       return jsonResult({
         ok: true,
-        intent: result.intent,
-        ambiguous: result.ambiguous,
-        top:
-          result.top === null
-            ? null
-            : {
-                id: result.top.agent.id,
-                displayName: result.top.agent.displayName,
-                mission: result.top.agent.mission,
-                tools: result.top.agent.tools,
-                personality: result.top.agent.personality,
-                score: result.top.score,
-                hits: result.top.hits,
+        ...delegationResult({
+          task,
+          status: top ? "routed" : "blocked",
+          evidence: [
+            {
+              kind: "director.route",
+              summary: top
+                ? `Routed to ${top.displayName} with score ${top.score.toFixed(3)}.`
+                : "No specialised agent matched the intent.",
+              data: {
+                ambiguous: routed.ambiguous,
+                candidates: routed.candidates.map((c) => ({
+                  id: c.agent.id,
+                  displayName: c.agent.displayName,
+                  mission: c.agent.mission,
+                  score: c.score,
+                  hits: c.hits,
+                })),
               },
-        candidates: result.candidates.map((c) => ({
-          id: c.agent.id,
-          displayName: c.agent.displayName,
-          mission: c.agent.mission,
-          score: c.score,
-          hits: c.hits,
-        })),
-        roster: SPECIALISED_AGENTS.map((a) => ({
-          id: a.id,
-          displayName: a.displayName,
-          mission: a.mission,
-        })),
+            },
+          ],
+          errors: top
+            ? []
+            : [{ code: "no_route", message: "No specialised agent matched.", retryable: false }],
+          result: {
+            intent: routed.intent,
+            ambiguous: routed.ambiguous,
+            top,
+            roster: SPECIALISED_AGENTS.map((a) => ({
+              id: a.id,
+              displayName: a.displayName,
+              mission: a.mission,
+            })),
+          },
+        }),
       });
     },
   };

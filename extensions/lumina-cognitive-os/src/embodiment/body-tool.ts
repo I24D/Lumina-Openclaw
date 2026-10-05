@@ -10,9 +10,11 @@
  * config, which the model cannot write.
  */
 import { Type } from "typebox";
+import type { SafetyStatus } from "../safety/safety-kernel.js";
 import { jsonResult, ToolInputError, type AnyAgentTool } from "../shared/tool-result.js";
 import { BODY_INTENT_TYPES, type BodyIntent, type BodyIntentType } from "./body.js";
 import type { EmbodiedController } from "./embodied-controller.js";
+import { permitsMotion } from "./safety-supervisor.js";
 
 type IntentParams = {
   type?: BodyIntentType;
@@ -63,16 +65,19 @@ export function intentFromParams(p: IntentParams): BodyIntent {
   }
 }
 
-const ACTIONS = ["review", "request", "recent"] as const;
+const ACTIONS = ["review", "request", "recent", "status"] as const;
 
-export function createBodyTool(controller: EmbodiedController): AnyAgentTool {
+export function createBodyTool(
+  controller: EmbodiedController,
+  safety?: () => SafetyStatus,
+): AnyAgentTool {
   return {
     name: "lumina_body",
     label: "Lumina Body",
     description:
       "Moves Lumina's body through the safety supervisor. 'review' says whether an intent would be " +
       "allowed, needs Dal's confirmation, or is refused, and why; 'request' carries it out if allowed; " +
-      "'recent' lists what the body did. Intents: stop, look_at, gesture, point, navigate_to, follow, " +
+      "'recent' lists what the body did; 'status' reports safety and pending confirmations. Intents: stop, look_at, gesture, point, navigate_to, follow, " +
       "grasp, place, handover. Targets are world-model ids. When there is no body, every intent " +
       "except stop is refused: say so plainly instead of pretending to move.",
     parameters: Type.Object({
@@ -87,8 +92,20 @@ export function createBodyTool(controller: EmbodiedController): AnyAgentTool {
       ),
       limit: Type.Optional(Type.Number({ minimum: 1, maximum: 64, default: 16 })),
     }),
-    async execute(_id, rawParams) {
+    async execute(_id, rawParams, signal) {
       const p = rawParams as IntentParams & { action: (typeof ACTIONS)[number]; limit?: number };
+      if (!ACTIONS.includes(p.action)) {
+        throw new ToolInputError(`action must be one of: ${ACTIONS.join(", ")}`);
+      }
+      if (p.action === "status") {
+        return jsonResult({
+          ok: true,
+          body: controller.body.id,
+          mode: controller.body.mode,
+          safety: safety?.() ?? null,
+          pending: controller.pending(),
+        });
+      }
       if (p.action === "recent") {
         return jsonResult({
           ok: true,
@@ -100,9 +117,9 @@ export function createBodyTool(controller: EmbodiedController): AnyAgentTool {
       if (p.action === "review") {
         return jsonResult({ ok: true, intent, review: controller.review(intent) });
       }
-      const result = await controller.request(intent);
+      const result = await controller.request(intent, { signal });
       return jsonResult({
-        ok: result.review.verdict === "allow" && result.outcome?.ok === true,
+        ok: permitsMotion(result.review.verdict) && result.outcome?.ok === true,
         ...result,
       });
     },

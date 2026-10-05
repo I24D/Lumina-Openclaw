@@ -7,13 +7,10 @@ import type { ApplicationConfigCapability } from "../../app/config.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/context.ts";
 import { createApplicationContextProvider } from "../../test-helpers/application-context.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
+import { resolveLuminaDesignHostMethod, resolvePluginTabSandbox } from "./bundled-tabs.ts";
 import { getLogbookState, stopLogbookPolling } from "./logbook-controller.ts";
 import { renderLogbook } from "./logbook-view.ts";
-import {
-  PluginPage,
-  resolveLuminaDesignHostMethod,
-  resolvePluginTabSandbox,
-} from "./plugin-page.ts";
+import { PluginPage } from "./plugin-page.ts";
 
 type TestBundledView = {
   render: (props: Parameters<typeof renderLogbook>[0]) => unknown;

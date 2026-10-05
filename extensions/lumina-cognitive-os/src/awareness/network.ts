@@ -50,7 +50,8 @@ export async function readNetwork(timeoutMs = 6_000): Promise<NetworkInfo> {
       timeoutMs,
     ),
     runPowerShellJson<{ ResponseTime?: number } | { ResponseTime?: number }[]>(
-      `Test-Connection -ComputerName 1.1.1.1 -Count 1 -ErrorAction SilentlyContinue | Select-Object @{Name='ResponseTime';Expression={$_.Latency}}`,
+      // Windows PowerShell 5.1 reports ResponseTime; PowerShell 7 renamed it Latency.
+      `Test-Connection -ComputerName 1.1.1.1 -Count 1 -ErrorAction SilentlyContinue | Select-Object @{Name='ResponseTime';Expression={ if ($null -ne $_.Latency) { $_.Latency } else { $_.ResponseTime } }}`,
       timeoutMs,
     ),
     runPowerShellJson<RawAdapter | RawAdapter[]>(

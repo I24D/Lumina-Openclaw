@@ -25,6 +25,11 @@
       "promptAppend": {
         "type": "string",
         "description": "Extra guidance appended to every run's system prompt."
+      },
+      "cognitiveCore": {
+        "type": "boolean",
+        "default": true,
+        "description": "Tell each run what the M3GAN cognitive core can do and its safety rules, when its tools are loaded."
       }
     }
   }

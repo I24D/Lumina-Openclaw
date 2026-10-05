@@ -48,3 +48,50 @@ describe("validatePlan", () => {
     }
   });
 });
+
+describe("validatePlan spec §15 fields", () => {
+  it("keeps preconditions, expected outcome, confidence and rollback", () => {
+    const v = validatePlan({
+      goal: "preparar café",
+      steps: [
+        {
+          toolName: "lumina_workspace",
+          description: "ver la situación",
+          subgoal: "localizar taza",
+          preconditions: ["la cocina está mapeada"],
+          expectedOutcome: "se sabe dónde está la taza",
+          confidence: 0.9,
+          rollback: "nada que deshacer",
+        },
+      ],
+    });
+    expect(v.ok).toBe(true);
+    if (v.ok) {
+      expect(v.plan.steps[0]).toMatchObject({
+        subgoal: "localizar taza",
+        confidence: 0.9,
+        rollback: "nada que deshacer",
+      });
+      expect(v.warnings).toEqual([]);
+    }
+  });
+
+  it("warns when a risky step has no rollback or a step cannot be checked", () => {
+    const v = validatePlan({
+      goal: "limpiar",
+      steps: [{ toolName: "lumina_workspace", description: "algo arriesgado", risk: "HIGH_RISK" }],
+    });
+    expect(v.ok && v.warnings).toEqual([
+      "step #0 has no expectedOutcome: success cannot be checked",
+      "step #0 is HIGH_RISK and has no rollback",
+    ]);
+  });
+
+  it("rejects a confidence outside [0,1]", () => {
+    const v = validatePlan({
+      goal: "x y z",
+      steps: [{ toolName: "lumina_workspace", description: "d", confidence: 2 }],
+    });
+    expect(v).toMatchObject({ ok: false });
+  });
+});

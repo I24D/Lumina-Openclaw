@@ -1,13 +1,17 @@
 /**
  * Tests for the world model and its perception hook.
  */
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { AttentionFilter } from "../cognition/attention.js";
 import { ThalamicRouter } from "../cognition/router/thalamic-router.js";
-import { effectiveConfidence, HALF_LIFE_MS, UNSENSED_CEILING, WorldModel } from "./world-model.js";
+import { MemoryStateStore } from "../shared/state-store.js";
+import {
+  effectiveConfidence,
+  HALF_LIFE_MS,
+  UNSENSED_CEILING,
+  WorldModel,
+  type Observation,
+} from "./world-model.js";
 import { attachWorldModel, observationFrom, observedEvent } from "./world-perception.js";
 
 const T0 = Date.parse("2026-10-04T20:41:00.000Z");
@@ -181,6 +185,52 @@ describe("WorldModel beliefs", () => {
 });
 
 describe("WorldModel provenance", () => {
+  it("does not transfer sensor certainty to a claimed new distance or state", () => {
+    const world = new WorldModel({ now: () => T0 });
+    world.observe({
+      id: "cup",
+      kind: "object",
+      label: "taza",
+      confidence: 0.99,
+      source: "sensor",
+      position: { placeId: "table", distanceM: 1 },
+    });
+    const claim = world.observe({
+      id: "cup",
+      kind: "object",
+      label: "taza",
+      confidence: 1,
+      source: "agent",
+      position: { placeId: "table", distanceM: 2 },
+      state: { safe: true },
+    });
+    expect(claim.entity.confidence).toBe(UNSENSED_CEILING);
+  });
+
+  it("keeps a delayed sighting in history without replacing newer knowledge", () => {
+    const world = new WorldModel({ now: () => T0 });
+    world.observe({
+      id: "cup",
+      kind: "object",
+      label: "taza",
+      confidence: 0.99,
+      source: "sensor",
+      position: { placeId: "sink" },
+    });
+    world.observe({
+      id: "cup",
+      kind: "object",
+      label: "taza",
+      confidence: 0.99,
+      source: "sensor",
+      position: { placeId: "table" },
+      atISO: new Date(T0 - MINUTE).toISOString(),
+    });
+    expect(world.get("cup")?.position?.placeId).toBe("sink");
+    expect(world.get("cup")?.lastSeenISO).toBe(new Date(T0).toISOString());
+    expect(world.history("cup")).toHaveLength(2);
+  });
+
   it("never lets a claim alone exceed the unsensed ceiling", () => {
     const world = new WorldModel({ now: () => T0 });
     const once = world.observe({
@@ -237,18 +287,118 @@ describe("WorldModel provenance", () => {
   });
 });
 
-describe("WorldModel persistence", () => {
-  const dirs: string[] = [];
-  afterEach(() => {
-    for (const dir of dirs.splice(0)) {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+describe("WorldModel identity, history, graph and forgetting", () => {
+  it("never derives an id from the visible name", () => {
+    const world = new WorldModel({ now: () => T0 });
+    const keys = world.observe({
+      kind: "object",
+      label: "llaves",
+      confidence: 0.8,
+      source: "user",
+    });
+    expect(keys.entity.id).toMatch(/^object_[0-9A-HJKMNP-TV-Z]{26}$/u);
+    expect(keys.entity.id).not.toContain("llaves");
+    // The name still finds the same entity.
+    const again = world.observe({
+      kind: "object",
+      label: "Llaves",
+      confidence: 0.8,
+      source: "user",
+    });
+    expect(again.entity.id).toBe(keys.entity.id);
   });
 
-  it("replays the observation log into the same beliefs after a restart", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lumina-world-"));
-    dirs.push(dir);
-    const first = new WorldModel({ dir, now: () => T0 });
+  it("keeps a history of sightings for temporal questions", () => {
+    const c = clock();
+    const world = new WorldModel({ now: c.now });
+    furnish(world);
+    c.advance(MINUTE);
+    world.observe({
+      id: "sink",
+      kind: "furniture",
+      label: "fregadero",
+      position: { placeId: "kitchen" },
+      confidence: 0.9,
+      source: "sensor",
+    });
+    world.observe({
+      id: "cup_24",
+      kind: "object",
+      label: "Taza",
+      position: { placeId: "sink" },
+      confidence: 0.8,
+      source: "sensor",
+    });
+
+    expect(world.history("cup_24").map((s) => s.placeId)).toEqual(["table", "sink"]);
+  });
+
+  it("answers the knowledge graph in both directions", () => {
+    const world = new WorldModel({ now: () => T0 });
+    furnish(world);
+    world.observe({
+      id: "dal",
+      kind: "person",
+      label: "Dal",
+      confidence: 0.99,
+      source: "sensor",
+      relations: [{ predicate: "owns", targetId: "cup_24" }],
+    });
+
+    expect(world.related("dal", "owns").map((e) => e.targetId)).toEqual(["cup_24"]);
+    expect(world.relatedTo("cup_24", "owns").map((e) => e.subjectId)).toEqual(["dal"]);
+    expect(world.relatedTo("table").map((e) => e.predicate)).toEqual(["on_top_of"]);
+  });
+
+  it("forgets an entity for real, so it does not come back after a restart", async () => {
+    const store = new MemoryStateStore<Observation>();
+    const world = new WorldModel({ store, now: () => T0 });
+    furnish(world);
+    expect(world.forget("cup_24")).toBe(1);
+    expect(world.get("cup_24")).toBeUndefined();
+    await world.flush();
+    // Let the queued removal reach the store.
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    const restarted = new WorldModel({ store, now: () => T0 });
+    await restarted.ready;
+    expect(restarted.get("cup_24")).toBeUndefined();
+    expect(restarted.get("table")).toBeDefined();
+  });
+
+  it("does not resurrect what was forgotten while stored history was loading", async () => {
+    const store = new MemoryStateStore<Observation>();
+    const first = new WorldModel({ store, now: () => T0 });
+    furnish(first);
+    await first.flush();
+
+    const second = new WorldModel({ store, now: () => T0 });
+    second.forget("cup_24");
+    await second.ready;
+    expect(second.get("cup_24")).toBeUndefined();
+    expect(second.get("table")).toBeDefined();
+  });
+
+  it("forgets a session: everything observed since a moment", () => {
+    const c = clock();
+    const world = new WorldModel({ now: c.now });
+    furnish(world);
+    c.advance(MINUTE);
+    const since = new Date(c.now()).toISOString();
+    world.observe({ kind: "object", label: "carta privada", confidence: 0.9, source: "sensor" });
+
+    expect(world.forgetSince(since)).toBe(1);
+    expect(world.find("carta privada")).toBeUndefined();
+    expect(world.get("cup_24")).toBeDefined();
+  });
+});
+
+describe("WorldModel persistence", () => {
+  it("replays the observation log into the same beliefs after a restart", async () => {
+    const store = new MemoryStateStore<Observation>();
+    const first = new WorldModel({ store, now: () => T0 });
     furnish(first);
     first.observe({
       kind: "object",
@@ -258,7 +408,9 @@ describe("WorldModel persistence", () => {
       source: "user",
     });
 
-    const second = new WorldModel({ dir, now: () => T0 });
+    await first.flush();
+    const second = new WorldModel({ store, now: () => T0 });
+    await second.ready;
     expect(second.size).toBe(first.size);
     expect(second.whereIs("llaves")?.chain).toEqual(["llaves", "mesa", "cocina"]);
     expect(second.get("cup_24")?.confidence).toBe(first.get("cup_24")?.confidence);
@@ -266,6 +418,44 @@ describe("WorldModel persistence", () => {
 });
 
 describe("world perception", () => {
+  it("does not promote untrusted content to sensor evidence", () => {
+    const event = observedEvent("web", {
+      kind: "object",
+      label: "taza",
+      confidence: 1,
+      source: "sensor",
+    });
+    const observation = observationFrom(event);
+    expect(observation?.source).toBe("agent");
+    const world = new WorldModel({ now: () => T0 });
+    expect(world.observe(observation!).entity.confidence).toBe(UNSENSED_CEILING);
+  });
+
+  it("rejects malformed nested observation fields and timestamps", () => {
+    const event = observedEvent("vision", {
+      kind: "object",
+      label: "taza",
+      confidence: 1,
+      source: "sensor",
+    });
+    expect(observationFrom({ ...event, atISO: "not-a-date" })).toBeUndefined();
+    expect(
+      observationFrom({
+        ...event,
+        payload: {
+          schemaVersion: 1,
+          observation: {
+            kind: "object",
+            label: "taza",
+            confidence: 1,
+            source: "sensor",
+            position: { distanceM: -5 },
+          },
+        },
+      }),
+    ).toBeUndefined();
+  });
+
   it("folds observations from any producer into the model, even ignored ones", () => {
     const world = new WorldModel({ now: () => T0 });
     const router = new ThalamicRouter({
@@ -302,7 +492,7 @@ describe("world perception", () => {
         ...base,
         payload: { observation: { kind: "object", label: "x", confidence: 1 } },
       })?.source,
-    ).toBe("sensor");
+    ).toBeUndefined();
   });
 
   it("decays nothing for kinds with an infinite half-life", () => {

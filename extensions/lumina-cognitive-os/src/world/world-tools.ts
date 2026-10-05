@@ -10,6 +10,7 @@
  * claims below the confidence a body needs to act on them.
  */
 import { Type } from "typebox";
+import { detectRoutines, temporalFacts } from "../cognition/consolidation.js";
 import { jsonResult, ToolInputError, type AnyAgentTool } from "../shared/tool-result.js";
 import {
   ENTITY_KINDS,
@@ -93,7 +94,7 @@ export function createWorldObserveTool(world: WorldModel): AnyAgentTool {
   };
 }
 
-const QUERY_ACTIONS = ["where", "query", "contents"] as const;
+const QUERY_ACTIONS = ["where", "query", "contents", "facts", "routines"] as const;
 
 export function createWorldQueryTool(world: WorldModel): AnyAgentTool {
   return {
@@ -102,7 +103,9 @@ export function createWorldQueryTool(world: WorldModel): AnyAgentTool {
     description:
       "Asks the world model. 'where' locates one thing by id or name and says whether the belief is " +
       "stale (look again before relying on it); 'contents' lists what is in or on a place; 'query' " +
-      "filters by kind, place and minimum confidence. Confidences already account for time passed.",
+      "filters by kind, place and minimum confidence; 'facts' answers when something was first and last seen, " +
+      "how often and where it usually is; 'routines' finds hour-of-day patterns across days. Confidences " +
+      "already account for time passed.",
     parameters: Type.Object({
       action: Type.Union(QUERY_ACTIONS.map((a) => Type.Literal(a))),
       target: Type.Optional(
@@ -142,6 +145,22 @@ export function createWorldQueryTool(world: WorldModel): AnyAgentTool {
             place: place.id,
             contents: world.contents(place.id).slice(0, p.limit ?? 20),
           });
+        }
+        case "facts":
+        case "routines": {
+          const entity = p.target ? world.find(p.target, p.kind) : undefined;
+          if (!entity) {
+            throw new ToolInputError(
+              `target must name something in the world model for ${p.action}`,
+            );
+          }
+          return p.action === "facts"
+            ? jsonResult({ ok: true, facts: temporalFacts(world, entity.id) })
+            : jsonResult({
+                ok: true,
+                routines: detectRoutines(world, entity.id),
+                note: "Detected patterns are never automated without a policy (spec §39).",
+              });
         }
         case "query":
           return jsonResult({

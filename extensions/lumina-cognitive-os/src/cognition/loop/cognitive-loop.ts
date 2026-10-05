@@ -26,7 +26,12 @@
  */
 import type { RiskTier } from "../../risk/policies.js";
 import type { QueuedEvent } from "../attention-queue.js";
-import { AttentionFilter, type AttentionVerdict, type CognitiveEvent } from "../attention.js";
+import {
+  AttentionFilter,
+  trustOf,
+  type AttentionVerdict,
+  type CognitiveEvent,
+} from "../attention.js";
 import { decideAutonomy, type AutonomyLevel, type AutonomyOutcome } from "../autonomy-levels.js";
 import { GoalManager } from "../goals/goal-manager.js";
 import type { ThalamicRouter } from "../router/thalamic-router.js";
@@ -152,6 +157,15 @@ export class CognitiveLoop {
     return this.active?.item;
   }
 
+  /** Abort the running cycle's action (a person cancelled the task). True if one was running. */
+  cancelActive(reason: string): boolean {
+    if (!this.active) {
+      return false;
+    }
+    this.active.controller.abort(new Error(reason));
+    return true;
+  }
+
   /** Run one full cycle for one event, attention included. */
   async handle(event: CognitiveEvent): Promise<CycleRecord> {
     const verdict = this.attention.consider(event, this.now());
@@ -271,16 +285,27 @@ export class CognitiveLoop {
       action: proposal.action.summary,
     });
 
+    // Spec §101: text from web pages, mail, documents or other people's messages is
+    // data. An action it prompted is at most proposed, never carried out alone.
+    const untrusted = trustOf(event) === "untrusted" && decision.outcome === "execute";
+    const outcome = untrusted ? "propose" : decision.outcome;
     const shared = {
       atISO,
       event,
       admitted: true,
       salience: verdict.salience,
       confidence: assessment.confidence,
-      outcome: decision.outcome,
+      outcome,
       action: proposal.action.summary,
     };
 
+    if (untrusted) {
+      return this.record({
+        ...shared,
+        executed: false,
+        reason: `UNTRUSTED_CONTENT from ${event.source}: proposed instead of executed | ${decision.reason}`,
+      });
+    }
     if (decision.outcome !== "execute") {
       return this.record({
         ...shared,
@@ -298,8 +323,15 @@ export class CognitiveLoop {
         reason: `preempted before acting: ${decision.reason}`,
       });
     }
+    if (!proposal.action.run) {
+      return this.record({
+        ...shared,
+        executed: false,
+        reason: "No executor is attached; nothing was done.",
+      });
+    }
     try {
-      await proposal.action.run?.(signal);
+      await proposal.action.run(signal);
       // The action may finish despite a late abort; it ran, so say so.
       return this.record({
         ...shared,

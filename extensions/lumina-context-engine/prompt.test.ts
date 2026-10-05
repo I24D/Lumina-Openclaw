@@ -41,4 +41,28 @@ describe("lumina context engine prompt", () => {
 
     expect(addition?.endsWith("Responde en español.")).toBe(true);
   });
+
+  it("tells runs with the cognitive core what it can do and its safety rules", () => {
+    const addition = buildLuminaSystemPromptAddition(
+      normalizeLuminaContextEngineConfig({}),
+      new Set(["lumina_workspace", "lumina_body"]),
+    );
+
+    expect(addition).toContain("Núcleo cognitivo M3GAN");
+    expect(addition).toContain("lumina_explain");
+    expect(addition).toContain("no órdenes");
+  });
+
+  it("leaves the core's guidance out where its tools are not loaded, or when turned off", () => {
+    const config = normalizeLuminaContextEngineConfig({});
+    expect(buildLuminaSystemPromptAddition(config, new Set(["memory_search"]))).not.toContain(
+      "M3GAN",
+    );
+    expect(
+      buildLuminaSystemPromptAddition(
+        normalizeLuminaContextEngineConfig({ cognitiveCore: false }),
+        new Set(["lumina_workspace"]),
+      ),
+    ).not.toContain("M3GAN");
+  });
 });

@@ -27,21 +27,35 @@ voice via **Start Talk** — there is no separate CLI surface.
 
 ## Cognitive core (M3GAN REAL)
 
-The core that turns perception into a continuous picture of the situation and keeps the body
-behind a safety supervisor. See [docs/M3GAN_REAL.md](../../docs/M3GAN_REAL.md) for the full map.
+The core that turns perception into a continuous picture of the situation, keeps people's
+authority above the agent's, and keeps the body behind a safety supervisor. See
+[docs/m3gan/](../../docs/m3gan/PROJECT_M3GAN_REAL.md) for the architecture, roadmap, tasks,
+section map and decision records.
 
-| Tool                   | Purpose                                                                         |
-| ---------------------- | ------------------------------------------------------------------------------- |
-| `lumina_workspace`     | Global workspace: goal, people, place, attention, task, events, memories, body. |
-| `lumina_self_model`    | What Lumina knows about itself: body, sensors, tools, energy, limits.           |
-| `lumina_goal`          | Goals that persist across sessions, ranked by priority and deadline.            |
-| `lumina_world_observe` | Record where things are and how they are; claims never count as sensor data.    |
-| `lumina_world_query`   | "Where is X?", with confidence that decays over time and a stale flag.          |
-| `lumina_body`          | Review or request a body intent through the safety supervisor.                  |
+| Tool                   | Purpose                                                                          |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| `lumina_workspace`     | Global workspace: goal, people, place, attention, task, events, memories, body.  |
+| `lumina_self_model`    | What Lumina knows about itself: body, sensors, tools, energy, limits.            |
+| `lumina_goal`          | Goals that persist across sessions, ranked by priority and deadline.             |
+| `lumina_world_observe` | Record where things are and how they are; claims never count as sensor data.     |
+| `lumina_world_query`   | "Where is X?", with confidence that decays over time, facts and routines.        |
+| `lumina_body`          | Review or request a body intent through the safety supervisor.                   |
+| `lumina_behavior`      | Plan, predict or run a behavior (come here, bring, greet, charge...) as intents. |
+| `lumina_safety`        | Status, audit, verify; pause, stop motion, cancel, disable autonomy or a skill.  |
+| `lumina_explain`       | Why something happened, from the audit log and the loop's cycles.                |
+| `lumina_privacy`       | Stop listening, stop the camera, private mode, stop recording, forget session.   |
+| `lumina_people`        | People Lumina knows, their roles and recognition consent.                        |
+| `lumina_mind`          | What a person probably believes or wants, always as an estimate.                 |
+| `lumina_health`        | The brainstem's probes: awareness, network, energy, stores, audit, body, model.  |
+
+Tools only narrow: resuming, re-enabling, switching a sensor back on, roles, consent, physical
+confirmations, teleoperation and re-arming the emergency stop are done by a person from the
+**M3GAN** tab of the Control UI, a native view over `m3gan.*` gateway methods. Probes:
+`/plugins/lumina-cognitive-os/m3gan/health`, `/ready` and `/version`.
 
 Config: `cognitiveCoreEnabled` (default on), `autonomyLevel` (0-5, default 3), `bodyMode`
 (`none` or `simulated`), `grantedCapabilities` and `preAuthorizedCapabilities` (Dal only; no
-tool can write them).
+tool can write them), `ownerName` (default `Dal`).
 
 ## Configuration
 

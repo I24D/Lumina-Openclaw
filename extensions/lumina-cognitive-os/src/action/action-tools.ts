@@ -41,7 +41,9 @@ export function createActionPlanTool(store: PlanStore): AnyAgentTool {
     description:
       "Registers a structured plan composed of subsequent tool calls. Use this when a voice request needs " +
       "more than one step: 'abre Chrome, busca X, copia el primer resultado, mándamelo por WhatsApp'. " +
-      "Each step has a toolName, params, description and pre-classified risk. After registering, walk the " +
+      "Each step has a toolName, params, description and pre-classified risk, and may declare its subgoal, " +
+      "preconditions, expectedOutcome, confidence (0-1) and rollback; missing ones come back as warnings. " +
+      "After registering, walk the " +
       "steps yourself — calling each tool in order, stopping if stopOnError and a step fails.",
     parameters: Type.Object({
       goal: Type.String({ minLength: 3, maxLength: 480 }),
@@ -59,6 +61,13 @@ export function createActionPlanTool(store: PlanStore): AnyAgentTool {
               Type.Literal("CRITICAL"),
             ]),
           ),
+          subgoal: Type.Optional(Type.String({ maxLength: 120 })),
+          preconditions: Type.Optional(
+            Type.Array(Type.String({ maxLength: 160 }), { maxItems: 8 }),
+          ),
+          expectedOutcome: Type.Optional(Type.String({ maxLength: 240 })),
+          confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+          rollback: Type.Optional(Type.String({ maxLength: 240 })),
         }),
         { minItems: 1, maxItems: 32 },
       ),
@@ -81,7 +90,7 @@ export function createActionPlanTool(store: PlanStore): AnyAgentTool {
         throw new ToolInputError(v.error);
       }
       store.register(v.plan);
-      return jsonResult({ ok: true, plan: v.plan });
+      return jsonResult({ ok: true, plan: v.plan, warnings: v.warnings });
     },
   };
 }

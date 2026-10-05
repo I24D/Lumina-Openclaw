@@ -26,9 +26,9 @@ const DEFAULT_SCHEMA = "public";
 const DEFAULT_MAX_ROWS = 100;
 const HARD_MAX_ROWS = 500;
 
-export const SUPABASE_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+const SUPABASE_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 
-export function assertSupabaseIdentifier(value: string, label: string): void {
+function assertSupabaseIdentifier(value: string, label: string): void {
   if (!SUPABASE_IDENTIFIER_RE.test(value)) {
     throw new Error(`${label} must be a simple PostgreSQL identifier`);
   }
