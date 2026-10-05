@@ -10,11 +10,10 @@ Status words: TODO, IN PROGRESS, DONE, BLOCKED.
 
 ## Now
 
-| #   | Task                                                                                                                                                 | Owner  | Status      |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ----------- |
-| 1   | Activate `lumina-cognitive-os` in the live gateway: allow list, config entry, build, restart, verify tools, the M3GAN tab and `/health`              | claude | IN PROGRESS |
-| 21  | Recorder sessions (`recorder/recorder-store.ts`) still rewrite JSONL files; the database-first guard flags it. Move session metadata to SQLite state | codex  | TODO        |
-| 22  | Translate the M3GAN tab: `pnpm ui:i18n:sync`. The catalog baseline already drifted before the tab existed                                            | codex  | TODO        |
+| #   | Task                                                                                                                                                 | Owner | Status |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------ |
+| 21  | Recorder sessions (`recorder/recorder-store.ts`) still rewrite JSONL files; the database-first guard flags it. Move session metadata to SQLite state | codex | TODO   |
+| 22  | Translate the M3GAN tab: `pnpm ui:i18n:sync`. The catalog baseline already drifted before the tab existed                                            | codex | TODO   |
 
 ## Next (v0.2 presence)
 
@@ -41,12 +40,15 @@ Status words: TODO, IN PROGRESS, DONE, BLOCKED.
 
 ## Done
 
-| Task                                                                                                                         | Owner                      | Commit           |
-| ---------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ---------------- |
-| Cognitive core: router, attention, loop, workspace, self model, world model, body behind supervisor                          | claude                     | `280ea3593e4`    |
-| Controller hardening, honest run-less actions, payload validation                                                            | codex                      | in `c4ead4d465e` |
-| Safety kernel, SQLite persistence, privacy, brainstem, social layer, behaviors, HAL, dashboard                               | claude                     | `c4ead4d465e`    |
-| One owner per tool name; live-only side effects; documentation                                                               | claude                     | `2017ac95e39`    |
-| Tasks 2-5 and 7: durable goals, lessons and episodes; full forget-session; teleoperation; contracts split; delegation result | codex (finished by claude) | `7da8f6904dc`    |
-| Durable stores open after activation (they were session-only live); network probe on PowerShell 5.1                          | claude                     | `7da8f6904dc`    |
-| The M3GAN tab renders natively in the Control UI over `m3gan.*` gateway methods (ADR 0008)                                   | claude                     | this cycle       |
+| Task                                                                                                                                        | Owner                      | Commit           |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ---------------- |
+| Cognitive core: router, attention, loop, workspace, self model, world model, body behind supervisor                                         | claude                     | `280ea3593e4`    |
+| Controller hardening, honest run-less actions, payload validation                                                                           | codex                      | in `c4ead4d465e` |
+| Safety kernel, SQLite persistence, privacy, brainstem, social layer, behaviors, HAL, dashboard                                              | claude                     | `c4ead4d465e`    |
+| One owner per tool name; live-only side effects; documentation                                                                              | claude                     | `2017ac95e39`    |
+| Tasks 2-5 and 7: durable goals, lessons and episodes; full forget-session; teleoperation; contracts split; delegation result                | codex (finished by claude) | `7da8f6904dc`    |
+| Durable stores open after activation (they were session-only live); network probe on PowerShell 5.1                                         | claude                     | `7da8f6904dc`    |
+| The M3GAN tab renders natively in the Control UI over `m3gan.*` gateway methods (ADR 0008)                                                  | claude                     | `51cc0c47a2a`    |
+| Task 6: `lumina_plan_run` walks a plan step by step under the safety gate, with ordered rollback; plan ids no longer collide                | claude                     | `8adbc15e15f`    |
+| Awareness on Windows PowerShell 5.1: every JSON query failed on a leading pipe (battery, network, disks, devices, GPU, monitors were empty) | claude                     | `8adbc15e15f`    |
+| Task 1: activated in the live gateway and verified (tools in the catalog, durable state across restarts, `/health` ok)                      | claude                     | 2026-10-05       |

@@ -5,7 +5,7 @@ at the end of each significant cycle, so a new session can rebuild what exists, 
 missing, what was in progress, what was decided and what blocks (§162). Details live in
 `docs/m3gan/`.
 
-Updated: 2026-10-05 11:00 America/New_York, by Claude Code.
+Updated: 2026-10-05 11:45 America/New_York, by Claude Code.
 
 ## CURRENT VERSION
 
@@ -17,9 +17,11 @@ Updated: 2026-10-05 11:00 America/New_York, by Claude Code.
 ## WORKING
 
 Active in the live gateway since 2026-10-05 (`plugins.allow` + `plugins.entries`, body simulated,
-autonomy L3, owner Dal). Verified live: the plugin loads at startup, durable state hydrates from
-SQLite (privacy, people, audit), `m3gan.state` answers over the gateway, `/health`, `/ready` and
-`/version` answer. Verified by tests: 532 passing across the cognitive-os, context-engine and
+autonomy L3, owner Dal). Verified live at 11:45: the plugin loads at startup, durable state
+survives restarts (the audit chain kept growing across three restarts, 9 entries, intact),
+`m3gan.state` answers over the gateway, `/health` reports `ok` with every probe green (network
+online, battery charging at 100%), and `lumina_plan_run` with 126 `lumina_*` tools is in the
+agent's catalog. Verified by tests: 532 passing across the cognitive-os, context-engine and
 supabase suites, plus the Control UI tests; tsgo for extensions, extension tests and the UI with 0
 errors; oxlint, oxfmt, stylelint and lit-analyzer clean.
 
@@ -38,7 +40,6 @@ errors; oxlint, oxfmt, stylelint and lit-analyzer clean.
 
 ## PARTIAL
 
-- The latest build with `lumina_plan_run` and the awareness fix is being deployed (CURRENT TASK).
 - People are remembered without face or voice recognition; no camera pipeline into the core.
 - The M3GAN tab is in English for other locales until `pnpm ui:i18n:sync` runs (task 22).
 - Recorder sessions still rewrite JSONL files (task 21).
@@ -60,9 +61,8 @@ checkpoint, physical confirmation channel, evaluation suites, benchmarks. Hardwa
 
 ## CURRENT TASK
 
-Rebuild, restart and verify live: `lumina_plan_run` registered, the brainstem network probe online,
-the M3GAN tab in the Control UI (reload the browser tab once: the UI build changed). Then publish
-and check GitHub Actions.
+None in progress. Deployed and verified; reload the Control UI browser tab once to load the new
+UI build with the M3GAN tab.
 
 ## NEXT TASKS
 
@@ -90,4 +90,4 @@ only in the live gateway; 0008 the M3GAN tab is a native Control UI view (no sep
 - `7da8f6904dc` durable goals, lessons and episodes; teleoperation; stores open after activation
   (finishes Codex's tasks 2 to 5 and 7).
 - `51cc0c47a2a` native M3GAN tab in the Control UI over gateway methods.
-- Pending in this cycle: plan walk, PowerShell 5.1 awareness fix.
+- `8adbc15e15f` plan walk; awareness on Windows PowerShell 5.1.
