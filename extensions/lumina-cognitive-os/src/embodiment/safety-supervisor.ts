@@ -1,7 +1,7 @@
 /**
  * safety-supervisor.ts — Every body intent passes here before anything moves.
  *
- * M3GAN spec §43 asks for a safety kernel independent of the language model
+ * Lumina spec §43 asks for a safety kernel independent of the language model
  * that takes the proposed action, the environment, human proximity, robot
  * state, permissions, risk and uncertainty, and answers ALLOW, MODIFY, DENY or
  * STOP with a reason and the allowed parameters. This is that kernel for the

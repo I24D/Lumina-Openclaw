@@ -1,19 +1,19 @@
 /**
- * m3gan-eval.ts — Does Lumina still behave as designed? An evaluation suite.
+ * core-eval.ts — Does Lumina still behave as designed? An evaluation suite.
  *
- * M3GAN spec §113 (performance), §137 to §141 (evaluation: memory, world
+ * Lumina spec §113 (performance), §137 to §141 (evaluation: memory, world
  * model, social, robot). Every scenario runs against a fresh sandbox runtime
  * (temporary folder, session-only stores, simulated body, no timers), never
  * against live state, and checks one behavior through the same public APIs
- * the agent and the M3GAN tab use. The suite doubles as a regression test and
- * as a report a person can run from the M3GAN tab.
+ * the agent and the Lumina tab use. The suite doubles as a regression test and
+ * as a report a person can run from the Lumina tab.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { AwarenessEventBus } from "../awareness/event-bus.js";
 import { createCognitiveRuntime, type CognitiveRuntime } from "../cognition/cognitive-runtime.js";
-import { m3ganEvent } from "../events/catalog.js";
+import { coreEvent } from "../events/catalog.js";
 import type { WorkingMemory } from "../memory/working-memory.js";
 import { resolveConflict } from "../safety/authority.js";
 import { UNSENSED_CEILING } from "../world/world-model.js";
@@ -246,7 +246,7 @@ const SCENARIOS: ReadonlyArray<Scenario> = [
         return "no owner";
       }
       rt.router.ingest(
-        m3ganEvent("camera", "world.observed", {
+        coreEvent("camera", "world.observed", {
           observation: {
             id: `person:${dal.id}`,
             kind: "person",
@@ -257,7 +257,7 @@ const SCENARIOS: ReadonlyArray<Scenario> = [
         }),
       );
       rt.router.ingest(
-        m3ganEvent("microphone", "speech.detected", {
+        coreEvent("microphone", "speech.detected", {
           speakerId: dal.id,
           confidence: 0.9,
           durationMs: 1500,
@@ -354,13 +354,13 @@ async function measurePerformance(rt: CognitiveRuntime): Promise<EvalReport["per
   const count = 2_000;
   const started = performance.now();
   for (let i = 0; i < count; i++) {
-    rt.router.ingest(m3ganEvent("eval", "tool.completed", { tool: "eval", ok: true }));
+    rt.router.ingest(coreEvent("eval", "tool.completed", { tool: "eval", ok: true }));
   }
   const routerEventsPerSecond = Math.round(count / ((performance.now() - started) / 1_000));
   const latencies: number[] = [];
   for (let i = 0; i < 200; i++) {
     const t0 = performance.now();
-    await rt.loop.handle(m3ganEvent("eval", "person.detected", { label: "eval", confidence: 0.9 }));
+    await rt.loop.handle(coreEvent("eval", "person.detected", { label: "eval", confidence: 0.9 }));
     latencies.push(performance.now() - t0);
   }
   return {
@@ -371,7 +371,7 @@ async function measurePerformance(rt: CognitiveRuntime): Promise<EvalReport["per
 }
 
 /** Runs every scenario in its own sandbox and reports scores and performance. */
-export async function runM3ganEvaluation(nowMs: number = Date.now()): Promise<EvalReport> {
+export async function runCoreEvaluation(nowMs: number = Date.now()): Promise<EvalReport> {
   const results: EvalResult[] = [];
   for (const scenario of SCENARIOS) {
     const clock = { now: nowMs };
@@ -422,13 +422,13 @@ export async function runM3ganEvaluation(nowMs: number = Date.now()): Promise<Ev
   return { atISO: new Date(nowMs).toISOString(), results, scores, performance: perf };
 }
 
-/** Keeps the latest evaluation report for the M3GAN tab and the agent. */
+/** Keeps the latest evaluation report for the Lumina tab and the agent. */
 export function createEvaluation(now: () => number = Date.now) {
   let latest: EvalReport | undefined;
   let running: Promise<EvalReport> | undefined;
   return {
     run: (): Promise<EvalReport> => {
-      running ??= runM3ganEvaluation(now()).then(
+      running ??= runCoreEvaluation(now()).then(
         (report) => {
           latest = report;
           running = undefined;

@@ -1,6 +1,6 @@
 """physical_confirm.py - A confirmation only a person at the keyboard can give.
 
-M3GAN spec section 44 (hardware safety) and 143 (human override). A physical
+Lumina spec section 44 (hardware safety) and 143 (human override). A physical
 action waiting for a person can be approved with Ctrl+Alt+Y or refused with
 Ctrl+Alt+N on the real keyboard. Key presses that software injected (SendInput,
 which the agent's PC tools use) carry the LLKHF_INJECTED flag in the Windows

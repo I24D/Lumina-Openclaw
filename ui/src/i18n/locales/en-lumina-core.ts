@@ -1,13 +1,13 @@
 import type { TranslationMap } from "../lib/types.ts";
 import { en } from "./en.ts";
 
-const enM3gan = {
-  m3gan: {
-    title: "M3GAN",
+const enLuminaCore = {
+  luminaCore: {
+    title: "Lumina",
     subtitle: "Lumina's cognitive core: what it perceives, what it may do, and who decides.",
     loading: "Loading the cognitive core…",
     refresh: "Refresh",
-    tabsLabel: "M3GAN views",
+    tabsLabel: "Lumina views",
     tabs: {
       live: "Live",
       safety: "Safety",
@@ -199,9 +199,9 @@ const enM3gan = {
   },
 } satisfies TranslationMap;
 
-export const registerM3ganEnglish = Object.assign(
+export const registerLuminaCoreEnglish = Object.assign(
   () => {
-    Object.assign(en, enM3gan);
+    Object.assign(en, enLuminaCore);
   },
-  { catalog: enM3gan },
+  { catalog: enLuminaCore },
 );

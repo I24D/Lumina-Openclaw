@@ -1,7 +1,7 @@
 /**
- * catalog.ts — The typed, versioned events M3GAN's subsystems exchange.
+ * catalog.ts — The typed, versioned events Lumina's subsystems exchange.
  *
- * M3GAN spec §58 and §74: the system runs on typed events with versioned
+ * Lumina spec §58 and §74: the system runs on typed events with versioned
  * schemas. The router itself stays generic (`CognitiveEvent`), so any
  * producer can be added without touching it; this catalog is the contract
  * for the kinds the core understands, with their payloads and default weights.
@@ -20,9 +20,9 @@ import type { Observation } from "../world/world-model.js";
 import { ENTITY_KINDS, PROVENANCES } from "../world/world-model.js";
 
 /** Bump when a payload changes shape; consumers check it before reading. */
-export const M3GAN_EVENT_SCHEMA_VERSION = 1;
+export const CORE_EVENT_SCHEMA_VERSION = 1;
 
-export type M3ganEventPayloads = {
+export type CoreEventPayloads = {
   "person.detected": {
     readonly personId?: string;
     readonly label: string;
@@ -77,7 +77,7 @@ export type M3ganEventPayloads = {
     readonly status: "ok" | "degraded" | "down";
     readonly detail?: string;
   };
-  /** The window in front changed (screen perception: M3GAN virtual, spec §87). */
+  /** The window in front changed (screen perception: Lumina virtual, spec §87). */
   "screen.foreground": { readonly process: string; readonly title: string };
   /** A large part of the screen changed. */
   "screen.changed": { readonly changedRatio: number };
@@ -90,7 +90,7 @@ export type M3ganEventPayloads = {
   };
 };
 
-export type M3ganEventKind = keyof M3ganEventPayloads;
+export type CoreEventKind = keyof CoreEventPayloads;
 
 const id = Type.String({ minLength: 1, maxLength: 128 });
 const confidence = Type.Number({ minimum: 0, maximum: 1 });
@@ -197,11 +197,11 @@ const PAYLOAD_SCHEMAS = {
     kind: id,
     placeId: Type.Optional(id),
   }),
-} satisfies Record<M3ganEventKind, object>;
+} satisfies Record<CoreEventKind, object>;
 
 /** Default salience priors per kind; a producer can override per event. */
 export const EVENT_PRIORS: Readonly<
-  Record<M3ganEventKind, { readonly importance: number; readonly urgency: number }>
+  Record<CoreEventKind, { readonly importance: number; readonly urgency: number }>
 > = {
   "person.detected": { importance: 0.55, urgency: 0.4 },
   "person.left": { importance: 0.35, urgency: 0.2 },
@@ -223,17 +223,17 @@ export const EVENT_PRIORS: Readonly<
   "knowledge.gap": { importance: 0.45, urgency: 0.2 },
 };
 
-export const M3GAN_EVENT_KINDS = Object.keys(EVENT_PRIORS) as ReadonlyArray<M3ganEventKind>;
+export const CORE_EVENT_KINDS = Object.keys(EVENT_PRIORS) as ReadonlyArray<CoreEventKind>;
 
-export function isM3ganEventKind(kind: string): kind is M3ganEventKind {
+export function isCoreEventKind(kind: string): kind is CoreEventKind {
   return Object.hasOwn(EVENT_PRIORS, kind);
 }
 
 /** Build a well-formed event for the router. */
-export function m3ganEvent<K extends M3ganEventKind>(
+export function coreEvent<K extends CoreEventKind>(
   source: string,
   kind: K,
-  payload: M3ganEventPayloads[K],
+  payload: CoreEventPayloads[K],
   options: {
     readonly atISO?: string;
     readonly importance?: number;
@@ -248,25 +248,25 @@ export function m3ganEvent<K extends M3ganEventKind>(
     atISO: options.atISO ?? new Date().toISOString(),
     importance: options.importance ?? prior.importance,
     urgency: options.urgency ?? prior.urgency,
-    payload: { ...payload, schemaVersion: M3GAN_EVENT_SCHEMA_VERSION },
+    payload: { ...payload, schemaVersion: CORE_EVENT_SCHEMA_VERSION },
     ...(options.trust ? { trust: options.trust } : {}),
   };
 }
 
 /** The typed payload of `event` when it is a catalogued `kind`, else undefined. */
-export function payloadOf<K extends M3ganEventKind>(
+export function payloadOf<K extends CoreEventKind>(
   event: CognitiveEvent,
   kind: K,
-): M3ganEventPayloads[K] | undefined {
+): CoreEventPayloads[K] | undefined {
   if (
     event.kind !== kind ||
     !event.payload ||
     typeof event.payload !== "object" ||
     !("schemaVersion" in event.payload) ||
-    event.payload.schemaVersion !== M3GAN_EVENT_SCHEMA_VERSION ||
+    event.payload.schemaVersion !== CORE_EVENT_SCHEMA_VERSION ||
     !Check(PAYLOAD_SCHEMAS[kind], event.payload)
   ) {
     return undefined;
   }
-  return event.payload as M3ganEventPayloads[K];
+  return event.payload as CoreEventPayloads[K];
 }

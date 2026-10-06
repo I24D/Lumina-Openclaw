@@ -1,8 +1,10 @@
-# Project M3GAN REAL
+# Project LUMINA: the cognitive core
 
-M3GAN REAL is a persistent, embodied, multimodal agent that lives first in software and later in a
+LUMINA is a persistent, embodied, multimodal agent that lives first in software and later in a
 body, keeping one identity and one memory across both. It is built inside LUMINA OpenClaw, not
-beside it. This page is the first deliverable the master specification asks for (§165): what exists,
+beside it. The master specification calls the project "M3GAN REAL": the film M3GAN is only the
+conceptual reference, the lessons of what went wrong, and the AI being built is LUMINA, one identity
+(ADR 0010). This page is the first deliverable the master specification asks for (§165): what exists,
 what is missing, the target, and the first tasks.
 
 Section numbers (§) refer to the master specification, which is kept outside this repository. The
@@ -16,13 +18,13 @@ Related pages in this folder:
 - `TASKS.md`: the ordered engineering backlog, with an owner per task.
 - `SECTION_MAP.md`: status of every section of the specification.
 - `adr/`: architecture decision records.
-- `M3GAN_STATUS.md` at the repository root: the live checkpoint every session updates (§163).
+- `LUMINA_STATUS.md` at the repository root: the live checkpoint every session updates (§163).
 
 ## 1. Executive summary
 
 LUMINA already had most of the digital half: models behind a router with fallback, memory in
 Supabase and a memory wiki, voice through Start Talk, screen vision, PC and browser control, skills,
-and a transparency log. M3GAN REAL adds the half that makes it an agent with a situation and a body:
+and a transparency log. The cognitive core adds the half that makes it an agent with a situation and a body:
 
 - a **cognitive core** (thalamic router, attention, cognitive loop, global workspace, self model);
 - a **world model** with confidence that decays, history and relations;
@@ -32,11 +34,11 @@ and a transparency log. M3GAN REAL adds the half that makes it an agent with a s
 - a **brainstem** (health probes, energy, safe state) that does not depend on a model;
 - an **embodied layer** behind a safety supervisor, a hardware abstraction layer and a simulated
   desktop robot with its digital twin;
-- **privacy states** a person controls, and a native **M3GAN tab** in the Control UI that is the
+- **privacy states** a person controls, and a native **Lumina tab** in the Control UI that is the
   owner's channel.
 
 All of it lives in the `lumina-cognitive-os` extension, persists in OpenClaw's SQLite plugin state,
-and is covered by tests. Milestone **M3GAN CORE v0.1** is mostly met in software; there is no
+and is covered by tests. Milestone **LUMINA CORE v0.1** is mostly met in software; there is no
 physical hardware, so every body path runs against the simulator (MOCK) or stops at an interface.
 
 ## 2. Existing architecture
@@ -54,10 +56,10 @@ physical hardware, so every body path runs against the simulator (MOCK) or stops
 
 ## 3. Reusable modules
 
-Every new M3GAN module was built on these instead of beside them:
+Every new module of the core was built on these instead of beside them:
 
 - OpenClaw's model routing and fallbacks are the model router (§3.4); nothing duplicates them.
-- OpenClaw's SQLite plugin state (`api.runtime.state.openKeyedStore`) holds every durable M3GAN
+- OpenClaw's SQLite plugin state (`api.runtime.state.openKeyedStore`) holds every durable core
   record through one `KeyedLog` helper (`src/shared/state-store.ts`).
 - The awareness poller feeds the router, so battery, network and device changes become events.
 - The screen perception sidecar feeds the router as untrusted `screen.*` events.
@@ -101,7 +103,7 @@ full picture is in `ARCHITECTURE.md`.
 
 ## 7. Repository structure
 
-The M3GAN code is one extension, organized by layer:
+The core's code is one extension, organized by layer:
 
 ```text
 extensions/lumina-cognitive-os/src/
@@ -115,8 +117,8 @@ extensions/lumina-cognitive-os/src/
   embodiment/   intents, supervisor, controller, behaviors, predict, HAL, simulated robot
   dashboard/    owner channel: commands, gateway methods, /health /ready /version
   shared/       ids (ULID), keyed state store, tool helpers
-docs/m3gan/     this documentation
-M3GAN_STATUS.md live checkpoint
+docs/lumina-core/     this documentation
+LUMINA_STATUS.md live checkpoint
 ```
 
 ## 8. Implementation phases

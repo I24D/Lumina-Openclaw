@@ -2,7 +2,7 @@ import type { BodyMode } from "../contracts/self-model.js";
 /**
  * body.ts — The contract between cognition and a body.
  *
- * M3GAN spec §23: high-level cognition and motion control are separate, and
+ * Lumina spec §23: high-level cognition and motion control are separate, and
  * the language model never emits PWM, current, torque or any direct motor
  * command. This file is where that rule becomes a type: the only thing
  * cognition can hand a body is a `BodyIntent` ("go to the kitchen", "look at

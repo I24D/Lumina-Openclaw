@@ -1,15 +1,15 @@
 /**
  * audit-checkpoint-store.ts — Audit checkpoints in Lumina's Supabase.
  *
- * Writes to `m3gan_audit_checkpoints`, an append-only table (a trigger rejects
+ * Writes to `lumina_audit_checkpoints`, an append-only table (a trigger rejects
  * updates and deletes), one row per checkpoint, scoped by host. The table is
- * created by `sql/m3gan_audit_checkpoints.sql`; until it exists every call
+ * created by `sql/lumina_audit_checkpoints.sql`; until it exists every call
  * fails and the checkpoint reports itself unavailable instead of pretending.
  */
 import type { AuditCheckpoint, CheckpointStore } from "../safety/audit-checkpoint.js";
 import { readSupabaseJson, resolveSupabaseConfig, supabaseFetch } from "./supabase-client.js";
 
-const TABLE = "m3gan_audit_checkpoints";
+const TABLE = "lumina_audit_checkpoints";
 
 export function createSupabaseCheckpointStore(options: {
   readonly host: string;

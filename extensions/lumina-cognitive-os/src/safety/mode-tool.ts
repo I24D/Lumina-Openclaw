@@ -3,7 +3,7 @@
  *
  * "Está aquí una niña" / "voy a revisar el robot": the agent can put Lumina in
  * child or maintenance mode, which only narrows what it does. Going back to
- * normal and companion mode are the owner's call in the M3GAN tab.
+ * normal and companion mode are the owner's call in the Lumina tab.
  */
 import { Type } from "typebox";
 import { jsonResult, type AnyAgentTool } from "../shared/tool-result.js";
@@ -19,7 +19,7 @@ export function createModeTool(modes: InteractionModes): AnyAgentTool {
       "How Lumina behaves with whom. 'status' says the current interaction mode and what it means. " +
       "'child' when a child is with you: simple, kind language, no grasping or handing objects, a summary " +
       "for the guardian afterwards. 'maintenance' when someone works on Lumina: autonomy paused, motion off " +
-      "except looking and gestures. Leaving either, and companion mode, only the owner can, in the M3GAN tab.",
+      "except looking and gestures. Leaving either, and companion mode, only the owner can, in the Lumina tab.",
     parameters: Type.Object({
       action: Type.Union(
         MODE_ACTIONS.map((a) => Type.Literal(a)),

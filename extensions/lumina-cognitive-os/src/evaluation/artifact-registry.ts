@@ -1,7 +1,7 @@
 /**
  * artifact-registry.ts — Where Lumina's own models and data come from, and proof they did not change.
  *
- * M3GAN spec §135 (dataset system: source, license, version, hash, purpose),
+ * Lumina spec §135 (dataset system: source, license, version, hash, purpose),
  * §136 (model registry) and §46 (a model file is part of the attack surface).
  * Every model file the perception sidecars load and every dataset kept for
  * Lumina's own learning gets a record: where it came from, under what licence,

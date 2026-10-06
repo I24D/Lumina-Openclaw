@@ -1,7 +1,7 @@
 /**
  * simulated-robot.ts — A desktop robot that exists only in software (MOCK).
  *
- * M3GAN spec §86 phase D (desktop robot) and §59 (every physical capability
+ * Lumina spec §86 phase D (desktop robot) and §59 (every physical capability
  * runs in simulation first). This is a symbolic stand-in for the hardware
  * abstraction layer: a head with pan and tilt, a small wheeled base, a
  * battery, an IMU and a camera, with the twin description a simulator or a

@@ -1,7 +1,7 @@
 /**
  * expression.ts — What Lumina's face shows, derived from her situation.
  *
- * M3GAN spec §28 (head and face: expressions), §87 and §88 (virtual presence
+ * Lumina spec §28 (head and face: expressions), §87 and §88 (virtual presence
  * and avatar). One expression for every face Lumina has: the avatar in the
  * Control UI today, a robot's head later. It is derived, never stored, and it
  * never claims a feeling: it shows functional state (stopped, busy, thinking,

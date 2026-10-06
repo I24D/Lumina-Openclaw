@@ -7,7 +7,7 @@
  */
 import { Type } from "typebox";
 import { jsonResult, type AnyAgentTool } from "../shared/tool-result.js";
-import type { Evaluation } from "./m3gan-eval.js";
+import type { Evaluation } from "./core-eval.js";
 
 export function createEvaluateTool(evaluation: Evaluation): AnyAgentTool {
   return {

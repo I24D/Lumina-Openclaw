@@ -2,7 +2,7 @@ import type { ThalamicRouter } from "../cognition/router/thalamic-router.js";
 /**
  * sensor-bridge.ts — A recognizing sensor becomes part of Lumina's situation.
  *
- * M3GAN spec §7 and §8 (vision, audition), §89 (presence), §97 (privacy
+ * Lumina spec §7 and §8 (vision, audition), §89 (presence), §97 (privacy
  * states). Shared by the webcam (faces) and the microphone (voices): runs the
  * sensor's sidecar while its privacy state is on, and turns its readings into
  * ordinary events through the thalamic router:
@@ -14,7 +14,7 @@ import type { ThalamicRouter } from "../cognition/router/thalamic-router.js";
  * enrolling someone needs their consent first.
  */
 import type { CognitiveEvent } from "../contracts/attention.js";
-import { m3ganEvent } from "../events/catalog.js";
+import { coreEvent } from "../events/catalog.js";
 import { newEntityId } from "../shared/ids.js";
 import type { SidecarExit } from "../shared/ndjson-sidecar.js";
 import type { BiometricGallery, BiometricModality, BiometricResult } from "../social/biometrics.js";
@@ -158,7 +158,7 @@ export function attachSensorBridge<E extends { readonly kind: string }>(deps: {
       const sensedBefore = lastSensed.get(person.id);
       if (sensedBefore === undefined || atMs - sensedBefore > leaveAfterMs) {
         ingest(
-          m3ganEvent(
+          coreEvent(
             deps.source,
             "person.detected",
             { personId: person.id, label: person.name, confidence, ...placeId },
@@ -171,7 +171,7 @@ export function attachSensorBridge<E extends { readonly kind: string }>(deps: {
     }
     if (reading.unknown > 0 && unknown === 0) {
       ingest(
-        m3ganEvent(
+        coreEvent(
           deps.source,
           "person.detected",
           { label: UNKNOWN_LABEL, confidence: reading.unknownConfidence, ...placeId },
@@ -241,7 +241,7 @@ export function attachSensorBridge<E extends { readonly kind: string }>(deps: {
     for (const [personId, sensedAt] of lastSensed) {
       if (atMs - sensedAt > leaveAfterMs) {
         lastSensed.delete(personId);
-        ingest(m3ganEvent(deps.source, "person.left", { personId, ...placeId }));
+        ingest(coreEvent(deps.source, "person.left", { personId, ...placeId }));
       }
     }
   };
@@ -254,7 +254,7 @@ export function attachSensorBridge<E extends { readonly kind: string }>(deps: {
       if (!deps.people.canRecognize(personId, deps.modality)) {
         return {
           ok: false,
-          reason: `${deps.modality} recognition needs the person's consent, granted by the owner in the M3GAN tab.`,
+          reason: `${deps.modality} recognition needs the person's consent, granted by the owner in the Lumina tab.`,
         };
       }
       if (!deps.allowed() || !deps.port.running()) {

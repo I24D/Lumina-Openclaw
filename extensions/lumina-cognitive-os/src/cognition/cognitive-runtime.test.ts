@@ -25,9 +25,9 @@ afterEach(() => {
 
 const working: WorkingMemory = {
   currentProject: null,
-  activeWindow: { processName: "Code", title: "M3GAN REAL" },
+  activeWindow: { processName: "Code", title: "LUMINA" },
   activeFile: null,
-  currentIntent: "desarrollar M3GAN",
+  currentIntent: "desarrollar LUMINA",
   pinnedContext: [],
   updatedAtISO: new Date(NOW).toISOString(),
 };
@@ -223,8 +223,8 @@ describe("createCognitiveRuntime", () => {
     // Observe-only: the cycle ran, nothing was executed.
     expect(workspace.activeTask).toMatchObject({ event: "battery.critical", executed: false });
     expect(workspace.userContext).toEqual({
-      intent: "desarrollar M3GAN",
-      activeWindow: "M3GAN REAL",
+      intent: "desarrollar LUMINA",
+      activeWindow: "LUMINA",
       pinned: [],
     });
     runtime.dispose();
@@ -260,15 +260,15 @@ describe("createCognitiveRuntime", () => {
     const { runtime } = runtimeWith();
     const created = await call(runtime.tools, "lumina_goal", {
       action: "create",
-      title: "Construir M3GAN",
+      title: "Construir LUMINA",
       priority: 5,
     });
-    expect(created.goal.title).toBe("Construir M3GAN");
+    expect(created.goal.title).toBe("Construir LUMINA");
 
     const { workspace } = await call(runtime.tools, "lumina_workspace", {});
-    expect(workspace.currentGoal.title).toBe("Construir M3GAN");
+    expect(workspace.currentGoal.title).toBe("Construir LUMINA");
     const { self } = await call(runtime.tools, "lumina_self_model", {});
-    expect(self.currentTasks[0].title).toBe("Construir M3GAN");
+    expect(self.currentTasks[0].title).toBe("Construir LUMINA");
 
     const done = await call(runtime.tools, "lumina_goal", {
       action: "complete",

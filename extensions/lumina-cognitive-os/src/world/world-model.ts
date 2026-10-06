@@ -1,7 +1,7 @@
 /**
  * world-model.ts — A persistent, uncertain picture of the surroundings.
  *
- * M3GAN spec §5 and §6: the agent keeps entities (people, objects, rooms,
+ * Lumina spec §5 and §6: the agent keeps entities (people, objects, rooms,
  * doors, devices...) with identity, position, state, properties, last sighting,
  * confidence and relationships, so it can answer "where is my cup?" or "is the
  * door closed?" without looking again, and knows when it should look again.

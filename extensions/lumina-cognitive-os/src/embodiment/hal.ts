@@ -1,7 +1,7 @@
 /**
  * hal.ts — The hardware abstraction layer a physical body plugs into.
  *
- * M3GAN spec §83 (RobotHardwareInterface: connect different robots without
+ * Lumina spec §83 (RobotHardwareInterface: connect different robots without
  * rewriting the brain), §84 (Sensor: start, stop, health, read, calibrate),
  * §85 (Actuator: state, command, stop, health; low-level commands stay out of
  * the language model), §60 (digital twin: dimensions, joints, limits, mass,

@@ -1,5 +1,5 @@
 /**
- * delegation.ts — Uniform delegation contract (M3GAN spec §22).
+ * delegation.ts — Uniform delegation contract (Lumina spec §22).
  *
  * Every router/subagent hand-off reports the same four required fields:
  * task, status, evidence and errors. Provider-specific details live in result

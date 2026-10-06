@@ -1,7 +1,7 @@
 /**
  * brainstem.ts — Vital functions that keep working when the model does not.
  *
- * M3GAN spec §3.1 (health checks, heartbeat, watchdog, energy, connectivity,
+ * Lumina spec §3.1 (health checks, heartbeat, watchdog, energy, connectivity,
  * sensors, error detection, recovery, safe state; it must work with the main
  * model disconnected), §112 (health per service), §124 (self-diagnostics) and
  * §127 (detect, isolate, stop the affected subsystem, notify, recover safely).

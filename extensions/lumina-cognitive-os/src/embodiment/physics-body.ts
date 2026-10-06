@@ -2,7 +2,7 @@ import type { BodyMode } from "../contracts/self-model.js";
 /**
  * physics-body.ts — A body adapter backed by a physics simulator (MuJoCo).
  *
- * M3GAN spec §16, §23, §59 and §60. The symbolic SimulatedBody teleports; this
+ * Lumina spec §16, §23, §59 and §60. The symbolic SimulatedBody teleports; this
  * one drives the `mujoco_body.py` sidecar, where a small mobile robot moves at
  * the speed the safety supervisor allowed, steers around people and obstacles,
  * stops on contact and grasps only what is within reach. It receives intents

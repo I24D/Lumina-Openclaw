@@ -1,7 +1,7 @@
 /**
  * situational-reasoner.ts — Lumina notices what matters and proposes what to do.
  *
- * M3GAN spec §14 (reasoning), §32 (energy), §89 (presence), §92 (curiosity)
+ * Lumina spec §14 (reasoning), §32 (energy), §89 (presence), §92 (curiosity)
  * and §96 (companion mode).
  * Deterministic rules over the events the loop admits; no language model runs
  * here. Each rule yields a proposed action whose summary is an instruction for

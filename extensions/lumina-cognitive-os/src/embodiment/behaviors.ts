@@ -1,7 +1,7 @@
 /**
  * behaviors.ts — Reusable behaviors composed from body intents.
  *
- * M3GAN spec §34: follow_person, come_here, wait, look_at, find_object,
+ * Lumina spec §34: follow_person, come_here, wait, look_at, find_object,
  * bring_object, charge, greet_person... A behavior is only a plan of intents;
  * it gains no authority by being a behavior. Every intent still goes through
  * the embodied controller and its safety supervisor, one at a time, and the

@@ -1,7 +1,7 @@
 /**
  * theory-of-mind.ts — What other people probably know, believe or want.
  *
- * M3GAN spec §13: a limited model of other people's knowledge ("Dal knows X",
+ * Lumina spec §13: a limited model of other people's knowledge ("Dal knows X",
  * "B probably does not know X", "Cady is looking for Y") with explicit
  * uncertainty, never treating a psychological inference as a fact.
  *

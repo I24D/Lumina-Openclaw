@@ -1,5 +1,5 @@
 /**
- * child-guard.ts — What reaches a child, checked in code (M3GAN spec §41).
+ * child-guard.ts — What reaches a child, checked in code (Lumina spec §41).
  *
  * Child mode's guidance asks the model for simple, kind, age-appropriate
  * language; this makes it more than a request:
@@ -136,7 +136,7 @@ export function createChildGuard(deps: {
     /** Guidance for the active mode, for every turn's system prompt. */
     systemContext(): string | undefined {
       const mode = deps.mode();
-      return mode === "normal" ? undefined : `[M3GAN] ${MODE_GUIDANCE[mode]}`;
+      return mode === "normal" ? undefined : `[Lumina core] ${MODE_GUIDANCE[mode]}`;
     },
     /** Before a reply is final: an instruction to rewrite it, when it is not for a child. */
     revise(text: string | undefined): string | undefined {

@@ -1,7 +1,7 @@
 /**
- * owner-channel.ts — What a person sees and decides in the Control UI's M3GAN tab.
+ * owner-channel.ts — What a person sees and decides in the Control UI's Lumina tab.
  *
- * M3GAN spec §49 (dashboard), §65–§72 (live, people, memory, world, robot,
+ * Lumina spec §49 (dashboard), §65–§72 (live, people, memory, world, robot,
  * model and developer views), §134 (teleoperation), §143 (a person's
  * overrides) and §41/§96/§125 (interaction modes). The Control UI reaches this through gateway methods that require
  * an authenticated operator session, so it is the owner channel the agent's
@@ -20,7 +20,7 @@
 import type { CognitiveRuntime } from "../cognition/cognitive-runtime.js";
 import { intentFromParams } from "../embodiment/body-tool.js";
 import { BODY_INTENT_TYPES, type BodyIntentType } from "../embodiment/body.js";
-import type { Evaluation } from "../evaluation/m3gan-eval.js";
+import type { Evaluation } from "../evaluation/core-eval.js";
 import type { PrivacyChange } from "../privacy/privacy-state.js";
 import { isRole } from "../safety/authority.js";
 import { INTERACTION_MODES, type InteractionMode } from "../safety/interaction-mode.js";
@@ -36,7 +36,7 @@ export type OwnerChannelDeps = {
   /** Re-arm the global emergency stop; a person's action only. */
   readonly rearmEmergencyStop: () => void;
   readonly activeModel: () => string | undefined;
-  /** The evaluation suite, run in sandboxes from the M3GAN tab. */
+  /** The evaluation suite, run in sandboxes from the Lumina tab. */
   readonly evaluation?: Evaluation;
 };
 
@@ -90,7 +90,7 @@ function worldTree(runtime: CognitiveRuntime) {
       children.set(place, [...(children.get(place) ?? []), scored]);
     }
   }
-  const node = (id: string, depth: number): M3ganWorldNode => {
+  const node = (id: string, depth: number): CoreWorldNode => {
     const entity = runtime.world.get(id);
     return {
       id,
@@ -107,15 +107,15 @@ function worldTree(runtime: CognitiveRuntime) {
   return roots.map(({ entity }) => node(entity.id, 0));
 }
 
-export type M3ganWorldNode = {
+export type CoreWorldNode = {
   readonly id: string;
   readonly label: string;
   readonly kind: string;
-  readonly children: ReadonlyArray<M3ganWorldNode>;
+  readonly children: ReadonlyArray<CoreWorldNode>;
 };
 
-/** The whole picture the M3GAN tab shows, in one call. */
-export function m3ganState(deps: OwnerChannelDeps) {
+/** The whole picture the Lumina tab shows, in one call. */
+export function coreState(deps: OwnerChannelDeps) {
   const { runtime } = deps;
   const workspace = runtime.workspace.snapshot();
   const safety = runtime.safety.status();
@@ -157,9 +157,9 @@ export function m3ganState(deps: OwnerChannelDeps) {
   };
 }
 
-export type M3ganState = ReturnType<typeof m3ganState>;
+export type CoreState = ReturnType<typeof coreState>;
 
-/** Commands a person runs from the M3GAN tab, keyed by their gateway method name. */
+/** Commands a person runs from the Lumina tab, keyed by their gateway method name. */
 export function createOwnerCommands(deps: OwnerChannelDeps) {
   const { runtime } = deps;
   const audited = (action: string, reason: string, ok: boolean) =>
@@ -171,7 +171,7 @@ export function createOwnerCommands(deps: OwnerChannelDeps) {
     });
 
   return {
-    "m3gan.override": async (params: Params) => {
+    "lumina.core.override": async (params: Params) => {
       const type = params.type;
       if (typeof type !== "string" || !OVERRIDE_TYPES.has(type)) {
         throw new OwnerChannelError("unknown override");
@@ -183,7 +183,7 @@ export function createOwnerCommands(deps: OwnerChannelDeps) {
       ) as OverrideAction;
       return runtime.safety.override(action, OWNER);
     },
-    "m3gan.privacy": async (params: Params) =>
+    "lumina.core.privacy": async (params: Params) =>
       runtime.privacy.set(
         booleanFields(params, [
           "microphone",
@@ -193,18 +193,18 @@ export function createOwnerCommands(deps: OwnerChannelDeps) {
         ]) as PrivacyChange,
         OWNER,
       ),
-    "m3gan.confirm": async (params: Params) => {
+    "lumina.core.confirm": async (params: Params) => {
       const id = idField(params, "id");
       return params.approve === true
         ? runtime.body.approve(id, OWNER)
         : { ok: runtime.body.reject(id, { actor: "owner:dashboard" }) };
     },
-    "m3gan.estop.rearm": async () => {
+    "lumina.core.estop.rearm": async () => {
       deps.rearmEmergencyStop();
       audited("estop.rearm", "a person re-armed the emergency stop", true);
       return { ok: true };
     },
-    "m3gan.people.role": async (params: Params) => {
+    "lumina.core.people.role": async (params: Params) => {
       const role = params.role;
       if (!isRole(role)) {
         throw new OwnerChannelError("unknown role");
@@ -214,7 +214,7 @@ export function createOwnerCommands(deps: OwnerChannelDeps) {
       audited("people.role", `${personId} -> ${role}`, r.ok);
       return r;
     },
-    "m3gan.people.consent": async (params: Params) => {
+    "lumina.core.people.consent": async (params: Params) => {
       const personId = idField(params, "personId");
       const consent = booleanFields(params, ["faceRecognition", "voiceRecognition", "recording"]);
       const r = runtime.people.setConsent(personId, consent, OWNER);
@@ -228,7 +228,7 @@ export function createOwnerCommands(deps: OwnerChannelDeps) {
       }
       return r;
     },
-    "m3gan.people.enroll": async (params: Params) => {
+    "lumina.core.people.enroll": async (params: Params) => {
       const personId = idField(params, "personId");
       const modality = params.modality;
       if (modality !== "face" && modality !== "voice") {
@@ -238,7 +238,7 @@ export function createOwnerCommands(deps: OwnerChannelDeps) {
       audited("people.enroll", `${personId} ${modality}`, r.ok);
       return r;
     },
-    "m3gan.people.forget": async (params: Params) => {
+    "lumina.core.people.forget": async (params: Params) => {
       const personId = idField(params, "personId");
       const ok = runtime.people.forget(personId);
       runtime.recognition.forget(personId);
@@ -246,7 +246,7 @@ export function createOwnerCommands(deps: OwnerChannelDeps) {
       audited("people.forget", personId, ok);
       return { ok };
     },
-    "m3gan.mode": async (params: Params) => {
+    "lumina.core.mode": async (params: Params) => {
       const mode = params.mode;
       if (
         typeof mode !== "string" ||
@@ -256,14 +256,14 @@ export function createOwnerCommands(deps: OwnerChannelDeps) {
       }
       return runtime.modes.set(mode as InteractionMode, OWNER);
     },
-    "m3gan.reflect": async () => runtime.reflection.run(),
-    "m3gan.evaluate": async () => {
+    "lumina.core.reflect": async () => runtime.reflection.run(),
+    "lumina.core.evaluate": async () => {
       if (!deps.evaluation) {
         throw new OwnerChannelError("no evaluation suite here");
       }
       return deps.evaluation.run();
     },
-    "m3gan.lesson.accept": async (params: Params) => {
+    "lumina.core.lesson.accept": async (params: Params) => {
       const trigger = textField(params, "trigger")?.trim();
       const claim = textField(params, "claim")?.trim();
       if (!trigger || !claim || trigger.length > 160 || claim.length > 480) {
@@ -277,13 +277,13 @@ export function createOwnerCommands(deps: OwnerChannelDeps) {
       audited("lesson.accept", `${trigger}: ${claim}`, true);
       return { ok: true, lesson };
     },
-    "m3gan.world.forget": async (params: Params) => {
+    "lumina.core.world.forget": async (params: Params) => {
       const id = idField(params, "id");
       const removed = runtime.world.forget(id);
       audited("world.forget", `${id}: ${removed} observations`, removed > 0);
       return { ok: true, removed };
     },
-    "m3gan.teleop": async (params: Params) => {
+    "lumina.core.teleop": async (params: Params) => {
       const personId = idField(params, "personId");
       const type = params.type;
       if (

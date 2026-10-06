@@ -1,69 +1,69 @@
 /* ===========================================
-   M3GAN Tab - Lumina's cognitive core
+   Lumina tab - the cognitive core
    =========================================== */
 
-.m3gan {
+.lumina-core {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
 }
 
-.m3gan__header {
+.lumina-core__header {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.m3gan__heading {
+.lumina-core__heading {
   flex: 1;
   min-width: 0;
 }
 
-.m3gan__face {
+.lumina-core__face {
   --openclaw-mascot-size: 64px;
   flex: none;
 }
 
-.m3gan__panel {
+.lumina-core__panel {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.m3gan__card {
+.lumina-core__card {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.m3gan__actions {
+.lumina-core__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
 
-.m3gan__tree {
+.lumina-core__tree {
   margin: 0;
   padding-left: 18px;
 }
 
-.m3gan__tree li {
+.lumina-core__tree li {
   margin: 4px 0;
 }
 
-.m3gan__node {
+.lumina-core__node {
   font-weight: 600;
   margin-right: 6px;
 }
 
-.m3gan__list {
+.lumina-core__list {
   margin: 0;
   padding-left: 18px;
 }
 
-.m3gan__pre {
+.lumina-core__pre {
   margin: 0;
   max-height: 420px;
   overflow: auto;

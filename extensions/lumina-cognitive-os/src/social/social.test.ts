@@ -2,7 +2,7 @@
  * Tests for people, presence, theory of mind and affect estimates.
  */
 import { describe, expect, it } from "vitest";
-import { m3ganEvent } from "../events/catalog.js";
+import { coreEvent } from "../events/catalog.js";
 import { MemoryStateStore } from "../shared/state-store.js";
 import { WorldModel } from "../world/world-model.js";
 import { AFFECT_CEILING, estimateAffect } from "./affect.js";
@@ -110,13 +110,13 @@ describe("presenceState", () => {
       people,
       nowMs: NOW,
       recentEvents: [
-        m3ganEvent(
+        coreEvent(
           "audio",
           "speech.recognized",
           { text: "hola", confidence: 0.9, speakerId: "w-dal" },
           { atISO: iso },
         ),
-        m3ganEvent(
+        coreEvent(
           "vision",
           "person.detected",
           { label: "desconocido", confidence: 0.9 },
@@ -139,7 +139,7 @@ describe("presenceState", () => {
       world,
       nowMs: NOW,
       recentEvents: [
-        m3ganEvent(
+        coreEvent(
           "audio",
           "speech.recognized",
           { text: "hola", confidence: 0.9, speakerId: "x" },

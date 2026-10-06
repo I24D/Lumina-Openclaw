@@ -40,7 +40,7 @@ export function createPrivacyTool(
       "Privacy a person controls. 'stop_listening' and 'stop_camera' drop those sensors at the source; " +
       "'private_mode' and 'stop_recording' stop remembering; 'forget_session' erases what was observed since " +
       "this session began; 'status' shows the current state. Use them as soon as someone asks. Turning a sensor " +
-      "or memory back on is done by the owner from the M3GAN tab of the Control UI, not from here.",
+      "or memory back on is done by the owner from the Lumina tab of the Control UI, not from here.",
     parameters: Type.Object({ action: Type.Union(ACTIONS.map((a) => Type.Literal(a))) }),
     async execute(_id, rawParams) {
       const { action } = rawParams as { action: PrivacyAction };

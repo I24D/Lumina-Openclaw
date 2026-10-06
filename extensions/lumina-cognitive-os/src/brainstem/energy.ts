@@ -1,7 +1,7 @@
 /**
  * energy.ts — What the battery level means for what the body may do.
  *
- * M3GAN spec §32: know the charge, the draw and where the charger is; on low
+ * Lumina spec §32: know the charge, the draw and where the charger is; on low
  * battery reach a safe state, go to the charger and charge. This is the pure
  * policy; the brainstem applies it and the safety supervisor already refuses
  * motion at critical charge (anything but charging or stopping).

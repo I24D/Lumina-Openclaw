@@ -81,7 +81,7 @@ import {
   createCodeActStatusTool,
   createCodeActEndTool,
 } from "./src/codeact/codeact-tool.js";
-// Cognitive core (M3GAN): router, world model, workspace, self model, body
+// Cognitive core: router, world model, workspace, self model, body
 import {
   createEpisodicMemory,
   createToolRecorder,
@@ -798,7 +798,7 @@ export default definePluginEntry({
     registerTool(createGovernanceEvaluateTool(governance));
     registerTool(createGovernancePolicyTool(governance));
 
-    // ── Cognitive core (M3GAN REAL) ──────────────────────────────
+    // ── Cognitive core ───────────────────────────────────────────
     // Router -> world model + attention queue -> observe-only loop, with the
     // global workspace, self model and safety-gated body on top.
     const cognition = startCognitiveCore({

@@ -1,7 +1,7 @@
 /**
  * interaction-mode.ts — How Lumina behaves with whom: normal, child, companion, maintenance.
  *
- * M3GAN spec §41 (child interaction mode), §96 (companion mode) and §125
+ * Lumina spec §41 (child interaction mode), §96 (companion mode) and §125
  * (maintenance mode):
  *   - child: grasping and handing objects over are off; the agent keeps
  *     language simple and kind and involves a guardian; leaving the mode
@@ -16,7 +16,7 @@
  * what the mode imposed: a capability or pause a person ordered stays exactly
  * as they left it. Entering child or maintenance only narrows, so the agent may
  * do it; leaving them and entering companion widen, so only the owner channel
- * (the authenticated M3GAN tab) can.
+ * (the authenticated Lumina tab) can.
  */
 import type { StateStorePort } from "../shared/state-store.js";
 import type { AuditRecord } from "./audit-log.js";
@@ -159,7 +159,7 @@ export class InteractionModes {
     if ((RESTRICTIVE.has(from) || mode === "companion") && by.channel !== "owner") {
       return {
         ok: false,
-        reason: `Leaving ${from} mode or entering companion mode widens what Lumina does; only the owner can, in the M3GAN tab.`,
+        reason: `Leaving ${from} mode or entering companion mode widens what Lumina does; only the owner can, in the Lumina tab.`,
       };
     }
     const atISO = new Date(this.now()).toISOString();

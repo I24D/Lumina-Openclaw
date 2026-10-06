@@ -1,7 +1,7 @@
 /**
  * privacy-state.ts — What Lumina may hear, see and keep, decided by people.
  *
- * M3GAN spec §97–§99: a person can order "stop listening", "stop the camera",
+ * Lumina spec §97–§99: a person can order "stop listening", "stop the camera",
  * "private mode", "forget this session" and "do not record", and the state
  * must be shown clearly, by something independent of the model (§98).
  *

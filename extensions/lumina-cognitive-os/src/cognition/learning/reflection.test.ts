@@ -2,7 +2,7 @@
  * Tests for reflection: patterns found, lessons proposed, nothing applied.
  */
 import { describe, expect, it } from "vitest";
-import { m3ganEvent } from "../../events/catalog.js";
+import { coreEvent } from "../../events/catalog.js";
 import { AuditLog } from "../../safety/audit-log.js";
 import type { CycleRecord } from "../loop/cognitive-loop.js";
 import { createReflection, reflect } from "./reflection.js";
@@ -22,7 +22,7 @@ const refused = (audit: AuditLog, times: number) => {
 
 const proposal = (): CycleRecord => ({
   atISO: NOW,
-  event: m3ganEvent("camera", "person.detected", { label: "unknown person", confidence: 0.9 }),
+  event: coreEvent("camera", "person.detected", { label: "unknown person", confidence: 0.9 }),
   admitted: true,
   salience: 0.6,
   outcome: "propose",

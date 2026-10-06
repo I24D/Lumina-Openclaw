@@ -46,7 +46,7 @@ export function createPeopleTool(
       "'presence' says who is here and who is speaking. 'enroll' learns a person's face (modality 'face': one " +
       "face in front of the camera) or voice ('voice': two seconds of their speech), only if the owner granted that " +
       "consent; 'forget_template' deletes it; 'sensors' says whether the camera and microphone are on and who they " +
-      "recognize. Roles, recognition consent and forgetting someone are the owner's decisions in the M3GAN tab.",
+      "recognize. Roles, recognition consent and forgetting someone are the owner's decisions in the Lumina tab.",
     parameters: Type.Object({
       action: Type.Union(PEOPLE_ACTIONS.map((a) => Type.Literal(a))),
       name: Type.Optional(Type.String({ maxLength: 80 })),

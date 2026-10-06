@@ -1,12 +1,12 @@
-# M3GAN REAL architecture
+# Lumina cognitive core architecture
 
-How the M3GAN core is put together inside LUMINA OpenClaw, what crosses which boundary, and where
+How Lumina's cognitive core is put together inside LUMINA OpenClaw, what crosses which boundary, and where
 each piece of state lives. Status words follow §164 of the master specification. Paths are relative
 to `extensions/lumina-cognitive-os/src/` unless they say otherwise.
 
 ## Principle
 
-M3GAN is not the body, not the model and not the database (§158). It is the continuity of identity,
+Lumina is not the body, not the model and not the database (§158). It is the continuity of identity,
 memory, world model, cognition, relationships, abilities and history. So:
 
 - models are replaceable engines behind OpenClaw's provider routing (§3.4, §106);
@@ -63,8 +63,8 @@ goals, lessons, people, presence, privacy, health, energy, body ─▶ global wo
                                                                        body adapter
 ```
 
-1. Every input becomes an `M3ganEvent` from the event catalog (`events/catalog.ts`). Payloads are
-   validated with TypeBox schemas; `M3GAN_EVENT_SCHEMA_VERSION` versions the contract.
+1. Every input becomes an `LuminaCoreEvent` from the event catalog (`events/catalog.ts`). Payloads are
+   validated with TypeBox schemas; `CORE_EVENT_SCHEMA_VERSION` versions the contract.
 2. The thalamic router asks the privacy layer whether to admit the event (with the microphone or
    camera off, events from those sensors are dropped; while nothing may be remembered, new world
    observations are dropped), then sends it to the world model and the attention queue.
@@ -96,7 +96,7 @@ envelope behind `ThalamicRouter.ingest()` without changing consumers.
 - **Tools narrow, people widen.** Agent tools can pause, stop motion, cancel, disable autonomy,
   disable a capability, switch a sensor off and engage the emergency stop. Resuming, re-enabling,
   switching a sensor back on, assigning roles, granting recognition consent, confirming a physical
-  action, teleoperating and re-arming the emergency stop exist only in the Control UI's M3GAN tab
+  action, teleoperating and re-arming the emergency stop exist only in the Control UI's Lumina tab
   (the owner channel).
 - **The agent is never a principal.** Registering the agent as a person or as `primary_user` is
   refused and reported as tampering, and tampering puts the system in a safe state.
@@ -119,7 +119,8 @@ envelope behind `ThalamicRouter.ingest()` without changing consumers.
 | `m3gan.people`                  | People, roles, consent                       | `social/people.ts`         |
 | `m3gan.beliefs`                 | Theory-of-mind beliefs                       | `social/theory-of-mind.ts` |
 
-All of them use `KeyedLog` (`shared/state-store.ts`): ordered keys, hydration before the first
+The `m3gan.` prefix is historic: it stays so the stored state, the audit chain included, survives
+the rename to LUMINA (ADR 0010). All of them use `KeyedLog` (`shared/state-store.ts`): ordered keys, hydration before the first
 write, serialized appends, and no write at all if hydration failed. While a store is loading, the
 safe default applies: overrides read as paused and sensors read as off.
 
@@ -136,14 +137,14 @@ moving them to SQLite state is a task in `TASKS.md`.
   audit chain, body, privacy and model availability. A critical probe puts the system in a safe
   state; recovery never resumes on its own.
 - The plugin serves `GET /health` (503 when down), `GET /ready` and `GET /version` under
-  `/plugins/lumina-cognitive-os/m3gan`, behind gateway authentication.
+  `/plugins/lumina-cognitive-os/core`, behind gateway authentication.
 - Kernel, brainstem and body decisions go to the transparency log that people see, and the agent
   can explain a decision from the audit and the loop's cycles (`lumina_explain`).
 
-## The M3GAN tab (owner channel)
+## The Lumina tab (owner channel)
 
-The Control UI renders the M3GAN tab natively, like Logbook (`ui/src/pages/plugin/m3gan-view.ts`).
-It reads `m3gan.state` and calls one gateway method per command; reads need `operator.read`,
+The Control UI renders the Lumina tab natively, like Logbook (`ui/src/pages/plugin/lumina-core-view.ts`).
+It reads `lumina.core.state` and calls one gateway method per command; reads need `operator.read`,
 commands need `operator.write`. The commands live once in `dashboard/owner-channel.ts`;
 `dashboard/gateway-methods.ts` maps them to methods and `dashboard/health-http.ts` serves the
 probes. Views: live, safety, people, world, health, robot (with teleoperation) and developer.

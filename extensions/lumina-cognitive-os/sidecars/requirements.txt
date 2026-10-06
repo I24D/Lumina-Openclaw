@@ -17,13 +17,13 @@ openwakeword==0.6.0
 sounddevice==0.5.6
 numpy==2.5.1
 
-# Camera and voice perception (M3GAN sections 7 and 8): faces with OpenCV
+# Camera and voice perception (Lumina spec sections 7 and 8): faces with OpenCV
 # YuNet/SFace; speech and speaker recognition with sherpa-onnx (Silero VAD +
 # WeSpeaker). Model files download on first use into ~/.openclaw/models.
 opencv-python==5.0.0.93
 sherpa-onnx==1.13.8
 
-# Physics simulator for a simulated body (M3GAN sections 16, 59, 60): bodySimulator "mujoco".
+# Physics simulator for a simulated body (Lumina spec sections 16, 59, 60): bodySimulator "mujoco".
 mujoco==3.15.0
 
 # Recorder (LfD) — mouse/keyboard listeners + fast screenshots.

@@ -202,7 +202,7 @@ describe("hostDeps", () => {
     // Opened during registration the handle would lose its admission; it opens with the service.
     await Promise.resolve();
     expect(live.openKeyedStore).not.toHaveBeenCalled();
-    expect(live.services.map((s) => s.id)).toEqual(["m3gan-state"]);
+    expect(live.services.map((s) => s.id)).toEqual(["lumina-core-state"]);
     live.services[0]?.start();
     await expect(read).resolves.toEqual([]);
     expect(live.openKeyedStore).toHaveBeenCalledWith({
@@ -213,7 +213,7 @@ describe("hostDeps", () => {
     // The owner channel is a native Control UI tab over gateway methods, plus /health.
     expect(live.registerHttpRoute).toHaveBeenCalledOnce();
     expect(live.registerGatewayMethod.mock.calls.map(([method]) => method)).toContain(
-      "m3gan.state",
+      "lumina.core.state",
     );
     expect(live.registerControlUiDescriptor.mock.calls[0]?.[0]).not.toHaveProperty("path");
     // Child mode's guidance and screen ride on the conversation hooks.
@@ -229,9 +229,9 @@ describe("hostDeps", () => {
   it("wakes the owner's agent by its full session key, never the ambiguous bare main", () => {
     const live = api("full");
     hostDeps(live.api).initiative?.({ key: "greet-owner", text: "Dal just arrived." });
-    expect(live.enqueueSystemEvent).toHaveBeenCalledWith("[M3GAN] Dal just arrived.", {
+    expect(live.enqueueSystemEvent).toHaveBeenCalledWith("[Lumina core] Dal just arrived.", {
       sessionKey: "agent:main:main",
-      contextKey: "m3gan:greet-owner",
+      contextKey: "lumina-core:greet-owner",
       replace: true,
     });
     expect(live.requestHeartbeat).toHaveBeenCalledWith(

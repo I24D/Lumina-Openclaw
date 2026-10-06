@@ -1,7 +1,7 @@
 /**
  * people.ts — The people Lumina knows, and what each of them allowed.
  *
- * M3GAN spec §4.4 (relational memory: name, relationship, preferences, known
+ * Lumina spec §4.4 (relational memory: name, relationship, preferences, known
  * history, communication style, important dates, permissions), §67 (people
  * view), §93 (user model: preferences, language, knowledge level, routine) and
  * §7/§8 (face and voice recognition only when authorized, with consent).

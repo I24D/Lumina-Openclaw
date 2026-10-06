@@ -96,11 +96,11 @@ export const BUNDLED_TAB_VIEWS: Record<string, () => Promise<BundledPluginTabVie
     ]);
     return { render: renderLogbook, stop: stopLogbookPolling };
   },
-  "lumina-cognitive-os/m3gan": async () => {
-    const [{ renderM3gan }, { stopM3ganPolling }] = await Promise.all([
-      import("./m3gan-view.ts"),
-      import("./m3gan-controller.ts"),
+  "lumina-cognitive-os/core": async () => {
+    const [{ renderLuminaCore }, { stopLuminaCorePolling }] = await Promise.all([
+      import("./lumina-core-view.ts"),
+      import("./lumina-core-controller.ts"),
     ]);
-    return { render: renderM3gan, stop: stopM3ganPolling };
+    return { render: renderLuminaCore, stop: stopLuminaCorePolling };
   },
 };

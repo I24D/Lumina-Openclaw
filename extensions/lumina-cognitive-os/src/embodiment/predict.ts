@@ -1,7 +1,7 @@
 /**
  * predict.ts — Think before moving: what an intent would likely do.
  *
- * M3GAN spec §16: before an important action, predict(action, world_state)
+ * Lumina spec §16: before an important action, predict(action, world_state)
  * returns the expected outcome, possible failures, uncertainty and risk. This
  * is the symbolic version: it reads the world model and the safety review the
  * supervisor would give right now, and lists the failure modes each kind of

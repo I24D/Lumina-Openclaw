@@ -5,7 +5,7 @@
   },
   "enabledByDefault": false,
   "name": "Lumina Cognitive OS",
-  "description": "Cognitive layer Niveles 1-12: Risk Engine, Environment Awareness, Memory tiers (Working/Episodic), Vision (UI Automation + multimonitor), Action Planner + Browser driver, 12-agent Director, Intent Router, MCP Gmail/Calendar/Drive, Boot Greeting and Wake-Word. Every capability is exposed as an agent tool so the user can invoke it by voice via Start Talk. Hosts the M3GAN cognitive core: safety kernel, world model, people, privacy, health and the M3GAN dashboard.",
+  "description": "Cognitive layer Niveles 1-12: Risk Engine, Environment Awareness, Memory tiers (Working/Episodic), Vision (UI Automation + multimonitor), Action Planner + Browser driver, 12-agent Director, Intent Router, MCP Gmail/Calendar/Drive, Boot Greeting and Wake-Word. Every capability is exposed as an agent tool so the user can invoke it by voice via Start Talk. Hosts the Lumina cognitive core: safety kernel, world model, people, privacy, health and the Lumina dashboard.",
   "contracts": {
     "tools": [
       "lumina_risk_evaluate",

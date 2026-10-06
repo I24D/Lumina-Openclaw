@@ -5,9 +5,9 @@
  *   - status : report whether the operator is frozen + hotkey process state.
  *   - engage : trip it now from software (same effect as the panic hotkey).
  *
- * Re-arming is deliberately not here. M3GAN spec §45: the system can never
+ * Re-arming is deliberately not here. Lumina spec §45: the system can never
  * hand itself back authority over its own stop mechanisms, so a person re-arms
- * it from the M3GAN tab of the Control UI (the authenticated owner channel). The agent can
+ * it from the Lumina tab of the Control UI (the authenticated owner channel). The agent can
  * always stop; it can never un-stop.
  *
  * The physical hotkey (kill_switch.py via KillSwitchProcess) trips the same
@@ -31,7 +31,7 @@ export function createKillSwitchTool(deps: KillSwitchToolDeps = {}): AnyAgentToo
     description:
       "Parada de emergencia global del operador de PC. action='status' informa si está congelado " +
       "(y el estado del hotkey). action='engage' congela YA: el loop se aborta y ningún click/tecleo " +
-      "llega al Bridge. Re-armar no se hace desde aquí: lo hace una persona en la pestaña M3GAN del Control UI. " +
+      "llega al Bridge. Re-armar no se hace desde aquí: lo hace una persona en la pestaña Lumina del Control UI. " +
       "El hotkey físico por defecto es Ctrl+Alt+K.",
     parameters: Type.Object({
       action: Type.Union([Type.Literal("status"), Type.Literal("engage")], {
@@ -55,7 +55,7 @@ export function createKillSwitchTool(deps: KillSwitchToolDeps = {}): AnyAgentToo
         state,
         hotkey: deps.process?.getStatus() ?? null,
         ...(state.engaged
-          ? { rearm: "A person re-arms it from the M3GAN tab of the Control UI." }
+          ? { rearm: "A person re-arms it from the Lumina tab of the Control UI." }
           : {}),
       });
     },

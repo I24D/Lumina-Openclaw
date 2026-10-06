@@ -62,7 +62,7 @@ export function attachSafeguards(deps: {
                 status: "degraded",
                 detail: state.detail,
                 recommendation:
-                  "Create the m3gan_audit_checkpoints table (extensions/lumina-cognitive-os/sql) or check Supabase.",
+                  "Create the lumina_audit_checkpoints table (extensions/lumina-cognitive-os/sql) or check Supabase.",
               };
             default:
               return { status: "ok", detail: state.detail };
@@ -82,7 +82,7 @@ export function attachSafeguards(deps: {
               status: "degraded",
               detail: `Real-keyboard confirmation is not running${health.lastError ? `: ${health.lastError}` : "."}`,
               recommendation:
-                "Physical actions wait for the M3GAN tab; check the physical_confirm sidecar.",
+                "Physical actions wait for the Lumina tab; check the physical_confirm sidecar.",
             };
           }
           return {

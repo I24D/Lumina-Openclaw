@@ -2,22 +2,22 @@ import { render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import {
-  configureM3ganPolling,
-  getM3ganState,
-  runM3ganCommand,
-  stopM3ganPolling,
-} from "./m3gan-controller.ts";
-import type { M3ganStatePayload } from "./m3gan-types.ts";
-import { renderM3gan } from "./m3gan-view.ts";
+  configureLuminaCorePolling,
+  getCoreState,
+  runLuminaCoreCommand,
+  stopLuminaCorePolling,
+} from "./lumina-core-controller.ts";
+import type { CoreStatePayload } from "./lumina-core-types.ts";
+import { renderLuminaCore } from "./lumina-core-view.ts";
 
 const hosts: object[] = [];
 afterEach(() => {
   for (const host of hosts.splice(0)) {
-    stopM3ganPolling(host);
+    stopLuminaCorePolling(host);
   }
 });
 
-const sample = (overrides: Partial<M3ganStatePayload> = {}): M3ganStatePayload => ({
+const sample = (overrides: Partial<CoreStatePayload> = {}): CoreStatePayload => ({
   version: "0.1.0",
   model: "ollama-cloud/glm-5.3",
   workspace: {
@@ -68,16 +68,16 @@ const fakeClient = (respond: (method: string, params: unknown) => unknown) =>
     request: vi.fn(async (method: string, params: unknown) => respond(method, params)),
   }) as unknown as GatewayBrowserClient & { request: ReturnType<typeof vi.fn> };
 
-describe("M3GAN view", () => {
+describe("Lumina core view", () => {
   it("shows the core's state inside the Control UI, with the owner's controls", () => {
     const host = {};
     hosts.push(host);
-    const state = getM3ganState(host);
+    const state = getCoreState(host);
     state.state = sample();
     state.tab = "safety";
 
     const container = document.createElement("div");
-    render(renderM3gan({ host, client: null, connected: false }), container);
+    render(renderLuminaCore({ host, client: null, connected: false }), container);
 
     expect(container.querySelector(".chip-warn")?.textContent).toContain("Autonomy paused");
     const buttons = [...container.querySelectorAll("button")].map((b) => b.textContent?.trim());
@@ -89,12 +89,12 @@ describe("M3GAN view", () => {
   it("lists people with their role and a way to forget them", () => {
     const host = {};
     hosts.push(host);
-    const state = getM3ganState(host);
+    const state = getCoreState(host);
     state.state = sample();
     state.tab = "people";
 
     const container = document.createElement("div");
-    render(renderM3gan({ host, client: null, connected: false }), container);
+    render(renderLuminaCore({ host, client: null, connected: false }), container);
 
     expect(container.textContent).toContain("Dal");
     expect(
@@ -103,19 +103,21 @@ describe("M3GAN view", () => {
   });
 });
 
-describe("M3GAN controller", () => {
+describe("Lumina core controller", () => {
   it("runs an owner command, shows a refusal's reason and refreshes", async () => {
     const host = {};
     hosts.push(host);
-    const state = getM3ganState(host);
+    const state = getCoreState(host);
     const client = fakeClient((method) =>
-      method === "m3gan.state" ? sample() : { ok: false, reason: "Only the owner may widen." },
+      method === "lumina.core.state"
+        ? sample()
+        : { ok: false, reason: "Only the owner may widen." },
     );
-    configureM3ganPolling(state, client);
+    configureLuminaCorePolling(state, client);
 
-    await runM3ganCommand(state, client, "m3gan.override", { type: "resume" });
+    await runLuminaCoreCommand(state, client, "lumina.core.override", { type: "resume" });
 
-    expect(client.request).toHaveBeenCalledWith("m3gan.override", { type: "resume" });
+    expect(client.request).toHaveBeenCalledWith("lumina.core.override", { type: "resume" });
     expect(state.notice).toBe("Only the owner may widen.");
     await vi.waitFor(() => expect(state.state?.version).toBe("0.1.0"));
   });
@@ -123,14 +125,14 @@ describe("M3GAN controller", () => {
   it("ignores commands from a client it is no longer bound to", async () => {
     const host = {};
     hosts.push(host);
-    const state = getM3ganState(host);
+    const state = getCoreState(host);
     const stale = fakeClient(() => ({ ok: true }));
-    configureM3ganPolling(
+    configureLuminaCorePolling(
       state,
       fakeClient(() => sample()),
     );
 
-    await runM3ganCommand(state, stale, "m3gan.override", { type: "pause" });
+    await runLuminaCoreCommand(state, stale, "lumina.core.override", { type: "pause" });
 
     expect(stale.request).not.toHaveBeenCalled();
   });

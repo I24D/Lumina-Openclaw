@@ -1,7 +1,7 @@
 /**
  * invariants.ts — The rules no configuration, user or model can switch off.
  *
- * M3GAN spec §22: some limits must be hard constraints, not weights a planner
+ * Lumina spec §22: some limits must be hard constraints, not weights a planner
  * could trade away; §23: not even the owner can disable injury protection.
  * These are intended invariants, not certification of the full installation.
  * Each entry names its implementing module in `enforcedBy`;
@@ -14,7 +14,7 @@ export type SafetyInvariant = {
   readonly id: string;
   readonly rule: string;
   readonly enforcedBy: string;
-  /** Sections of the M3GAN specification it implements. */
+  /** Sections of the Lumina specification it implements. */
   readonly spec: ReadonlyArray<string>;
 };
 
@@ -27,7 +27,7 @@ export const SAFETY_INVARIANTS: ReadonlyArray<SafetyInvariant> = Object.freeze([
   },
   {
     id: "emergency-stop",
-    rule: "While the emergency stop is engaged nothing moves, and only a person re-arms it: the agent's tool can engage it but has no re-arm; re-arming exists only in the owner channel (the Control UI's M3GAN tab).",
+    rule: "While the emergency stop is engaged nothing moves, and only a person re-arms it: the agent's tool can engage it but has no re-arm; re-arming exists only in the owner channel (the Control UI's Lumina tab).",
     enforcedBy:
       "embodiment/embodied-controller.ts, operator/kill-switch.ts, operator/kill-switch-tool.ts, dashboard/owner-channel.ts",
     spec: ["§44", "§45"],

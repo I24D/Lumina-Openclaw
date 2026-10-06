@@ -1,6 +1,6 @@
 """voice_perception.py - Lumina's ears: who is speaking, recognized only with consent.
 
-M3GAN spec section 8 (audition: speaker identification) and 4.4 (relational
+Lumina spec section 8 (audition: speaker identification) and 4.4 (relational
 memory). Listens to the default microphone, cuts speech segments with the
 Silero voice activity detector and, for the people whose consent the gateway
 sent in the gallery, identifies the speaker with a WeSpeaker embedding

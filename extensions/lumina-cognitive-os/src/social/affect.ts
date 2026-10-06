@@ -1,7 +1,7 @@
 /**
  * affect.ts — Estimates of how someone might feel, never statements of fact.
  *
- * M3GAN spec §10: a separate module reads voice, face, posture, words, history
+ * Lumina spec §10: a separate module reads voice, face, posture, words, history
  * and situation and produces estimates ({ possible_state, confidence, signals
  * }), never absolute claims; an estimated emotion is never objective truth.
  *

@@ -25,11 +25,11 @@ voice via **Start Talk** — there is no separate CLI surface.
 |    12 | `lumina_boot_greeting`                    | Morning briefing phrase.                                                   |
 |    12 | `lumina_wake_word`                        | Wake-word detector daemon.                                                 |
 
-## Cognitive core (M3GAN REAL)
+## Cognitive core
 
 The core that turns perception into a continuous picture of the situation, keeps people's
 authority above the agent's, and keeps the body behind a safety supervisor. See
-[docs/m3gan/](../../docs/m3gan/PROJECT_M3GAN_REAL.md) for the architecture, roadmap, tasks,
+[docs/lumina-core/](../../docs/lumina-core/PROJECT.md) for the architecture, roadmap, tasks,
 section map and decision records.
 
 | Tool                   | Purpose                                                                             |
@@ -57,8 +57,8 @@ section map and decision records.
 Tools only narrow: resuming, re-enabling, switching a sensor back on, roles, consent, learning a
 face or a voice, leaving child or maintenance mode, physical confirmations, teleoperation and
 re-arming the emergency stop are done by a person from the
-**M3GAN** tab of the Control UI, a native view over `m3gan.*` gateway methods. Probes:
-`/plugins/lumina-cognitive-os/m3gan/health`, `/ready` and `/version`.
+**Lumina** tab of the Control UI, a native view over `lumina.core.*` gateway methods. Probes:
+`/plugins/lumina-cognitive-os/core/health`, `/ready` and `/version`.
 
 Config: `cognitiveCoreEnabled` (default on), `autonomyLevel` (0-5, default 3), `bodyMode`
 (`none` or `simulated`), `grantedCapabilities` and `preAuthorizedCapabilities` (Dal only; no
@@ -118,9 +118,9 @@ extensions/lumina-cognitive-os/
     ├── vision/                 Nivel 3
     ├── action/                 Nivel 4
     ├── agents/                 Nivel 5 — 12 named specialists + Director
-    ├── cognition/              M3GAN core — attention, router, loop, workspace, self model
-    ├── world/                  M3GAN core — world model + perception hook
-    ├── embodiment/             M3GAN core — body intents, safety supervisor, adapters
+    ├── cognition/              cognitive core — attention, router, loop, workspace, self model
+    ├── world/                  cognitive core — world model + perception hook
+    ├── embodiment/             cognitive core — body intents, safety supervisor, adapters
     ├── automation/             Nivel 9 — intent router + 9 templates
     ├── mcp/                    Nivel 11 — Gmail/Calendar/Drive
     ├── presence/               Nivel 12 — boot greeting + wake-word

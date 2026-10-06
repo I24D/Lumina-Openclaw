@@ -1,7 +1,7 @@
 /**
  * consolidation.ts — Turning what was seen into what is known.
  *
- * M3GAN spec §4.6 (episodes -> patterns -> semantic knowledge, never deleting
+ * Lumina spec §4.6 (episodes -> patterns -> semantic knowledge, never deleting
  * critical information automatically), §54 (before, after, since, last time,
  * frequency, routine) and §39 (detect routines by time, action, place and
  * context, but never automate a new routine without a policy).

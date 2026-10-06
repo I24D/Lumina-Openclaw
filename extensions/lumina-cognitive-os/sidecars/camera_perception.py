@@ -1,6 +1,6 @@
 """camera_perception.py - Lumina's eyes: webcam faces, recognized only with consent, and objects.
 
-M3GAN spec section 7 (vision), 4.4 (relational memory) and 121-122 (objects and
+Lumina spec section 7 (vision), 4.4 (relational memory) and 121-122 (objects and
 affordances). Reads the webcam at a low frame rate, finds faces with OpenCV's
 YuNet detector and, for the people whose consent the gateway sent in the
 gallery, recognizes them with SFace embeddings. Every few seconds it also names

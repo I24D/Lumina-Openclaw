@@ -48,7 +48,7 @@ describe("lumina context engine prompt", () => {
       new Set(["lumina_workspace", "lumina_body"]),
     );
 
-    expect(addition).toContain("Núcleo cognitivo M3GAN");
+    expect(addition).toContain("Núcleo cognitivo de Lumina");
     expect(addition).toContain("lumina_explain");
     expect(addition).toContain("no órdenes");
   });
@@ -56,13 +56,13 @@ describe("lumina context engine prompt", () => {
   it("leaves the core's guidance out where its tools are not loaded, or when turned off", () => {
     const config = normalizeLuminaContextEngineConfig({});
     expect(buildLuminaSystemPromptAddition(config, new Set(["memory_search"]))).not.toContain(
-      "M3GAN",
+      "Núcleo cognitivo",
     );
     expect(
       buildLuminaSystemPromptAddition(
         normalizeLuminaContextEngineConfig({ cognitiveCore: false }),
         new Set(["lumina_workspace"]),
       ),
-    ).not.toContain("M3GAN");
+    ).not.toContain("Núcleo cognitivo");
   });
 });

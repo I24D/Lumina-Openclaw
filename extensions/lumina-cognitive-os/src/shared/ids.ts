@@ -1,7 +1,7 @@
 /**
- * ids.ts — Persistent, sortable identifiers for everything M3GAN remembers.
+ * ids.ts — Persistent, sortable identifiers for everything Lumina remembers.
  *
- * M3GAN spec §75: every entity gets a persistent id and nothing depends on a
+ * Lumina spec §75: every entity gets a persistent id and nothing depends on a
  * visible name, which can change, repeat or be misheard. The format is
  * `<prefix>_<ULID>`: the prefix says what the id names (`person_`, `object_`,
  * `episode_`), and the ULID sorts by creation time, so logs and stores order

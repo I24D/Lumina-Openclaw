@@ -2,7 +2,7 @@
  * Tests for the rules that let Lumina notice and propose.
  */
 import { describe, expect, it, vi } from "vitest";
-import { m3ganEvent } from "../../events/catalog.js";
+import { coreEvent } from "../../events/catalog.js";
 import type { InteractionMode } from "../../safety/interaction-mode.js";
 import { PeopleRegistry } from "../../social/people.js";
 import type { PresenceState } from "../../social/presence.js";
@@ -26,7 +26,7 @@ const setup = (level: 3 | 4 = 3) => {
   const reason = createSituationalReasoner({ people, deliver, now: () => clock });
   const loop = new CognitiveLoop({ level, reason, now: () => clock, onSurface: surfaced });
   const arrival = () =>
-    m3ganEvent("camera", "person.detected", {
+    coreEvent("camera", "person.detected", {
       personId: dal.person.id,
       label: "Dal",
       confidence: 0.95,
@@ -74,7 +74,7 @@ describe("situational reasoner", () => {
   it("tells the owner about an unknown person without guessing who it is", async () => {
     const { loop, deliver } = setup(4);
     const record = await loop.handle(
-      m3ganEvent("camera", "person.detected", { label: "unknown person", confidence: 0.9 }),
+      coreEvent("camera", "person.detected", { label: "unknown person", confidence: 0.9 }),
     );
     expect(record.action).toContain("unknown person");
     expect(deliver).toHaveBeenCalledOnce();
@@ -121,7 +121,7 @@ describe("curiosity and companion mode", () => {
     // As the runtime does: the world model takes the sighting, curiosity raises the gap.
     const sight = async (observation: Observation) => {
       const result = world.observe(observation);
-      const gap = knowledgeGap(result, m3ganEvent("camera", "world.observed", { observation }));
+      const gap = knowledgeGap(result, coreEvent("camera", "world.observed", { observation }));
       return gap ? loop.handle(gap) : undefined;
     };
     return {
@@ -129,7 +129,7 @@ describe("curiosity and companion mode", () => {
       deliver,
       sight,
       speech: () =>
-        m3ganEvent("microphone", "speech.detected", {
+        coreEvent("microphone", "speech.detected", {
           speakerId: dal.person.id,
           confidence: 0.9,
           durationMs: 1200,

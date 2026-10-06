@@ -1,5 +1,5 @@
 /**
- * plan-run.ts — Walks a validated plan one step at a time (M3GAN spec §15, §55).
+ * plan-run.ts — Walks a validated plan one step at a time (Lumina spec §15, §55).
  *
  * The agent still calls each step's tool itself, so that tool's own policy,
  * approval and audit apply unchanged; nothing here invokes a tool. What this

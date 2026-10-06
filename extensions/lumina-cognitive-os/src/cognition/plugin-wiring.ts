@@ -16,14 +16,14 @@ import { createPlanRunTool } from "../action/plan-run-tool.js";
 import { PlanRunner } from "../action/plan-run.js";
 import type { AwarenessEventBus } from "../awareness/event-bus.js";
 import type { EnvironmentSnapshot } from "../awareness/snapshot.js";
-import { registerM3ganGatewayMethods } from "../dashboard/gateway-methods.js";
-import { createM3ganHealthHandler, M3GAN_HEALTH_PATH } from "../dashboard/health-http.js";
+import { registerCoreGatewayMethods } from "../dashboard/gateway-methods.js";
+import { createCoreHealthHandler, CORE_HEALTH_PATH } from "../dashboard/health-http.js";
 import type { OwnerChannelDeps } from "../dashboard/owner-channel.js";
 import { PhysicsBody, type PhysicsEvent } from "../embodiment/physics-body.js";
 import { Ros2Body, websocketTransport, type Ros2Places } from "../embodiment/ros2-body.js";
 import { perceptionModels, type ArtifactRecord } from "../evaluation/artifact-registry.js";
+import { createEvaluation } from "../evaluation/core-eval.js";
 import { createEvaluateTool } from "../evaluation/eval-tool.js";
-import { createEvaluation } from "../evaluation/m3gan-eval.js";
 import { EpisodicMemoryStore, type Episode } from "../memory/episodic-memory.js";
 import type { WorkingMemory } from "../memory/working-memory.js";
 import { killSwitch } from "../operator/kill-switch.js";
@@ -177,7 +177,7 @@ export type CognitiveCoreDeps = {
   readonly logger: { info(message: string): void; warn(message: string): void };
   /** Wakes the agent's main session with one of the core's initiatives (live gateway only). */
   readonly initiative?: (initiative: Initiative) => void;
-  /** Publishes the owner channel: the Control UI's M3GAN tab, its gateway methods, /health. */
+  /** Publishes the owner channel: the Control UI's Lumina tab, its gateway methods, /health. */
   readonly dashboard?: (channel: OwnerChannelDeps) => void;
   /** Puts the mode's guidance in every turn and screens replies in child mode (live gateway only). */
   readonly conversationHooks?: (guard: ChildGuard) => void;
@@ -190,8 +190,8 @@ export type CognitiveCoreDeps = {
   };
 };
 
-/** Version of the M3GAN core this plugin carries (milestone M3GAN CORE v0.1, spec §151). */
-export const M3GAN_CORE_VERSION = "0.1.0";
+/** Version of Lumina's cognitive core this plugin carries (milestone LUMINA CORE v0.1, spec §151). */
+export const LUMINA_CORE_VERSION = "0.1.0";
 
 /** The host-derived dependencies: plugin config, live config, durable stores, logger, dashboard. */
 export function hostDeps(
@@ -233,7 +233,7 @@ export function hostDeps(
   const running = new Promise<void>((resolve) => {
     started = resolve;
   });
-  api.registerService({ id: "m3gan-state", start: () => started() });
+  api.registerService({ id: "lumina-core-state", start: () => started() });
   return {
     ...base,
     live: true,
@@ -249,16 +249,16 @@ export function hostDeps(
               : "main",
           mainKey: (api.runtime.config?.current?.() ?? api.config)?.session?.mainKey,
         });
-        const queued = api.runtime.system.enqueueSystemEvent(`[M3GAN] ${text}`, {
+        const queued = api.runtime.system.enqueueSystemEvent(`[Lumina core] ${text}`, {
           sessionKey,
-          contextKey: `m3gan:${key}`,
+          contextKey: `lumina-core:${key}`,
           replace: true,
         });
         if (queued) {
           api.runtime.system.requestHeartbeat({
             source: "other",
             intent: "immediate",
-            reason: "m3gan-initiative",
+            reason: "lumina-core-initiative",
             sessionKey,
           });
         }
@@ -291,18 +291,18 @@ export function hostDeps(
         api.runtime.state.openKeyedStore<T>({ namespace, retention: "retained" }),
       ),
     dashboard: (channel) => {
-      registerM3ganGatewayMethods(api, channel);
+      registerCoreGatewayMethods(api, channel);
       api.registerHttpRoute({
-        path: M3GAN_HEALTH_PATH,
+        path: CORE_HEALTH_PATH,
         auth: "gateway",
         match: "prefix",
-        handler: createM3ganHealthHandler(channel),
+        handler: createCoreHealthHandler(channel),
       });
       // No path: the Control UI renders this tab natively, as it does Logbook.
       api.session.controls.registerControlUiDescriptor({
         surface: "tab",
-        id: "m3gan",
-        label: "M3GAN",
+        id: "core",
+        label: "Lumina",
         description:
           "Live state, safety, people, world, health and robot of Lumina's cognitive core.",
         icon: "brain",
@@ -320,10 +320,10 @@ function planRunner(runtime: CognitiveRuntime): PlanRunner {
     blocked: () => {
       const safety = runtime.safety.status();
       if (safety.emergencyStop) {
-        return "The emergency stop is engaged; a person re-arms it from the M3GAN tab.";
+        return "The emergency stop is engaged; a person re-arms it from the Lumina tab.";
       }
       return safety.overrides.paused
-        ? "A person paused autonomy; it resumes from the M3GAN tab."
+        ? "A person paused autonomy; it resumes from the Lumina tab."
         : null;
     },
     record: (entry) => runtime.audit.append({ actor: "agent", ...entry }),
@@ -331,20 +331,26 @@ function planRunner(runtime: CognitiveRuntime): PlanRunner {
 }
 
 /** SQLite namespaces of the core's durable state. */
+/**
+ * Namespaces of the durable stores. Their historic prefix stays: renaming it would orphan the
+ * stored state, the audit chain included.
+ */
+const STORE_PREFIX = "m3gan";
+
 export const COGNITIVE_STORE_NAMESPACES = {
-  audit: "m3gan.audit",
-  overrides: "m3gan.overrides",
-  world: "m3gan.world",
-  privacy: "m3gan.privacy",
-  people: "m3gan.people",
-  beliefs: "m3gan.beliefs",
-  biometrics: "m3gan.biometrics",
-  goals: "m3gan.goals",
-  lessons: "m3gan.lessons",
-  mode: "m3gan.mode",
-  practice: "m3gan.practice",
-  artifacts: "m3gan.artifacts",
-  episodic: "m3gan.episodic",
+  audit: `${STORE_PREFIX}.audit`,
+  overrides: `${STORE_PREFIX}.overrides`,
+  world: `${STORE_PREFIX}.world`,
+  privacy: `${STORE_PREFIX}.privacy`,
+  people: `${STORE_PREFIX}.people`,
+  beliefs: `${STORE_PREFIX}.beliefs`,
+  biometrics: `${STORE_PREFIX}.biometrics`,
+  goals: `${STORE_PREFIX}.goals`,
+  lessons: `${STORE_PREFIX}.lessons`,
+  mode: `${STORE_PREFIX}.mode`,
+  practice: `${STORE_PREFIX}.practice`,
+  artifacts: `${STORE_PREFIX}.artifacts`,
+  episodic: `${STORE_PREFIX}.episodic`,
 } as const;
 
 /** Episodic memory on durable state in the live gateway; other loads keep the JSONL fallback. */
@@ -496,7 +502,7 @@ export function startCognitiveCore(deps: CognitiveCoreDeps): CognitiveRuntime | 
   deps.dashboard?.({
     runtime,
     evaluation,
-    version: M3GAN_CORE_VERSION,
+    version: LUMINA_CORE_VERSION,
     // Re-arming is a person's action: it exists only behind the owner channel.
     rearmEmergencyStop: () => void killSwitch.reset(),
     activeModel: () =>

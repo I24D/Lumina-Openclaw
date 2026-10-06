@@ -1,11 +1,11 @@
 /**
  * reflection.ts — Lumina looks back at what happened and proposes what to learn.
  *
- * M3GAN spec §17 (reflection) and §25 (online learning is limited). Reads the
+ * Lumina spec §17 (reflection) and §25 (online learning is limited). Reads the
  * safety audit and the cognitive loop's recent cycles, finds patterns
  * (actions that keep being refused, failures that repeat, proposals that keep
  * coming back unanswered, a reasoner that errors) and proposes lessons. It
- * never applies them: a person accepts a lesson in the M3GAN tab, so what
+ * never applies them: a person accepts a lesson in the Lumina tab, so what
  * Lumina learns about her own conduct stays under human review.
  */
 import type { AuditLog, AuditRecord } from "../../safety/audit-log.js";

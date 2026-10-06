@@ -1,7 +1,7 @@
 /**
  * presence.ts — Who is here, who is speaking, who just came or left.
  *
- * M3GAN spec §89: understand who is present, who speaks, who looks, who
+ * Lumina spec §89: understand who is present, who speaks, who looks, who
  * enters and who leaves, and keep a PresenceState. Like the global workspace,
  * this derives everything from the modules that own it (world model for
  * sightings, people registry for identity, router for recent events), so it

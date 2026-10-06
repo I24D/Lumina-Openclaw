@@ -5,7 +5,7 @@
 
 ## Context
 
-The specification's first rule for a real M3GAN is that the AI does not control the body directly
+The specification's first rule for a real embodied agent is that the AI does not control the body directly
 (§21). Real-time control, collision avoidance and hardware interlocks must not depend on a model's
 latency or judgment (§117, §119).
 

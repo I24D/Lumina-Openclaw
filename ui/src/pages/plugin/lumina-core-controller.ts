@@ -1,10 +1,10 @@
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { formatUiError, formatUiExternalText } from "../../lib/format-error.ts";
-import type { M3ganStatePayload, M3ganUiState } from "./m3gan-types.ts";
+import type { CoreStatePayload, LuminaCoreUiState } from "./lumina-core-types.ts";
 
 const POLL_INTERVAL_MS = 5_000;
 
-type M3ganControllerState = M3ganUiState & {
+type LuminaCoreControllerState = LuminaCoreUiState & {
   // Rebinding to another gateway client retires every pending result, so an
   // old connection never writes into the replacement view.
   client: GatewayBrowserClient | null;
@@ -12,10 +12,10 @@ type M3ganControllerState = M3ganUiState & {
   pollTimer: ReturnType<typeof globalThis.setInterval> | null;
 };
 
-const m3ganStates = new WeakMap<object, M3ganControllerState>();
+const coreStates = new WeakMap<object, LuminaCoreControllerState>();
 
-export function getM3ganState(host: object): M3ganControllerState {
-  let state = m3ganStates.get(host);
+export function getCoreState(host: object): LuminaCoreControllerState {
+  let state = coreStates.get(host);
   if (!state) {
     state = {
       tab: "live",
@@ -29,16 +29,16 @@ export function getM3ganState(host: object): M3ganControllerState {
       generation: 0,
       pollTimer: null,
     };
-    m3ganStates.set(host, state);
+    coreStates.set(host, state);
   }
   return state;
 }
 
-function notify(state: M3ganControllerState): void {
+function notify(state: LuminaCoreControllerState): void {
   state.requestUpdate?.();
 }
 
-function bindClient(state: M3ganControllerState, client: GatewayBrowserClient | null): void {
+function bindClient(state: LuminaCoreControllerState, client: GatewayBrowserClient | null): void {
   if (state.client === client) {
     return;
   }
@@ -48,8 +48,8 @@ function bindClient(state: M3ganControllerState, client: GatewayBrowserClient | 
   state.pending = null;
 }
 
-export async function loadM3gan(
-  state: M3ganControllerState,
+export async function loadLuminaCore(
+  state: LuminaCoreControllerState,
   client: GatewayBrowserClient | null,
   opts?: { silent?: boolean },
 ): Promise<void> {
@@ -63,7 +63,7 @@ export async function loadM3gan(
     notify(state);
   }
   try {
-    const next = await client.request<M3ganStatePayload>("m3gan.state", {});
+    const next = await client.request<CoreStatePayload>("lumina.core.state", {});
     if (state.generation === generation) {
       state.state = next;
       state.error = null;
@@ -81,8 +81,8 @@ export async function loadM3gan(
 }
 
 /** Keeps the view current while it is shown; stops when the client goes away. */
-export function configureM3ganPolling(
-  state: M3ganControllerState,
+export function configureLuminaCorePolling(
+  state: LuminaCoreControllerState,
   client: GatewayBrowserClient | null,
 ): void {
   if (!client) {
@@ -101,13 +101,13 @@ export function configureM3ganPolling(
   }
   bindClient(state, client);
   state.pollTimer = setInterval(
-    () => void loadM3gan(state, client, { silent: true }),
+    () => void loadLuminaCore(state, client, { silent: true }),
     POLL_INTERVAL_MS,
   );
 }
 
-export function stopM3ganPolling(host: object): void {
-  const state = m3ganStates.get(host);
+export function stopLuminaCorePolling(host: object): void {
+  const state = coreStates.get(host);
   if (state?.pollTimer) {
     clearInterval(state.pollTimer);
     state.pollTimer = null;
@@ -115,8 +115,8 @@ export function stopM3ganPolling(host: object): void {
 }
 
 /** Runs one owner command, shows a refusal's reason, then refreshes the picture. */
-export async function runM3ganCommand(
-  state: M3ganControllerState,
+export async function runLuminaCoreCommand(
+  state: LuminaCoreControllerState,
   client: GatewayBrowserClient | null,
   method: string,
   params: Record<string, unknown> = {},
@@ -144,7 +144,7 @@ export async function runM3ganCommand(
     if (state.generation === generation) {
       state.pending = null;
       notify(state);
-      void loadM3gan(state, client, { silent: true });
+      void loadLuminaCore(state, client, { silent: true });
     }
   }
 }

@@ -1,18 +1,18 @@
-# M3GAN STATUS
+# LUMINA STATUS
 
-Live checkpoint for Project M3GAN REAL (§163 of the master specification). Every agent updates it
+Live checkpoint for Lumina's cognitive core (§163 of the master specification). Every agent updates it
 at the end of each significant cycle, so a new session can rebuild what exists, what works, what is
 missing, what was in progress, what was decided and what blocks (§162). Details live in
-`docs/m3gan/`.
+`docs/lumina-core/`.
 
 Updated: 2026-10-06 America/New_York, by Claude Code.
 
 ## CURRENT VERSION
 
-- M3GAN CORE **0.1.0** (`M3GAN_CORE_VERSION` in `extensions/lumina-cognitive-os/src/cognition/plugin-wiring.ts`).
+- LUMINA CORE **0.1.0** (`LUMINA_CORE_VERSION` in `extensions/lumina-cognitive-os/src/cognition/plugin-wiring.ts`).
 - Checkout: `openclaw-main`, branch `lumina/cognitive-core`, published to `I24D/Lumina-Openclaw`.
 - Code: `extensions/lumina-cognitive-os` (core), `extensions/lumina-context-engine` (guidance),
-  `ui/src/pages/plugin/m3gan-*.ts` (the native M3GAN tab).
+  `ui/src/pages/plugin/lumina-core-*.ts` (the native Lumina tab).
 
 ## WORKING
 
@@ -20,7 +20,7 @@ Active in the live gateway since 2026-10-05 (`plugins.allow` + `plugins.entries`
 on MuJoCo, autonomy L3, owner Dal, camera and voice perception on, keyboard confirmation on).
 Verified live on 2026-10-06 after the last build: the webcam, microphone and keyboard-confirmation
 sidecars run (`camera ok`, `microphone ok`, `physical-confirm ok`); five model files match their
-pinned hashes; `m3gan.mode` switches child mode on and off from the owner channel with the self
+pinned hashes; `lumina.core.mode` switches child mode on and off from the owner channel with the self
 model, restrictions, audit and guardian summary following; the evaluation suite passes 16/16 live
 (router about 97,000 events/s, a cycle p95 0.02 ms); 131 `lumina_*` tools are in the agent's
 catalog, including `lumina_mode`, `lumina_practice` and `lumina_artifacts`; initiatives queue for
@@ -50,7 +50,7 @@ extension tests and the UI with 0 errors; oxlint, oxfmt and lit-analyzer clean.
 - Evaluation: 15 sandboxed scenarios plus router and loop performance (`lumina_evaluate`).
 - Provenance: perception models registered with source, licence, version, purpose and a pinned
   SHA-256, re-checked every 6 hours (`lumina_artifacts`).
-- The M3GAN tab renders natively in the Control UI over `m3gan.*` gateway methods, with modes,
+- The Lumina tab renders natively in the Control UI over `lumina.core.*` gateway methods, with modes,
   sensors, evaluation, reflection and models.
 
 ## PARTIAL
@@ -58,7 +58,7 @@ extension tests and the UI with 0 errors; oxlint, oxfmt and lit-analyzer clean.
 - Pronunciation is judged by the agent from what it heard; no acoustic scoring.
 - Child-mode content screening is a word list (English and Spanish), not a classifier; voice
   replies spoken live by Start Talk do not pass through it.
-- The M3GAN tab is in English for other locales until `pnpm ui:i18n:sync` runs (task 22).
+- The Lumina tab is in English for other locales until `pnpm ui:i18n:sync` runs (task 22).
 - Backups: covered by `openclaw backup`; scheduling them is Dal's choice (archives hold credentials).
 
 ## BROKEN
@@ -79,33 +79,37 @@ have re-enabled a capability a person switched off during the mode.
 ## PLANNED
 
 Reinforcement learning in simulation only (task 25) and acoustic pronunciation scoring (task 27). Hardware is not available
-(MOCK and INTERFACE ONLY where it applies). See `docs/m3gan/TASKS.md` and `docs/m3gan/ROADMAP.md`.
+(MOCK and INTERFACE ONLY where it applies). See `docs/lumina-core/TASKS.md` and `docs/lumina-core/ROADMAP.md`.
 
 ## CURRENT TASK
 
-Claude Code: this cycle is built, verified live and published (`a54459e6339`).
+Claude Code: this cycle is built, verified live and published, including the identity rename
+(ADR 0010): `lumina.core.state` answers, the old `m3gan.*` methods are gone, `/plugins/lumina-cognitive-os/core/health`
+responds and the audit chain kept its entries across the rename.
 ChatGPT-LUMINA: task 22 (translations). Task 21 is done (`66c74d34954`).
 
 ## NEXT TASKS
 
 1. Dal: approve or decline task 23 (the Supabase audit-checkpoint table).
-2. Codex: tasks 25 and 27 in `docs/m3gan/TASKS.md`.
+2. Codex: tasks 25 and 27 in `docs/lumina-core/TASKS.md`.
 3. Claude Code: the next open item in the section map.
 
 ## BLOCKERS
 
 - No robot hardware: body paths are simulated.
 - The Supabase table for audit checkpoints needs Dal's approval (task 23).
-- The Control UI translation baseline already drifted before M3GAN (`pnpm ui:i18n:check`).
+- The Control UI translation baseline already drifted before the Lumina tab (`pnpm ui:i18n:check`).
 
 ## RECENT DECISIONS
 
-ADRs in `docs/m3gan/adr/`: 0001 build inside `lumina-cognitive-os`; 0002 safety is code; 0003
+ADRs in `docs/lumina-core/adr/`: 0001 build inside `lumina-cognitive-os`; 0002 safety is code; 0003
 durable state in SQLite plugin state, opened only by the live gateway once its service starts;
-0004 the owner's channel is the Control UI's M3GAN tab; 0005 the model emits intents, never motor
+0004 the owner's channel is the Control UI's Lumina tab; 0005 the model emits intents, never motor
 commands; 0006 untrusted content never executes; 0007 one owner per tool name and side effects
-only in the live gateway; 0008 the M3GAN tab is a native Control UI view (no separate UI); 0009
-interaction modes are a restriction layer, never written into a person's overrides.
+only in the live gateway; 0008 the Lumina tab is a native Control UI view (no separate UI); 0009
+interaction modes are a restriction layer, never written into a person's overrides; 0010 LUMINA is the
+identity and the film M3GAN only the reference: the tab, methods, routes, docs and this file say
+Lumina, while the durable stores keep their `m3gan.` namespaces so no state is lost.
 
 ## RECENT COMMITS
 
@@ -122,3 +126,4 @@ interaction modes are a restriction layer, never written into a person's overrid
 - `180a7c040bf` child-mode guard on the conversation hooks.
 - `e79a086c918` Python sidecars run from the built gateway; the camera names objects (task 24).
 - `a54459e6339` initiatives reach the owner's agent.
+- `a5024f6c643` LUMINA is the identity; M3GAN only the reference (ADR 0010).

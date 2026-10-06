@@ -1,7 +1,7 @@
 /**
  * global-workspace.ts — The one picture of "what is going on right now".
  *
- * M3GAN spec §3.5: a central representation of the current cognitive state —
+ * Lumina spec §3.5: a central representation of the current cognitive state —
  * goal, people present, location, attention target, active task, recent
  * events, relevant memories, environment, uncertainty and body state — that
  * every module reads instead of each one assembling its own partial view.

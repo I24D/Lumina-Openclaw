@@ -1,7 +1,7 @@
 /**
  * audit-log.ts — A tamper-evident record of what the system decided and did.
  *
- * M3GAN spec §24 and §48: every significant action records who asked, what,
+ * Lumina spec §24 and §48: every significant action records who asked, what,
  * why, under which permissions, what happened, with which model and how sure
  * it was; and the critical log lives apart from the memory the agent can edit,
  * resistant to alteration. The film's M3GAN hid her tracks because that

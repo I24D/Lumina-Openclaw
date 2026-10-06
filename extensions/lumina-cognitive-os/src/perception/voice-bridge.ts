@@ -7,7 +7,7 @@
  * stretch of speech onto the shared sensor bridge as a `speech.detected` event,
  * plus a sighting of the speaker when one was recognized.
  */
-import { m3ganEvent } from "../events/catalog.js";
+import { coreEvent } from "../events/catalog.js";
 import {
   attachSensorBridge,
   type SensorBridge,
@@ -53,7 +53,7 @@ export function attachVoice(deps: VoiceDeps): SensorBridge {
         unknown: event.match ? 0 : 1,
         unknownConfidence: 0.5,
         extra: [
-          m3ganEvent(
+          coreEvent(
             SOURCE,
             "speech.detected",
             {

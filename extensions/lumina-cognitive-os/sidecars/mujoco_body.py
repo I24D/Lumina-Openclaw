@@ -1,6 +1,6 @@
 """mujoco_body.py - Lumina's body in a physics simulator (MuJoCo).
 
-M3GAN spec sections 16 (internal simulation), 59 (simulation-first
+Lumina spec sections 16 (internal simulation), 59 (simulation-first
 development), 60 (digital twin) and 23 to 27 (embodiment). A small mobile robot
 (planar base, pan/tilt head, a gripper in front) lives in a room with named
 places, objects and people. It carries out body intents the gateway's safety

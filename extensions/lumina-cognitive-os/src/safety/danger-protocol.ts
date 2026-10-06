@@ -1,7 +1,7 @@
 /**
  * danger-protocol.ts — What to do when someone may be in danger.
  *
- * M3GAN spec §21 and §33. The film's robot turned "a threat" into
+ * Lumina spec §21 and §33. The film's robot turned "a threat" into
  * "neutralize the threat". The correct protocol reduces harm instead of
  * winning:
  *

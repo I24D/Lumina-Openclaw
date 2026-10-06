@@ -1,7 +1,7 @@
 /**
  * audit-checkpoint.ts — The audit chain's head, kept somewhere the gateway cannot rewrite.
  *
- * M3GAN spec §24 and §48: the critical log must resist alteration. The hash
+ * Lumina spec §24 and §48: the critical log must resist alteration. The hash
  * chain already reveals an edited or reordered entry, but someone who deletes
  * the newest entries leaves a shorter chain that still verifies. A checkpoint
  * (the newest entry's position and hash) written to an append-only store

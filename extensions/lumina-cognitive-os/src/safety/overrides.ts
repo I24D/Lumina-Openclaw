@@ -1,7 +1,7 @@
 /**
  * overrides.ts — A person's orders that outrank any plan.
  *
- * M3GAN spec §143: an authorized human can pause, cancel the task, stop
+ * Lumina spec §143: an authorized human can pause, cancel the task, stop
  * motion, turn off autonomous mode and turn off individual capabilities, and
  * those orders take priority over normal planning. §45: the system can never
  * hand itself back authority over those mechanisms.

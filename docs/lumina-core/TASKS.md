@@ -1,19 +1,19 @@
-# M3GAN REAL tasks
+# LUMINA tasks
 
 The engineering backlog, in order. Each task names an owner, following the division of work in §161
 of the master specification: Claude Code takes architecture, integration, documentation and
 security review; Codex takes implementation, tests, adapters, schemas, migrations and CI. Either
 agent may take any task when the other is not working; check `git status`, file modification times
-and `M3GAN_STATUS.md` first so two agents never edit the same file at once (§162).
+and `LUMINA_STATUS.md` first so two agents never edit the same file at once (§162).
 
 Status words: TODO, IN PROGRESS, DONE, BLOCKED.
 
 ## Now
 
-| #   | Task                                                                                                      | Owner          | Status      |
-| --- | --------------------------------------------------------------------------------------------------------- | -------------- | ----------- |
-| 22  | Translate the M3GAN tab: `pnpm ui:i18n:sync`. The catalog baseline already drifted before the tab existed | chatgpt-lumina | IN PROGRESS |
-| 23  | Create the append-only `m3gan_audit_checkpoints` table in Supabase (`sql/m3gan_audit_checkpoints.sql`)    | dal            | BLOCKED     |
+| #   | Task                                                                                                       | Owner          | Status      |
+| --- | ---------------------------------------------------------------------------------------------------------- | -------------- | ----------- |
+| 22  | Translate the Lumina tab: `pnpm ui:i18n:sync`. The catalog baseline already drifted before the tab existed | chatgpt-lumina | IN PROGRESS |
+| 23  | Create the append-only `lumina_audit_checkpoints` table in Supabase (`sql/lumina_audit_checkpoints.sql`)   | dal            | BLOCKED     |
 
 Task 23 waits for Dal: it changes the shared Supabase project, so it is his to approve. Until then
 the audit-checkpoint probe reports the external store as unavailable.
@@ -35,7 +35,7 @@ the audit-checkpoint probe reports the external store as unavailable.
 | One owner per tool name; live-only side effects; documentation                                                                                              | claude                     | `2017ac95e39`    |
 | Tasks 2-5 and 7: durable goals, lessons and episodes; full forget-session; teleoperation; contracts split; delegation result                                | codex (finished by claude) | `7da8f6904dc`    |
 | Durable stores open after activation (they were session-only live); network probe on PowerShell 5.1                                                         | claude                     | `7da8f6904dc`    |
-| The M3GAN tab renders natively in the Control UI over `m3gan.*` gateway methods (ADR 0008)                                                                  | claude                     | `51cc0c47a2a`    |
+| The Lumina tab renders natively in the Control UI over `lumina.core.*` gateway methods (ADR 0008)                                                           | claude                     | `51cc0c47a2a`    |
 | Task 6: `lumina_plan_run` walks a plan step by step under the safety gate, with ordered rollback; plan ids no longer collide                                | claude                     | `8adbc15e15f`    |
 | Awareness on Windows PowerShell 5.1: every JSON query failed on a leading pipe (battery, network, disks, devices, GPU, monitors were empty)                 | claude                     | `8adbc15e15f`    |
 | Task 1: activated in the live gateway and verified (tools in the catalog, durable state across restarts, `/health` ok)                                      | claude                     | 2026-10-05       |
@@ -54,3 +54,4 @@ the audit-checkpoint probe reports the external store as unavailable.
 | Interaction modes (child, companion, maintenance) as a restriction layer (ADR 0009); curiosity; affordances; practice book; artifact registry               | claude and codex           | `b490cfda215`    |
 | Task 26: child-mode guard: the mode's guidance in every turn; unsuitable replies rewritten once, replaced on the way out                                    | claude                     | `180a7c040bf`    |
 | Task 24: object detector (YOLOX, COCO) in the camera sidecar feeding the world model and affordances; the plugin's Python sidecars now ship with the bundle | claude                     | `e79a086c918`    |
+| Identity: the tab, gateway methods, health routes, docs and status say Lumina; M3GAN stays only as the film reference (ADR 0010)                            | claude                     | `a5024f6c643`    |

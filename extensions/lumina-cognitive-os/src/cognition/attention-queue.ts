@@ -3,7 +3,7 @@
  *
  * `attention.ts` answers "is this worth a cognitive cycle?". It does not say
  * which admitted event goes first, nor whether a new one should cut short the
- * cycle already running. This module owns both (M3GAN spec §3.2):
+ * cycle already running. This module owns both (Lumina spec §3.2):
  *
  *   attention_queue    admitted events ordered by salience, first-come within
  *                      a tie, bounded so a sensor flood evicts the least

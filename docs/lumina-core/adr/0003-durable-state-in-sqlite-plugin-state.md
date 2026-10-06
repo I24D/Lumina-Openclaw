@@ -11,7 +11,7 @@ files. The safety audit must be kept apart from memory the agent can edit (§24,
 
 ## Decision
 
-- Every durable M3GAN record goes through `KeyedLog` (`shared/state-store.ts`) over
+- Every durable core record goes through `KeyedLog` (`shared/state-store.ts`) over
   `api.runtime.state.openKeyedStore`, one namespace per concern: `m3gan.audit`,
   `m3gan.overrides`, `m3gan.world`, `m3gan.privacy`, `m3gan.people`, `m3gan.beliefs`.
 - A log hydrates before its first write, serializes appends, and never writes if hydration failed.
@@ -23,5 +23,5 @@ files. The safety audit must be kept apart from memory the agent can edit (§24,
 
 - State survives restarts and model swaps, and is independent of any provider.
 - Goals, lessons and episodic memory still use older JSONL files; moving them is a task.
-- Standalone CLI agent runs see session-only M3GAN state. That is deliberate.
+- Standalone CLI agent runs see session-only core state. That is deliberate.
 - Tail deletion of the audit across a restart needs an external checkpoint, which is a task.

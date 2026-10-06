@@ -1,5 +1,5 @@
 /**
- * forget-session.ts — "Olvida esta sesión" (M3GAN spec §97, §99).
+ * forget-session.ts — "Olvida esta sesión" (Lumina spec §97, §99).
  *
  * Removes what this session added to the local stores that remember
  * observations: the world model, episodic memory and theory-of-mind beliefs,

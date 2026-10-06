@@ -1,7 +1,7 @@
 /**
  * practice.ts — What a person is learning, and how it is going.
  *
- * M3GAN spec §94 (teaching mode: ask questions, evaluate understanding, adapt
+ * Lumina spec §94 (teaching mode: ask questions, evaluate understanding, adapt
  * difficulty, remember progress) and §95 (language learning: vocabulary,
  * grammar, pronunciation, practice, contextual correction). The agent does the
  * teaching in conversation; this is its memory of it:

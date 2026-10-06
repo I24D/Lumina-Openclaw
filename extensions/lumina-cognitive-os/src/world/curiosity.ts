@@ -1,7 +1,7 @@
 /**
  * curiosity.ts — Noticing what Lumina does not know.
  *
- * M3GAN spec §92: "Veo un dispositivo que no reconozco", but ask or look into it
+ * Lumina spec §92: "Veo un dispositivo que no reconozco", but ask or look into it
  * only when it helps a task or a conversation, never exploring invasively.
  * Routine sightings are too dull to earn a cognitive cycle, so this turns the
  * one that matters, a sensor seeing a new thing whose use nothing explains,
@@ -9,7 +9,7 @@
  * reasoner's call: only with someone there, and at most now and then.
  */
 import { trustOf, type CognitiveEvent } from "../contracts/attention.js";
-import { m3ganEvent } from "../events/catalog.js";
+import { coreEvent } from "../events/catalog.js";
 import { affordancesOf } from "./affordances.js";
 import type { ObserveResult } from "./world-model.js";
 
@@ -38,7 +38,7 @@ export function knowledgeGap(
   ) {
     return undefined;
   }
-  return m3ganEvent(
+  return coreEvent(
     event.source,
     "knowledge.gap",
     {

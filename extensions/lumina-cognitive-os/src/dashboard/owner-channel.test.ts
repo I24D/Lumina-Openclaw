@@ -11,9 +11,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AwarenessEventBus } from "../awareness/event-bus.js";
 import { createCognitiveRuntime, type CognitiveRuntime } from "../cognition/cognitive-runtime.js";
 import type { WorkingMemory } from "../memory/working-memory.js";
-import { registerM3ganGatewayMethods } from "./gateway-methods.js";
-import { createM3ganHealthHandler, M3GAN_HEALTH_PATH } from "./health-http.js";
-import { createOwnerCommands, m3ganState, OwnerChannelError } from "./owner-channel.js";
+import { registerCoreGatewayMethods } from "./gateway-methods.js";
+import { createCoreHealthHandler, CORE_HEALTH_PATH } from "./health-http.js";
+import { createOwnerCommands, coreState, OwnerChannelError } from "./owner-channel.js";
 
 const NOW = Date.parse("2026-10-05T04:00:00.000Z");
 const dirs: string[] = [];
@@ -69,7 +69,7 @@ const setup = () => {
   return { runtime, deps, commands: createOwnerCommands(deps), rearm };
 };
 
-describe("m3ganState", () => {
+describe("coreState", () => {
   it("returns the whole picture in one call", async () => {
     const { runtime, deps } = setup();
     await runtime.ready;
@@ -89,7 +89,7 @@ describe("m3ganState", () => {
       source: "sensor",
     });
 
-    const s = m3ganState(deps);
+    const s = coreState(deps);
     expect(s.model).toBe("ollama-cloud/glm-5.2");
     expect(s.people.map((p) => p.name)).toEqual(["Dal"]);
     expect(s.world[0]).toMatchObject({ label: "cocina", children: [{ label: "taza" }] });
@@ -105,7 +105,7 @@ describe("owner commands", () => {
     await runtime.safety.override({ type: "pause" }, { channel: "agent", actor: "agent" });
     expect(runtime.loop.getLevel()).toBe(0);
 
-    expect(await commands["m3gan.override"]({ type: "resume" })).toMatchObject({ ok: true });
+    expect(await commands["lumina.core.override"]({ type: "resume" })).toMatchObject({ ok: true });
     expect(runtime.loop.getLevel()).toBe(3);
   });
 
@@ -113,14 +113,14 @@ describe("owner commands", () => {
     const { runtime, commands } = setup();
     await runtime.ready;
     runtime.privacy.set({ camera: false }, { channel: "agent", actor: "agent" });
-    await commands["m3gan.privacy"]({ camera: true });
+    await commands["lumina.core.privacy"]({ camera: true });
     expect(runtime.privacy.state().camera).toBe(true);
   });
 
   it("re-arm the emergency stop only here, and audit it", async () => {
     const { runtime, commands, rearm } = setup();
     await runtime.ready;
-    await commands["m3gan.estop.rearm"]();
+    await commands["lumina.core.estop.rearm"]();
     expect(rearm).toHaveBeenCalledOnce();
     expect(runtime.audit.recent(1)[0]).toMatchObject({
       actor: "owner:dashboard",
@@ -135,8 +135,11 @@ describe("owner commands", () => {
     if (!cady.ok) {
       throw new Error("setup");
     }
-    await commands["m3gan.people.role"]({ personId: cady.person.id, role: "user" });
-    await commands["m3gan.people.consent"]({ personId: cady.person.id, voiceRecognition: true });
+    await commands["lumina.core.people.role"]({ personId: cady.person.id, role: "user" });
+    await commands["lumina.core.people.consent"]({
+      personId: cady.person.id,
+      voiceRecognition: true,
+    });
     expect(runtime.people.get(cady.person.id)).toMatchObject({
       role: "user",
       consent: { voiceRecognition: true },
@@ -145,15 +148,15 @@ describe("owner commands", () => {
 
   it("refuse malformed requests without touching anything", async () => {
     const { commands } = setup();
-    await expect(commands["m3gan.override"]({ type: "make_me_owner" })).rejects.toBeInstanceOf(
-      OwnerChannelError,
-    );
     await expect(
-      commands["m3gan.people.role"]({ personId: "x", role: "god" }),
+      commands["lumina.core.override"]({ type: "make_me_owner" }),
     ).rejects.toBeInstanceOf(OwnerChannelError);
-    await expect(commands["m3gan.teleop"]({ personId: "x", type: "punch" })).rejects.toBeInstanceOf(
-      OwnerChannelError,
-    );
+    await expect(
+      commands["lumina.core.people.role"]({ personId: "x", role: "god" }),
+    ).rejects.toBeInstanceOf(OwnerChannelError);
+    await expect(
+      commands["lumina.core.teleop"]({ personId: "x", type: "punch" }),
+    ).rejects.toBeInstanceOf(OwnerChannelError);
   });
 });
 
@@ -165,11 +168,11 @@ describe("gateway methods", () => {
   const register = () => {
     const context = setup();
     const methods = new Map<string, Registered>();
-    registerM3ganGatewayMethods(
+    registerCoreGatewayMethods(
       {
         registerGatewayMethod: ((method, handler, options) => {
           methods.set(method, { handler, options } as unknown as Registered);
-        }) as Parameters<typeof registerM3ganGatewayMethods>[0]["registerGatewayMethod"],
+        }) as Parameters<typeof registerCoreGatewayMethods>[0]["registerGatewayMethod"],
       },
       context.deps,
     );
@@ -185,9 +188,14 @@ describe("gateway methods", () => {
 
   it("reads with operator.read and changes anything only with operator.write", () => {
     const { methods } = register();
-    expect(methods.get("m3gan.state")?.options.scope).toBe("operator.read");
-    expect(methods.get("m3gan.audit.verify")?.options.scope).toBe("operator.read");
-    for (const name of ["m3gan.override", "m3gan.privacy", "m3gan.teleop", "m3gan.estop.rearm"]) {
+    expect(methods.get("lumina.core.state")?.options.scope).toBe("operator.read");
+    expect(methods.get("lumina.core.audit.verify")?.options.scope).toBe("operator.read");
+    for (const name of [
+      "lumina.core.override",
+      "lumina.core.privacy",
+      "lumina.core.teleop",
+      "lumina.core.estop.rearm",
+    ]) {
       expect(methods.get(name)?.options.scope).toBe("operator.write");
     }
   });
@@ -195,11 +203,11 @@ describe("gateway methods", () => {
   it("answers the state and reports a malformed request as invalid", async () => {
     const { runtime, call } = register();
     await runtime.ready;
-    const [ok, state] = await call("m3gan.state");
+    const [ok, state] = await call("lumina.core.state");
     expect(ok).toBe(true);
     expect(state).toMatchObject({ version: "0.1.0" });
 
-    const [failed, , error] = await call("m3gan.override", { type: "make_me_owner" });
+    const [failed, , error] = await call("lumina.core.override", { type: "make_me_owner" });
     expect(failed).toBe(false);
     expect(error?.code).toBe("INVALID_REQUEST");
   });
@@ -208,7 +216,7 @@ describe("gateway methods", () => {
 describe("health routes", () => {
   type Captured = { status: number; body: string };
   const get = async (
-    handler: ReturnType<typeof createM3ganHealthHandler>,
+    handler: ReturnType<typeof createCoreHealthHandler>,
     route: string,
     method = "GET",
   ) => {
@@ -237,16 +245,16 @@ describe("health routes", () => {
   it("serve /health, /ready and /version, and nothing else", async () => {
     const { runtime } = setup();
     await runtime.ready;
-    const handler = createM3ganHealthHandler({ runtime, version: "0.1.0" });
+    const handler = createCoreHealthHandler({ runtime, version: "0.1.0" });
     await Promise.resolve();
-    expect((await get(handler, `${M3GAN_HEALTH_PATH}/health`)).json().status).toBeDefined();
-    expect((await get(handler, `${M3GAN_HEALTH_PATH}/ready`)).status).toBe(200);
-    expect((await get(handler, `${M3GAN_HEALTH_PATH}/version`)).json()).toEqual({
+    expect((await get(handler, `${CORE_HEALTH_PATH}/health`)).json().status).toBeDefined();
+    expect((await get(handler, `${CORE_HEALTH_PATH}/ready`)).status).toBe(200);
+    expect((await get(handler, `${CORE_HEALTH_PATH}/version`)).json()).toEqual({
       plugin: "lumina-cognitive-os",
       version: "0.1.0",
     });
-    expect((await get(handler, `${M3GAN_HEALTH_PATH}/api/state`)).status).toBe(404);
-    expect((await get(handler, `${M3GAN_HEALTH_PATH}/health`, "POST")).status).toBe(405);
+    expect((await get(handler, `${CORE_HEALTH_PATH}/api/state`)).status).toBe(404);
+    expect((await get(handler, `${CORE_HEALTH_PATH}/health`, "POST")).status).toBe(405);
     expect((await get(handler, "/plugins/other")).handled).toBe(false);
   });
 });

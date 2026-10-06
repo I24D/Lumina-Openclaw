@@ -25,5 +25,5 @@ not even the owner can switch off for the invariants (§43).
 ## Consequences
 
 - Prompt changes cannot weaken safety; the context engine only explains the rules.
-- Some legitimate actions need a person at the M3GAN tab. That cost is accepted.
+- Some legitimate actions need a person at the Lumina tab. That cost is accepted.
 - New capabilities must state which invariant covers them before they are wired.

@@ -9,7 +9,7 @@ import type { ThalamicRouter } from "../cognition/router/thalamic-router.js";
  * cognitive cycle.
  */
 import { trustOf, type CognitiveEvent } from "../contracts/attention.js";
-import { m3ganEvent, payloadOf } from "../events/catalog.js";
+import { coreEvent, payloadOf } from "../events/catalog.js";
 import type { Observation, ObserveResult, WorldModel } from "./world-model.js";
 
 /** The observation an event carries, if it carries a well-formed one. */
@@ -32,7 +32,7 @@ export function observedEvent(
   atISO?: string,
 ): CognitiveEvent {
   // A routine sighting is low priority for thought (catalog priors); the world model still records it.
-  return m3ganEvent(
+  return coreEvent(
     source,
     "world.observed",
     { observation },

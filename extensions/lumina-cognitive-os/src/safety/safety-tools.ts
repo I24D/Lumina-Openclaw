@@ -37,7 +37,7 @@ export function createSafetyTool(kernel: SafetyKernel, audit: AuditLog): AnyAgen
       "emergency stop and physical actions waiting for confirmation; 'audit' shows recent safety records; " +
       "'verify' re-checks the tamper-evident audit chain from storage. 'pause', 'stop_motion', 'cancel_task', " +
       "'disable_autonomy' and 'disable_capability' obey a person at once. Resuming or re-enabling is not " +
-      "possible from here: tell the user it is done from the M3GAN tab of the Control UI by the owner.",
+      "possible from here: tell the user it is done from the Lumina tab of the Control UI by the owner.",
     parameters: Type.Object({
       action: Type.Union(SAFETY_ACTIONS.map((a) => Type.Literal(a))),
       capability: Type.Optional(

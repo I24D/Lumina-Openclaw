@@ -1,7 +1,7 @@
 /**
  * safety-kernel.ts — The authority above the cognitive layer.
  *
- * M3GAN spec §28: a supervisor independent of the main model that can allow,
+ * Lumina spec §28: a supervisor independent of the main model that can allow,
  * modify, deny or stop, and that the "cortex" cannot reprogram. The body
  * review itself lives in embodiment/safety-supervisor.ts; this module owns the
  * rest of the kernel and wires its parts together:

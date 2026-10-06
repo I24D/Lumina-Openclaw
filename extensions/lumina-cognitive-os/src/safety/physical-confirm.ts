@@ -1,7 +1,7 @@
 /**
  * physical-confirm.ts — Approve a physical action with the real keyboard.
  *
- * M3GAN spec §44 and §143. The M3GAN tab confirms physical actions over an
+ * Lumina spec §44 and §143. The Lumina tab confirms physical actions over an
  * operator session, which software driving a browser could in principle reach.
  * This channel cannot be driven by software: the `physical_confirm.py` sidecar
  * listens to Windows' low-level keyboard hook and ignores injected key presses,

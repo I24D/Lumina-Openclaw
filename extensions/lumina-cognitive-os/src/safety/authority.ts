@@ -1,7 +1,7 @@
 /**
  * authority.ts — Who may ask for what, and who wins when requests collide.
  *
- * M3GAN spec §23, §32, §144, §145. The film's failure was a single "primary
+ * Lumina spec §23, §32, §144, §145. The film's failure was a single "primary
  * user" plus an objective of "protect her at any cost". This module replaces
  * both with explicit, deterministic rules:
  *

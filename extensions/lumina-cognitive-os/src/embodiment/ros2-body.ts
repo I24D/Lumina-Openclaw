@@ -2,7 +2,7 @@ import type { BodyMode } from "../contracts/self-model.js";
 /**
  * ros2-body.ts — A body adapter that drives a ROS 2 robot through rosbridge.
  *
- * M3GAN spec §24 (robotics middleware: ROS 2, Nav2, MoveIt) and §154 (embodied
+ * Lumina spec §24 (robotics middleware: ROS 2, Nav2, MoveIt) and §154 (embodied
  * simulation with Gazebo or Isaac). Speaks the rosbridge JSON protocol over a
  * WebSocket, so nothing ROS has to be installed on this machine:
  *   - navigate_to / follow: a goal pose on `/goal_pose` (Nav2's simple goal),

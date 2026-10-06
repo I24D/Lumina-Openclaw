@@ -1,7 +1,7 @@
 /**
  * affordances.ts — What a thing lets you do with it, roughly.
  *
- * M3GAN spec §122: cup → can contain, chair → can sit, door → can open,
+ * Lumina spec §122: cup → can contain, chair → can sit, door → can open,
  * switch → can toggle. An affordance says an action is possible, never that it
  * should happen: the safety supervisor still reviews every intent, and a
  * physically possible action needs the same autonomy and consent as any other

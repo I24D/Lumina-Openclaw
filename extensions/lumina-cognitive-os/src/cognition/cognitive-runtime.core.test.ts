@@ -1,5 +1,5 @@
 /**
- * End-to-end tests for the M3GAN additions, driven through the runtime's tools.
+ * End-to-end tests for the cognitive core's additions, driven through the runtime's tools.
  */
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AwarenessEventBus } from "../awareness/event-bus.js";
-import { m3ganEvent } from "../events/catalog.js";
+import { coreEvent } from "../events/catalog.js";
 import type { WorkingMemory } from "../memory/working-memory.js";
 import type { PerceptionEvent } from "../perception/perception-process.js";
 import type { AnyAgentTool } from "../shared/tool-result.js";
@@ -31,7 +31,7 @@ const working: WorkingMemory = {
 };
 
 const start = (extra: Partial<CognitiveRuntimeOptions> = {}) => {
-  const memoryDir = fs.mkdtempSync(path.join(os.tmpdir(), "lumina-m3gan-"));
+  const memoryDir = fs.mkdtempSync(path.join(os.tmpdir(), "lumina-core-"));
   dirs.push(memoryDir);
   return createCognitiveRuntime({
     memoryDir,
@@ -85,7 +85,7 @@ describe("privacy through the runtime", () => {
     await call(runtime.tools, "lumina_privacy", { action: "stop_camera" });
     expect(stopCamera).toHaveBeenCalledOnce();
     const result = runtime.router.ingest(
-      m3ganEvent("camera", "person.detected", { label: "Dal", confidence: 0.9 }),
+      coreEvent("camera", "person.detected", { label: "Dal", confidence: 0.9 }),
     );
     expect(result.dropped).toBe(true);
 
@@ -153,7 +153,7 @@ describe("safety and explanations through the runtime", () => {
     const runtime = start({ notify });
     await runtime.ready;
     runtime.router.ingest(
-      m3ganEvent("vision", "danger.detected", {
+      coreEvent("vision", "danger.detected", {
         hazard: "humo en la cocina",
         severity: "high",
         confidence: 0.9,

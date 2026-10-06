@@ -3,7 +3,7 @@
  *
  * "¿Qué has aprendido de lo que pasó?" Runs reflection over the audit and the
  * loop's recent cycles and returns findings and proposed lessons. It learns
- * nothing by itself: a person accepts a lesson in the M3GAN tab.
+ * nothing by itself: a person accepts a lesson in the Lumina tab.
  */
 import { Type } from "typebox";
 import { jsonResult, type AnyAgentTool } from "../../shared/tool-result.js";
@@ -16,7 +16,7 @@ export function createReflectTool(reflection: ReturnType<typeof createReflection
     description:
       "Look back at what happened: actions that keep being refused, failures that repeat, proposals that " +
       "keep coming back unanswered. 'run' reflects now; 'latest' returns the last report. Proposed lessons " +
-      "are not learned until the owner accepts them in the M3GAN tab; tell the person what you would learn.",
+      "are not learned until the owner accepts them in the Lumina tab; tell the person what you would learn.",
     parameters: Type.Object({
       action: Type.Union([Type.Literal("run"), Type.Literal("latest")], { default: "latest" }),
     }),

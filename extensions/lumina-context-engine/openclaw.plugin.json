@@ -29,7 +29,7 @@
       "cognitiveCore": {
         "type": "boolean",
         "default": true,
-        "description": "Tell each run what the M3GAN cognitive core can do and its safety rules, when its tools are loaded."
+        "description": "Tell each run what Lumina's cognitive core can do and its safety rules, when its tools are loaded."
       }
     }
   }

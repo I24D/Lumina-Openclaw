@@ -4,7 +4,7 @@
  * The plugin's perception sidecar already watches the screen (window in
  * front, large visual changes, its own errors). This adapter turns those into
  * catalogued events, the way awareness-bridge.ts does for the environment, so
- * the cognitive core "sees the screen" (M3GAN VIRTUAL, spec §87) through the
+ * the cognitive core "sees the screen" (Lumina virtual, spec §87) through the
  * same door as every other sense.
  *
  * Window titles and screen content can come from web pages and other people's
@@ -13,7 +13,7 @@
  * Heartbeats and lifecycle events are not cognition and are not forwarded;
  * sidecar errors become subsystem health events.
  */
-import { m3ganEvent } from "../../events/catalog.js";
+import { coreEvent } from "../../events/catalog.js";
 import type { PerceptionEvent } from "../../perception/perception-process.js";
 import type { ThalamicRouter } from "../router/thalamic-router.js";
 
@@ -30,7 +30,7 @@ export function attachScreenPerception(
       switch (ev.kind) {
         case "foreground":
           router.ingest(
-            m3ganEvent(
+            coreEvent(
               "screen",
               "screen.foreground",
               { process: ev.process, title: ev.title },
@@ -44,7 +44,7 @@ export function attachScreenPerception(
         case "frame":
           if (ev.changedRatio >= SCREEN_CHANGE_THRESHOLD) {
             router.ingest(
-              m3ganEvent(
+              coreEvent(
                 "screen",
                 "screen.changed",
                 { changedRatio: Math.min(1, ev.changedRatio) },
@@ -58,7 +58,7 @@ export function attachScreenPerception(
           break;
         case "error":
           router.ingest(
-            m3ganEvent(
+            coreEvent(
               "screen",
               "subsystem.health",
               { subsystem: "screen-perception", status: "degraded", detail: ev.message },

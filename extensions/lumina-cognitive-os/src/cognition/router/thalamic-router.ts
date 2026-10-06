@@ -4,7 +4,7 @@ import { AttentionQueue, type InterruptDecision, type QueuedEvent } from "../att
  *
  * Producers (environment awareness, vision, audio, chat, calendar, a body)
  * hand a `CognitiveEvent` to `ingest()` and are done: they never call each
- * other, and they never call the cognitive loop (M3GAN spec §3.3, "no acoplar
+ * other, and they never call the cognitive loop (Lumina spec §3.3, "no acoplar
  * servicios directamente entre sí").
  *
  * The router does three things with each event:

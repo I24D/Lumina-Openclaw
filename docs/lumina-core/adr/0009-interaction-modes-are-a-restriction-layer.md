@@ -22,8 +22,8 @@ person's order from the mode's.
   own pause, so a refusal never claims a person paused Lumina.
 - Entering child or maintenance mode only narrows, so the agent may do it (`lumina_mode`). Leaving
   them and entering companion mode widen what Lumina does, so only the owner channel can
-  (`m3gan.mode`, the Control UI's M3GAN tab, `operator.write`).
-- The mode is durable (`m3gan.mode`). Until it has loaded, the strictest restrictions apply.
+  (`lumina.core.mode`, the Control UI's Lumina tab, `operator.write`).
+- The mode is durable (store `m3gan.mode`). Until it has loaded, the strictest restrictions apply.
 - Leaving child mode records an activity summary for the guardian, built from the audit.
 
 ## Consequences

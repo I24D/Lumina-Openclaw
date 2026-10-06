@@ -1,7 +1,7 @@
 /**
  * core-probes.ts — The brainstem's checks on the cognitive core itself.
  *
- * M3GAN spec §3.1 and §124 (self-diagnostics): awareness, network, energy,
+ * Lumina spec §3.1 and §124 (self-diagnostics): awareness, network, energy,
  * durable stores, the audit chain, the body, privacy and the model, each
  * checked without a language model. Sensors and safeguards bring their own
  * probes; the runtime puts them all on one brainstem.

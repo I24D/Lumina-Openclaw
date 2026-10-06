@@ -1,16 +1,16 @@
-// Shapes of the lumina-cognitive-os gateway methods the M3GAN tab reads. The
+// Shapes of the lumina-cognitive-os gateway methods the Lumina tab reads. The
 // plugin owns them (dashboard/owner-channel.ts); only the fields shown here.
 
 import type { MascotMood } from "../../components/mascot-pose.ts";
 
-export type M3ganWorldNode = {
+export type CoreWorldNode = {
   id: string;
   label: string;
   kind: string;
-  children: M3ganWorldNode[];
+  children: CoreWorldNode[];
 };
 
-export type M3ganPerson = {
+export type LuminaCorePerson = {
   id: string;
   name: string;
   role: string;
@@ -19,7 +19,7 @@ export type M3ganPerson = {
   consent: { faceRecognition: boolean; voiceRecognition: boolean; recording: boolean };
 };
 
-export type M3ganSubsystem = {
+export type LuminaCoreSubsystem = {
   name: string;
   status: string;
   detail: string;
@@ -27,10 +27,10 @@ export type M3ganSubsystem = {
   critical: boolean;
 };
 
-export const M3GAN_MODES = ["normal", "child", "companion", "maintenance"] as const;
-export type M3ganMode = (typeof M3GAN_MODES)[number];
+export const LUMINA_CORE_MODES = ["normal", "child", "companion", "maintenance"] as const;
+export type LuminaCoreMode = (typeof LUMINA_CORE_MODES)[number];
 
-export type M3ganStatePayload = {
+export type CoreStatePayload = {
   version: string;
   /** The plugin's expressions are a subset of the mascot's moods; functional state, never a feeling. */
   expression?: { expression: MascotMood; reason: string };
@@ -69,16 +69,16 @@ export type M3ganStatePayload = {
   privacy: { camera: boolean; microphone: boolean; privateMode: boolean; recording: boolean };
   /** Older cores do not report an interaction mode. */
   mode?: {
-    mode: M3ganMode;
+    mode: LuminaCoreMode;
     sinceISO: string;
     by: string;
     lastSummary?: string;
     restrictions: { paused: boolean; disabledCapabilities: string[] };
   };
-  people: M3ganPerson[];
+  people: LuminaCorePerson[];
   presence: { present: Array<{ name: string; speaking?: boolean }> };
-  world: M3ganWorldNode[];
-  health: { overall: string; beats: number; subsystems: M3ganSubsystem[] };
+  world: CoreWorldNode[];
+  health: { overall: string; beats: number; subsystems: LuminaCoreSubsystem[] };
   energy: { detail: string };
   robot: unknown;
   /** What the body adapter reports (engine, pose, grip) when it is a simulator. */
@@ -131,13 +131,13 @@ export type M3ganStatePayload = {
     performance: { routerEventsPerSecond: number; loopP50Ms: number; loopP95Ms: number };
   } | null;
   sensors?: {
-    camera?: M3ganSensorStatus;
-    microphone?: M3ganSensorStatus;
+    camera?: LuminaCoreSensorStatus;
+    microphone?: LuminaCoreSensorStatus;
     templates: Array<{ personId: string; modality: "face" | "voice"; samples: number }>;
   };
 };
 
-export type M3ganSensorStatus = {
+export type LuminaCoreSensorStatus = {
   running: boolean;
   allowed: boolean;
   present: Array<{ personId: string; name: string }>;
@@ -146,11 +146,18 @@ export type M3ganSensorStatus = {
   lastError?: string;
 };
 
-export type M3ganTab = "live" | "safety" | "people" | "world" | "health" | "robot" | "developer";
+export type LuminaCoreTab =
+  | "live"
+  | "safety"
+  | "people"
+  | "world"
+  | "health"
+  | "robot"
+  | "developer";
 
-export type M3ganUiState = {
-  tab: M3ganTab;
-  state: M3ganStatePayload | null;
+export type LuminaCoreUiState = {
+  tab: LuminaCoreTab;
+  state: CoreStatePayload | null;
   loading: boolean;
   error: string | null;
   /** Command in flight; buttons stay disabled until it settles. */

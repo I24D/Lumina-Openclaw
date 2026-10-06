@@ -22,7 +22,7 @@ export type PlanStep = {
   readonly description: string;
   /** Pre-classified risk so the user knows what's coming. */
   readonly risk?: "SAFE" | "WARNING" | "HIGH_RISK" | "CRITICAL";
-  // M3GAN spec §15: each action declares what must hold, what should happen,
+  // Lumina spec §15: each action declares what must hold, what should happen,
   // how sure the planner is, and how to undo it. Optional so existing plans
   // stay valid; missing fields are reported as warnings.
   /** The subgoal this step serves, e.g. "localizar taza" under "preparar café". */
@@ -212,7 +212,7 @@ export const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   // Transparency panel — audit stream published to the UI
   "lumina_transparency_publish",
   "lumina_transparency_recent",
-  // Cognitive core (M3GAN) — workspace, self model, goals, world model, body
+  // Cognitive core — workspace, self model, goals, world model, body
   "lumina_workspace",
   "lumina_self_model",
   "lumina_goal",

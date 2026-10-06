@@ -49,11 +49,11 @@ Lumina can now turn a brief into persistent, inspectable OpenDesign artifacts fr
 
 See [Lumina Design and OpenDesign](docs/LUMINA_OPEN_DESIGN.md) for installation, architecture, security policy, validation, and troubleshooting.
 
-### M3GAN REAL cognitive core
+### Lumina's cognitive core
 
-The `lumina-cognitive-os` extension carries the cognitive core for M3GAN REAL, the embodied agent built on Lumina: a thalamic router with an attention queue and preemption, a world model whose beliefs decay with time, a global workspace, a self model, people with roles and consent, privacy states a person controls, a brainstem that watches health without any model, a safety kernel whose invariants are code, and a body layer where the language model can only express intents and a safety supervisor decides what moves. The M3GAN tab in the Control UI is the owner's dashboard.
+The `lumina-cognitive-os` extension carries Lumina's cognitive core, the path from an assistant on a PC to an embodied agent with one identity: a thalamic router with an attention queue and preemption, a world model whose beliefs decay with time and know what things afford, a global workspace, a self model, people with roles and consent, webcam and microphone recognition only with consent, privacy states a person controls, interaction modes for children, companionship and maintenance, a brainstem that watches health without any model, a safety kernel whose invariants are code, and a body layer where the language model can only express intents and a safety supervisor decides what moves (simulated with MuJoCo or ROS 2). The Lumina tab in the Control UI is the owner's dashboard. The film M3GAN is the conceptual reference of the master specification; the AI is Lumina.
 
-See [Project M3GAN REAL](docs/m3gan/PROJECT_M3GAN_REAL.md) for the overview, then the [architecture](docs/m3gan/ARCHITECTURE.md), [roadmap](docs/m3gan/ROADMAP.md), [tasks](docs/m3gan/TASKS.md), [section map](docs/m3gan/SECTION_MAP.md) and [decision records](docs/m3gan/adr/). The live checkpoint is [M3GAN_STATUS.md](M3GAN_STATUS.md).
+See the [project overview](docs/lumina-core/PROJECT.md), then the [architecture](docs/lumina-core/ARCHITECTURE.md), [roadmap](docs/lumina-core/ROADMAP.md), [tasks](docs/lumina-core/TASKS.md), [section map](docs/lumina-core/SECTION_MAP.md) and [decision records](docs/lumina-core/adr/). The live checkpoint is [LUMINA_STATUS.md](LUMINA_STATUS.md).
 
 ```bash
 # macOS / Linux / WSL2

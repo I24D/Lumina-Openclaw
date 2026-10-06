@@ -1,7 +1,7 @@
 /**
  * biometrics.ts — Face and voice templates, kept only with consent.
  *
- * M3GAN spec §4.4 (relational memory: face and voice embeddings), §7, §8 and
+ * Lumina spec §4.4 (relational memory: face and voice embeddings), §7, §8 and
  * §97 to §99 (privacy and local data control). A template is stored only for
  * a person whose consent for that modality the owner granted
  * (`PeopleRegistry.canRecognize`), and consent is checked again every time the
@@ -97,7 +97,7 @@ export class BiometricGallery {
     if (!this.people.canRecognize(personId, modality)) {
       return {
         ok: false,
-        reason: `${modality} recognition needs the person's consent, granted by the owner in the M3GAN tab.`,
+        reason: `${modality} recognition needs the person's consent, granted by the owner in the Lumina tab.`,
       };
     }
     if (

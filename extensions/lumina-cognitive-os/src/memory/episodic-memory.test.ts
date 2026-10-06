@@ -18,19 +18,19 @@ afterEach(() => {
 describe("EpisodicMemoryStore durable state", () => {
   it("migrates legacy JSONL once and reloads from the keyed store", async () => {
     const legacy = new EpisodicMemoryStore(dir);
-    const episode = legacy.remember({ kind: "intent", summary: "seguir M3GAN", tags: ["m3gan"] });
+    const episode = legacy.remember({ kind: "intent", summary: "seguir LUMINA", tags: ["lumina"] });
     const store = new MemoryStateStore<Episode>();
 
     const migrated = new EpisodicMemoryStore({ dir, store });
     await migrated.ready;
     await migrated.flush();
 
-    expect(migrated.recall({ tags: ["m3gan"] })[0]?.id).toBe(episode.id);
+    expect(migrated.recall({ tags: ["lumina"] })[0]?.id).toBe(episode.id);
     expect(fs.existsSync(path.join(dir, "episodic.jsonl.migrated"))).toBe(true);
 
     const restarted = new EpisodicMemoryStore({ dir, store });
     await restarted.ready;
-    expect(restarted.recall({ substring: "M3GAN" })[0]?.id).toBe(episode.id);
+    expect(restarted.recall({ substring: "LUMINA" })[0]?.id).toBe(episode.id);
   });
 
   it("forgets a session from memory and durable storage", async () => {

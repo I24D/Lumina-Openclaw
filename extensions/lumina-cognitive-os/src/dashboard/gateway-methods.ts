@@ -1,7 +1,7 @@
 /**
  * gateway-methods.ts — The owner channel as gateway RPC methods.
  *
- * The Control UI's M3GAN tab renders natively and calls these over its
+ * The Control UI's Lumina tab renders natively and calls these over its
  * authenticated gateway session, like the Logbook tab. Reads need
  * operator.read; every command needs operator.write. The state is the
  * process-wide cognitive core, so no method touches a user's profile.
@@ -15,7 +15,7 @@ import {
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import {
   createOwnerCommands,
-  m3ganState,
+  coreState,
   OwnerChannelError,
   type OwnerChannelDeps,
 } from "./owner-channel.js";
@@ -33,19 +33,19 @@ function handler(run: (params: Readonly<Record<string, unknown>>) => unknown) {
   };
 }
 
-export function registerM3ganGatewayMethods(
+export function registerCoreGatewayMethods(
   api: Pick<OpenClawPluginApi, "registerGatewayMethod">,
   deps: OwnerChannelDeps,
 ): void {
   const options = (scope: "operator.read" | "operator.write") =>
     ({ scope, profileAccess: "independent" }) as const;
   api.registerGatewayMethod(
-    "m3gan.state",
-    handler(() => m3ganState(deps)),
+    "lumina.core.state",
+    handler(() => coreState(deps)),
     options("operator.read"),
   );
   api.registerGatewayMethod(
-    "m3gan.audit.verify",
+    "lumina.core.audit.verify",
     handler(() => deps.runtime.safety.verifyStoredAudit()),
     options("operator.read"),
   );

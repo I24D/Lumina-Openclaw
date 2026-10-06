@@ -1,15 +1,15 @@
 /**
- * health-http.ts — /health, /ready and /version for the M3GAN core (spec §112).
+ * health-http.ts — /health, /ready and /version for Lumina's cognitive core (spec §112).
  *
  * Plain HTTP so supervisors and scripts can probe the core without a gateway
  * session client; served behind gateway authentication like every plugin
  * route. Everything a person sees or decides goes through the Control UI's
- * M3GAN tab and the gateway methods in gateway-methods.ts instead.
+ * Lumina tab and the gateway methods in gateway-methods.ts instead.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { CognitiveRuntime } from "../cognition/cognitive-runtime.js";
 
-export const M3GAN_HEALTH_PATH = "/plugins/lumina-cognitive-os/m3gan";
+export const CORE_HEALTH_PATH = "/plugins/lumina-cognitive-os/core";
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -21,7 +21,7 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
-export function createM3ganHealthHandler(params: {
+export function createCoreHealthHandler(params: {
   readonly runtime: CognitiveRuntime;
   readonly version: string;
 }) {
@@ -33,14 +33,14 @@ export function createM3ganHealthHandler(params: {
 
   return async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
     const url = new URL(req.url ?? "/", "http://localhost");
-    if (!url.pathname.startsWith(M3GAN_HEALTH_PATH)) {
+    if (!url.pathname.startsWith(CORE_HEALTH_PATH)) {
       return false;
     }
     if (req.method !== "GET") {
       sendJson(res, 405, { error: "method not allowed" });
       return true;
     }
-    switch (url.pathname.slice(M3GAN_HEALTH_PATH.length)) {
+    switch (url.pathname.slice(CORE_HEALTH_PATH.length)) {
       case "/health": {
         const health = runtime.brainstem.status();
         sendJson(res, health.overall === "down" ? 503 : 200, {
