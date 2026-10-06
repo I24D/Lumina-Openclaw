@@ -36,6 +36,10 @@ describe("resolveCognitiveSettings", () => {
       grantedCapabilities: [],
       preAuthorizedCapabilities: [],
       ownerName: "Dal",
+      perception: expect.objectContaining({ camera: false, voice: false, cameraFps: 1 }),
+      physicalConfirmation: false,
+      bodySimulator: "symbolic",
+      ros2: { url: "ws://127.0.0.1:9090", places: {} },
     });
   });
 
@@ -103,7 +107,7 @@ describe("startCognitiveCore", () => {
     const registered: string[] = [];
     const core = startCognitiveCore(deps({}, (t) => registered.push(t.name)));
 
-    expect(registered).toHaveLength(13);
+    expect(registered).toHaveLength(18);
     expect(core?.selfModel().activeModel).toBe("ollama-cloud/glm-5.2");
     core?.dispose();
   });
@@ -158,23 +162,33 @@ describe("hostDeps", () => {
     const registerHttpRoute = vi.fn();
     const registerGatewayMethod = vi.fn();
     const registerControlUiDescriptor = vi.fn();
+    const on = vi.fn();
+    const enqueueSystemEvent = vi.fn(() => true);
+    const requestHeartbeat = vi.fn();
     const services: Array<{ id: string; start: () => void }> = [];
     return {
       api: {
         registrationMode,
         pluginConfig: {},
         config: {},
-        runtime: { state: { openKeyedStore } },
+        runtime: {
+          state: { openKeyedStore },
+          system: { enqueueSystemEvent, requestHeartbeat },
+        },
         logger: { info: vi.fn(), warn: vi.fn() },
         registerHttpRoute,
         registerGatewayMethod,
         registerService: (service: { id: string; start: () => void }) => services.push(service),
         session: { controls: { registerControlUiDescriptor } },
+        on,
       } as unknown as Parameters<typeof hostDeps>[0],
       openKeyedStore,
       registerHttpRoute,
       registerGatewayMethod,
       registerControlUiDescriptor,
+      on,
+      enqueueSystemEvent,
+      requestHeartbeat,
       services,
     };
   };
@@ -202,7 +216,27 @@ describe("hostDeps", () => {
       "m3gan.state",
     );
     expect(live.registerControlUiDescriptor.mock.calls[0]?.[0]).not.toHaveProperty("path");
+    // Child mode's guidance and screen ride on the conversation hooks.
+    expect(live.on.mock.calls.map(([hook]) => hook)).toEqual([
+      "before_prompt_build",
+      "before_agent_finalize",
+      "reply_payload_sending",
+      "message_sending",
+    ]);
     core?.dispose();
+  });
+
+  it("wakes the owner's agent by its full session key, never the ambiguous bare main", () => {
+    const live = api("full");
+    hostDeps(live.api).initiative?.({ key: "greet-owner", text: "Dal just arrived." });
+    expect(live.enqueueSystemEvent).toHaveBeenCalledWith("[M3GAN] Dal just arrived.", {
+      sessionKey: "agent:main:main",
+      contextKey: "m3gan:greet-owner",
+      replace: true,
+    });
+    expect(live.requestHeartbeat).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionKey: "agent:main:main", intent: "immediate" }),
+    );
   });
 
   it("keeps discovery loads session-only, so two processes never share a log", () => {
@@ -211,6 +245,7 @@ describe("hostDeps", () => {
       expect(deps.live).toBe(false);
       expect(deps.openStore).toBeUndefined();
       expect(deps.dashboard).toBeUndefined();
+      expect(deps.conversationHooks).toBeUndefined();
     }
   });
 });

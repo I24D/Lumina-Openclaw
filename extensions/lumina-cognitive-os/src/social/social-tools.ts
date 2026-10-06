@@ -9,8 +9,10 @@
  * kept as estimates with provenance, never as facts.
  */
 import { Type } from "typebox";
+import type { Recognition } from "../perception/recognition.js";
 import { jsonResult, ToolInputError, type AnyAgentTool } from "../shared/tool-result.js";
 import { estimateAffect } from "./affect.js";
+import { BIOMETRIC_MODALITIES, type BiometricModality } from "./biometrics.js";
 import type { PeopleRegistry, PersonInput } from "./people.js";
 import type { PresenceState } from "./presence.js";
 import {
@@ -20,11 +22,20 @@ import {
   type MindStance,
 } from "./theory-of-mind.js";
 
-const PEOPLE_ACTIONS = ["list", "get", "remember", "presence"] as const;
+const PEOPLE_ACTIONS = [
+  "list",
+  "get",
+  "remember",
+  "presence",
+  "enroll",
+  "forget_template",
+  "sensors",
+] as const;
 
 export function createPeopleTool(
   people: PeopleRegistry,
   presence: () => PresenceState,
+  recognition?: Recognition,
 ): AnyAgentTool {
   return {
     name: "lumina_people",
@@ -32,8 +43,10 @@ export function createPeopleTool(
     description:
       "People Lumina knows. 'remember' records or updates someone by name (aliases, relationship, preferences, " +
       "communication style, language, knowledge level, routine, important dates, a note); 'get' and 'list' read; " +
-      "'presence' says who is here and who is speaking. Roles, recognition consent and forgetting someone are " +
-      "the owner's decisions in the dashboard.",
+      "'presence' says who is here and who is speaking. 'enroll' learns a person's face (modality 'face': one " +
+      "face in front of the camera) or voice ('voice': two seconds of their speech), only if the owner granted that " +
+      "consent; 'forget_template' deletes it; 'sensors' says whether the camera and microphone are on and who they " +
+      "recognize. Roles, recognition consent and forgetting someone are the owner's decisions in the M3GAN tab.",
     parameters: Type.Object({
       action: Type.Union(PEOPLE_ACTIONS.map((a) => Type.Literal(a))),
       name: Type.Optional(Type.String({ maxLength: 80 })),
@@ -57,9 +70,20 @@ export function createPeopleTool(
       ),
       note: Type.Optional(Type.String({ maxLength: 400 })),
       worldEntityId: Type.Optional(Type.String({ maxLength: 128 })),
+      modality: Type.Optional(Type.Union(BIOMETRIC_MODALITIES.map((m) => Type.Literal(m)))),
     }),
     async execute(_id, rawParams) {
-      const p = rawParams as { action: (typeof PEOPLE_ACTIONS)[number] } & Partial<PersonInput>;
+      const p = rawParams as {
+        action: (typeof PEOPLE_ACTIONS)[number];
+        modality?: BiometricModality;
+      } & Partial<PersonInput>;
+      const named = () => {
+        const person = p.name ? people.find(p.name) : undefined;
+        if (!person) {
+          throw new ToolInputError(`No one called ${p.name ?? "(no name)"} is known.`);
+        }
+        return person;
+      };
       switch (p.action) {
         case "list":
           return jsonResult({ ok: true, people: people.list() });
@@ -80,6 +104,31 @@ export function createPeopleTool(
             ? jsonResult({ ok: true, person: r.person })
             : jsonResult({ ok: false, error: r.reason });
         }
+        case "enroll": {
+          if (!recognition || !p.modality) {
+            throw new ToolInputError(
+              recognition ? "modality is face or voice" : "No recognizing sensors here.",
+            );
+          }
+          const person = named();
+          return jsonResult({
+            person: person.name,
+            ...(await recognition.enroll(person.id, p.modality)),
+          });
+        }
+        case "forget_template": {
+          if (!recognition) {
+            throw new ToolInputError("No recognizing sensors here.");
+          }
+          const person = named();
+          return jsonResult({
+            ok: true,
+            person: person.name,
+            removed: recognition.forget(person.id, p.modality),
+          });
+        }
+        case "sensors":
+          return jsonResult({ ok: true, sensors: recognition?.status() ?? null });
         default:
           throw new ToolInputError(`action must be one of: ${PEOPLE_ACTIONS.join(", ")}`);
       }

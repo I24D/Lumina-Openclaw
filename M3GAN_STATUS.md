@@ -5,7 +5,7 @@ at the end of each significant cycle, so a new session can rebuild what exists, 
 missing, what was in progress, what was decided and what blocks (§162). Details live in
 `docs/m3gan/`.
 
-Updated: 2026-10-05 11:45 America/New_York, by Claude Code.
+Updated: 2026-10-06 America/New_York, by Claude Code.
 
 ## CURRENT VERSION
 
@@ -16,62 +16,78 @@ Updated: 2026-10-05 11:45 America/New_York, by Claude Code.
 
 ## WORKING
 
-Active in the live gateway since 2026-10-05 (`plugins.allow` + `plugins.entries`, body simulated,
-autonomy L3, owner Dal). Verified live at 11:45: the plugin loads at startup, durable state
-survives restarts (the audit chain kept growing across three restarts, 9 entries, intact),
-`m3gan.state` answers over the gateway, `/health` reports `ok` with every probe green (network
-online, battery charging at 100%), and `lumina_plan_run` with 126 `lumina_*` tools is in the
-agent's catalog. Verified by tests: 532 passing across the cognitive-os, context-engine and
-supabase suites, plus the Control UI tests; tsgo for extensions, extension tests and the UI with 0
-errors; oxlint, oxfmt, stylelint and lit-analyzer clean.
+Active in the live gateway since 2026-10-05 (`plugins.allow` + `plugins.entries`, body simulated
+on MuJoCo, autonomy L3, owner Dal, camera and voice perception on, keyboard confirmation on).
+Verified by tests: 591 cognitive-os tests plus the context-engine and Control UI tests; tsgo for
+extensions, extension tests and the UI with 0 errors; oxlint and oxfmt clean.
 
 - Cognitive core: thalamic router with a privacy gate, attention queue with preemption, serial
-  cognitive loop (untrusted events only proposed), global workspace, self model.
-- World model, goals, lessons and episodic memory on SQLite plugin state.
-- Safety kernel: invariants as code, authority hierarchy, human overrides (tools narrow, people
-  widen), danger protocol, hash-chained audit log, safe state.
-- Privacy states, brainstem (8 probes, energy policy), people with roles and consent, presence,
-  theory of mind and affect estimates, consolidation on a timer.
-- Body: supervisor aware of people, pauses, disabled capabilities and battery; behaviors, handover
-  protocol, `predict()`, teleoperation by role; all against the simulated desktop robot (MOCK).
-- Plans: `lumina_action_plan` validates hierarchical plans, `lumina_plan_run` walks them step by
-  step under the safety gate with ordered rollback.
-- The M3GAN tab renders natively in the Control UI over `m3gan.*` gateway methods.
+  cognitive loop (untrusted events only proposed), global workspace, self model with the
+  interaction mode among its limits.
+- Situational reasoner: greets the owner, reports unknown people, low battery and subsystems down;
+  asks about unknown things only with someone present (curiosity, `knowledge.gap`); companion
+  check-ins. At L3 these reach the agent as proposals; at L4+ reversible ones run.
+- Perception: webcam faces (YuNet + SFace) and objects (YOLOX, COCO) and microphone voices
+  (Silero VAD + WeSpeaker) in Python sidecars, each running only while its privacy state is on;
+  recognition only with consent; objects become world sightings that affordances understand.
+- World model with affordances (what a thing lets you do, never a reason to do it), goals, lessons,
+  episodic memory, recorder metadata, practice items and model hashes on SQLite plugin state.
+- Safety kernel: invariants as code, authority hierarchy, a person's overrides (tools narrow,
+  people widen), interaction modes as a separate restriction layer (ADR 0009), danger protocol,
+  hash-chained audit log with external checkpoints, real-keyboard confirmation, safe state.
+- Body: supervisor aware of people, pauses, modes, disabled capabilities, battery and affordances;
+  behaviors, handover, teleoperation by role; symbolic robot, MuJoCo physics or ROS 2 (rosbridge).
+- Learning: reflection proposes lessons a person accepts; practice book with spaced review and
+  corrections for teaching and languages.
+- Evaluation: 15 sandboxed scenarios plus router and loop performance (`lumina_evaluate`).
+- Provenance: perception models registered with source, licence, version, purpose and a pinned
+  SHA-256, re-checked every 6 hours (`lumina_artifacts`).
+- The M3GAN tab renders natively in the Control UI over `m3gan.*` gateway methods, with modes,
+  sensors, evaluation, reflection and models.
 
 ## PARTIAL
 
-- People are remembered without face or voice recognition; no camera pipeline into the core.
+- Pronunciation is judged by the agent from what it heard; no acoustic scoring.
+- Child-mode content screening is a word list (English and Spanish), not a classifier; voice
+  replies spoken live by Start Talk do not pass through it.
 - The M3GAN tab is in English for other locales until `pnpm ui:i18n:sync` runs (task 22).
-- Recorder sessions still rewrite JSONL files (task 21).
+- Backups: covered by `openclaw backup`; scheduling them is Dal's choice (archives hold credentials).
 
 ## BROKEN
 
-Nothing known in the M3GAN code. Fixed this cycle: durable stores opened during registration were
-session-only in production; every awareness query failed on Windows PowerShell 5.1 (leading pipe),
-so battery, network, disks, devices, GPU and monitors were empty and the brainstem reported the
-machine offline; plan ids collided within one millisecond; `lumina_whatsapp_respond` had no
-manifest contract and was dropped.
+Nothing known. Fixed this cycle: no Python sidecar of the plugin could start from the built
+gateway (the bundle looked for `dist/sidecars`, which never existed), so the webcam, microphone,
+keyboard confirmation, MuJoCo body, wake word, recorder and code runner were dead in production and
+the confirmation probe still said ready; the sidecars now ship next to the bundle, a failing one
+backs off instead of respawning every second, and its last stderr line explains why. No initiative
+had ever reached the agent either: with several agents configured, the bare `main` session key is
+ambiguous, so every one was refused; they now go to the owner's agent by its full key
+(`ownerAgentId`, default `main`). Also: the self model reported the microphone as never connected and the
+camera as available only with a simulated robot, although the recognizing sensors were running;
+Codex found that core probes called a missing, stale or future snapshot healthy and that a person
+could be given an object's affordances through a label; a draft of the interaction modes would
+have re-enabled a capability a person switched off during the mode.
 
 ## PLANNED
 
-Camera pipeline and authorized recognition, speaker identification, avatar from the workspace, a
-reasoner over loop proposals, reflection, ROS 2 bridge, physics simulator, external audit
-checkpoint, physical confirmation channel, evaluation suites, benchmarks. Hardware is not available
+Reinforcement learning in simulation only (task 25) and acoustic pronunciation scoring (task 27). Hardware is not available
 (MOCK and INTERFACE ONLY where it applies). See `docs/m3gan/TASKS.md` and `docs/m3gan/ROADMAP.md`.
 
 ## CURRENT TASK
 
-None in progress. Deployed and verified; reload the Control UI browser tab once to load the new
-UI build with the M3GAN tab.
+Claude Code: build, restart and verify this cycle live, then publish.
+ChatGPT-LUMINA: task 22 (translations). Task 21 is done (`66c74d34954`).
 
 ## NEXT TASKS
 
-1. Codex: tasks 8 to 11, 14 to 16, 19 to 22 in `docs/m3gan/TASKS.md`.
-2. Claude Code: tasks 12, 13, 17 and 18, and review of Codex's work.
+1. Dal: approve or decline task 23 (the Supabase audit-checkpoint table).
+2. Codex: tasks 25 and 27 in `docs/m3gan/TASKS.md`.
+3. Claude Code: the next open item in the section map.
 
 ## BLOCKERS
 
 - No robot hardware: body paths are simulated.
+- The Supabase table for audit checkpoints needs Dal's approval (task 23).
 - The Control UI translation baseline already drifted before M3GAN (`pnpm ui:i18n:check`).
 
 ## RECENT DECISIONS
@@ -80,14 +96,18 @@ ADRs in `docs/m3gan/adr/`: 0001 build inside `lumina-cognitive-os`; 0002 safety 
 durable state in SQLite plugin state, opened only by the live gateway once its service starts;
 0004 the owner's channel is the Control UI's M3GAN tab; 0005 the model emits intents, never motor
 commands; 0006 untrusted content never executes; 0007 one owner per tool name and side effects
-only in the live gateway; 0008 the M3GAN tab is a native Control UI view (no separate UI).
+only in the live gateway; 0008 the M3GAN tab is a native Control UI view (no separate UI); 0009
+interaction modes are a restriction layer, never written into a person's overrides.
 
 ## RECENT COMMITS
 
-- `280ea3593e4` feat(lumina-cognitive-os): M3GAN REAL cognitive core.
-- `c4ead4d465e` safety kernel, persistence, social and body layers (with Codex's controller work).
-- `2017ac95e39` docs, one owner per tool, live-only side effects.
-- `7da8f6904dc` durable goals, lessons and episodes; teleoperation; stores open after activation
-  (finishes Codex's tasks 2 to 5 and 7).
-- `51cc0c47a2a` native M3GAN tab in the Control UI over gateway methods.
-- `8adbc15e15f` plan walk; awareness on Windows PowerShell 5.1.
+- `38a4c602888` consented face and voice recognition.
+- `e42d1a75cc2` the mascot's face follows the situation.
+- `19293e15a24` initiative within the autonomy level.
+- `463d3bee4fb` audit checkpoints outside the process; real-keyboard confirmation.
+- `98ced5fdc2f` reflection proposes lessons a person accepts.
+- `1779e1c0fd2` MuJoCo body; `5f4774a60d6` and `fb7b1589394` ROS 2 adapter.
+- `330026142e5` evaluation suite.
+- `66c74d34954` recorder metadata in SQLite (ChatGPT-LUMINA, task 21).
+- `b490cfda215` interaction modes, curiosity, affordances, practice book and model provenance
+  (with Codex's review of probes and affordances).

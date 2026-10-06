@@ -14,14 +14,12 @@
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { getLuminaEnvVar } from "../env.js";
-import { runPythonSidecar } from "../shared/python.js";
+import { runPythonSidecar, sidecarRoot } from "../shared/python.js";
 import { jsonResult, ToolInputError, type AnyAgentTool } from "../shared/tool-result.js";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const SIDECAR_PATH = path.resolve(here, "../../sidecars/wake_word.py");
+const SIDECAR_PATH = path.join(sidecarRoot(), "wake_word.py");
 
 export type WakeListener = (detection: { model: string; score: number; atISO: string }) => void;
 

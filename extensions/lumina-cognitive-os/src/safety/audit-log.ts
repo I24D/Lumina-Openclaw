@@ -225,6 +225,16 @@ export class AuditLog {
     return this.last?.seq ?? 0;
   }
 
+  /** The newest committed entry's position and hash, for external checkpoints. */
+  head(): { readonly seq: number; readonly hash: string } | undefined {
+    return this.last ? { seq: this.last.seq, hash: this.last.hash } : undefined;
+  }
+
+  /** The hash of entry `seq` in the chain this process holds. */
+  hashAt(seq: number): string | undefined {
+    return this.chain.find((record) => record.seq === seq)?.hash;
+  }
+
   /** Re-walk the chain this process holds and report the first break. */
   verify(): AuditVerification {
     return verifyRecords(this.chain);

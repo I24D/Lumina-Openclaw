@@ -2,8 +2,8 @@
  * owner-channel.ts — What a person sees and decides in the Control UI's M3GAN tab.
  *
  * M3GAN spec §49 (dashboard), §65–§72 (live, people, memory, world, robot,
- * model and developer views), §134 (teleoperation) and §143 (a person's
- * overrides). The Control UI reaches this through gateway methods that require
+ * model and developer views), §134 (teleoperation), §143 (a person's
+ * overrides) and §41/§96/§125 (interaction modes). The Control UI reaches this through gateway methods that require
  * an authenticated operator session, so it is the owner channel the agent's
  * tools do not have. Only from here can a person resume, re-enable, turn
  * sensors back on, assign roles, grant recognition consent, forget someone,
@@ -20,9 +20,12 @@
 import type { CognitiveRuntime } from "../cognition/cognitive-runtime.js";
 import { intentFromParams } from "../embodiment/body-tool.js";
 import { BODY_INTENT_TYPES, type BodyIntentType } from "../embodiment/body.js";
+import type { Evaluation } from "../evaluation/m3gan-eval.js";
 import type { PrivacyChange } from "../privacy/privacy-state.js";
 import { isRole } from "../safety/authority.js";
+import { INTERACTION_MODES, type InteractionMode } from "../safety/interaction-mode.js";
 import type { OverrideAction } from "../safety/overrides.js";
+import { expressionOf } from "../social/expression.js";
 
 const OWNER = { channel: "owner", actor: "dashboard" } as const;
 const SAFE_ID = /^[A-Za-z0-9._:-]{1,160}$/u;
@@ -33,6 +36,8 @@ export type OwnerChannelDeps = {
   /** Re-arm the global emergency stop; a person's action only. */
   readonly rearmEmergencyStop: () => void;
   readonly activeModel: () => string | undefined;
+  /** The evaluation suite, run in sandboxes from the M3GAN tab. */
+  readonly evaluation?: Evaluation;
 };
 
 /** A request the channel will not run as given; nothing was changed. */
@@ -112,23 +117,43 @@ export type M3ganWorldNode = {
 /** The whole picture the M3GAN tab shows, in one call. */
 export function m3ganState(deps: OwnerChannelDeps) {
   const { runtime } = deps;
+  const workspace = runtime.workspace.snapshot();
+  const safety = runtime.safety.status();
+  const presence = runtime.presence();
+  const owner = runtime.people.owner();
   return {
     version: deps.version,
-    workspace: runtime.workspace.snapshot(),
+    workspace,
     self: runtime.selfModel(),
-    safety: runtime.safety.status(),
+    // The avatar's face: functional state, never a claimed feeling (spec §28, §88).
+    expression: expressionOf({
+      emergencyStop: safety.emergencyStop,
+      paused: safety.overrides.paused,
+      pendingEvents: workspace.pendingEvents,
+      ...(workspace.activeTask?.executed ? { lastExecutedAtISO: workspace.activeTask.atISO } : {}),
+      presence,
+      ...(owner ? { ownerId: owner.id } : {}),
+      nowMs: Date.now(),
+    }),
+    safety,
     privacy: runtime.privacy.state(),
+    mode: { ...runtime.modes.state(), restrictions: runtime.modes.restrictions() },
     people: runtime.people.list(),
-    presence: runtime.presence(),
+    presence,
     world: worldTree(runtime),
     health: runtime.brainstem.status(),
     energy: runtime.energy(),
     robot: runtime.robot?.telemetry() ?? null,
+    simulator: runtime.bodyAdapter.describe?.() ?? null,
     model: deps.activeModel() ?? null,
     audit: runtime.audit.recent(25),
     cycles: runtime.loop.recent(25),
     events: runtime.router.recent(25),
     body: runtime.body.recent(10),
+    sensors: runtime.recognition.status(),
+    reflection: runtime.reflection.latest() ?? null,
+    evaluation: deps.evaluation?.latest() ?? null,
+    artifacts: runtime.artifacts.checks(),
   };
 }
 
@@ -194,13 +219,63 @@ export function createOwnerCommands(deps: OwnerChannelDeps) {
       const consent = booleanFields(params, ["faceRecognition", "voiceRecognition", "recording"]);
       const r = runtime.people.setConsent(personId, consent, OWNER);
       audited("people.consent", `${personId} ${JSON.stringify(consent)}`, r.ok);
+      // Revoked consent deletes the template, not only stops using it.
+      if (r.ok && consent.faceRecognition === false) {
+        runtime.recognition.forget(personId, "face");
+      }
+      if (r.ok && consent.voiceRecognition === false) {
+        runtime.recognition.forget(personId, "voice");
+      }
+      return r;
+    },
+    "m3gan.people.enroll": async (params: Params) => {
+      const personId = idField(params, "personId");
+      const modality = params.modality;
+      if (modality !== "face" && modality !== "voice") {
+        throw new OwnerChannelError("modality must be face or voice");
+      }
+      const r = await runtime.recognition.enroll(personId, modality);
+      audited("people.enroll", `${personId} ${modality}`, r.ok);
       return r;
     },
     "m3gan.people.forget": async (params: Params) => {
       const personId = idField(params, "personId");
       const ok = runtime.people.forget(personId);
+      runtime.recognition.forget(personId);
+      runtime.practice.forgetPerson(personId);
       audited("people.forget", personId, ok);
       return { ok };
+    },
+    "m3gan.mode": async (params: Params) => {
+      const mode = params.mode;
+      if (
+        typeof mode !== "string" ||
+        !(INTERACTION_MODES as ReadonlyArray<string>).includes(mode)
+      ) {
+        throw new OwnerChannelError("unknown interaction mode");
+      }
+      return runtime.modes.set(mode as InteractionMode, OWNER);
+    },
+    "m3gan.reflect": async () => runtime.reflection.run(),
+    "m3gan.evaluate": async () => {
+      if (!deps.evaluation) {
+        throw new OwnerChannelError("no evaluation suite here");
+      }
+      return deps.evaluation.run();
+    },
+    "m3gan.lesson.accept": async (params: Params) => {
+      const trigger = textField(params, "trigger")?.trim();
+      const claim = textField(params, "claim")?.trim();
+      if (!trigger || !claim || trigger.length > 160 || claim.length > 480) {
+        throw new OwnerChannelError("a lesson needs a trigger and a claim");
+      }
+      const confidence =
+        typeof params.confidence === "number" && Number.isFinite(params.confidence)
+          ? Math.min(1, Math.max(0, params.confidence))
+          : 0.6;
+      const lesson = runtime.lessons.learn({ trigger, claim, confidence });
+      audited("lesson.accept", `${trigger}: ${claim}`, true);
+      return { ok: true, lesson };
     },
     "m3gan.world.forget": async (params: Params) => {
       const id = idField(params, "id");

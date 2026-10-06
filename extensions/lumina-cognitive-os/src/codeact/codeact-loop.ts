@@ -27,7 +27,6 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   defaultSandboxPolicy,
   preflightCheck,
@@ -35,10 +34,9 @@ import {
 } from "../code/sandbox-policy.js";
 import type { ActionLogStore } from "../memory/action-log.js";
 import type { RiskEngine } from "../risk/risk-engine.js";
-import { runPythonSidecar } from "../shared/python.js";
+import { runPythonSidecar, sidecarRoot } from "../shared/python.js";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const SIDECAR_ROOT = path.resolve(here, "../../sidecars");
+const SIDECAR_ROOT = sidecarRoot();
 const FINAL_PREFIX = "CODEACT_FINAL:";
 const OBS_PREFIX = "CODEACT_OBSERVATION:";
 

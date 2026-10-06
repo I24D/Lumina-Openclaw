@@ -161,6 +161,10 @@ export interface BodyAdapter {
   stop(): Promise<void>;
   /** Symbolic place of the body, when it has one. */
   placeId(): string | undefined;
+  /** What the adapter can report about itself (engine, pose, grip), for the dashboard. */
+  describe?(): Record<string, unknown>;
+  /** Release processes or connections the adapter holds. */
+  dispose?(): void;
 }
 
 /** A desktop has no body. Saying so is the honest default. */

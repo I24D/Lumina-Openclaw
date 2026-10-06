@@ -201,6 +201,10 @@ describe("createCognitiveRuntime", () => {
       "lumina_people",
       "lumina_mind",
       "lumina_health",
+      "lumina_reflect",
+      "lumina_mode",
+      "lumina_practice",
+      "lumina_artifacts",
     ]);
     runtime.dispose();
   });

@@ -6,8 +6,10 @@
  *   2. `python` on PATH (Windows default)
  *   3. `python3` on PATH (POSIX default)
  *
- * Sidecar scripts live in:
- *   Lumina_PC/Open_PC/extensions/lumina-cognitive-os/sidecars/<name>.py
+ * Sidecar scripts live in the package's `sidecars/` directory. The build copies
+ * them next to the bundle (`dist/extensions/lumina-cognitive-os/sidecars/`, via
+ * `openclaw.build.staticAssets`); from source they sit two levels above here.
+ * `LUMINA_COGNITIVE_OS_SIDECAR_ROOT` overrides both.
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -16,7 +18,16 @@ import { fileURLToPath } from "node:url";
 import { getLuminaEnvVar } from "../env.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const SIDECAR_ROOT = path.resolve(here, "../../sidecars");
+
+/** The directory holding the sidecar scripts, in the bundle or in source. */
+export function sidecarRoot(): string {
+  const override = process.env.LUMINA_COGNITIVE_OS_SIDECAR_ROOT?.trim();
+  if (override) {
+    return override;
+  }
+  const bundled = path.resolve(here, "sidecars");
+  return fs.existsSync(bundled) ? bundled : path.resolve(here, "../../sidecars");
+}
 const DEFAULT_WINDOWS_SIDECAR_ROOT =
   "C:\\I24D_WhatsApp\\Lumina_PC\\Open_PC\\extensions\\lumina-cognitive-os\\sidecars";
 
@@ -69,7 +80,7 @@ function sidecarPath(sidecarName: string, pythonCommand: string): string {
       `${sidecarName}.py`,
     );
   }
-  return path.join(SIDECAR_ROOT, `${sidecarName}.py`);
+  return path.join(sidecarRoot(), `${sidecarName}.py`);
 }
 
 /**
@@ -173,5 +184,3 @@ export async function runPythonSidecarJson<T = unknown>(
     };
   }
 }
-
-export const SIDECAR_DIR = SIDECAR_ROOT;

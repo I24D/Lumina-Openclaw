@@ -1,6 +1,7 @@
 import { html, nothing, type TemplateResult } from "lit";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { renderHubTabs } from "../../components/hub-tabs.ts";
+import "../../components/openclaw-mascot.ts";
 import { t } from "../../i18n/index.ts";
 import { registerM3ganEnglish } from "../../i18n/locales/en-m3gan.ts";
 import "../../styles/m3gan.css";
@@ -10,7 +11,14 @@ import {
   loadM3gan,
   runM3ganCommand,
 } from "./m3gan-controller.ts";
-import type { M3ganPerson, M3ganStatePayload, M3ganTab, M3ganWorldNode } from "./m3gan-types.ts";
+import {
+  M3GAN_MODES,
+  type M3ganPerson,
+  type M3ganSensorStatus,
+  type M3ganStatePayload,
+  type M3ganTab,
+  type M3ganWorldNode,
+} from "./m3gan-types.ts";
 
 registerM3ganEnglish();
 
@@ -110,6 +118,11 @@ function renderStatus(s: M3ganStatePayload): TemplateResult {
           ? chip(t("m3gan.status.privateMode"), true)
           : chip(p.recording ? t("m3gan.status.recording") : t("m3gan.status.notRecording"), true)
       }
+      ${
+        s.mode && s.mode.mode !== "normal"
+          ? chip(t("m3gan.status.mode", { mode: t(`m3gan.mode.${s.mode.mode}`) }), true)
+          : nothing
+      }
       ${chip(t("m3gan.status.body", { mode: s.self.body.mode }), true)}
       ${chip(s.model ? t("m3gan.status.model", { model: s.model }) : t("m3gan.status.noModel"), Boolean(s.model))}
     </div>
@@ -164,6 +177,29 @@ function renderLive(s: M3ganStatePayload): TemplateResult {
   `;
 }
 
+function renderMode(s: M3ganStatePayload, act: ReturnType<typeof makeAction>): TemplateResult {
+  const mode = s.mode;
+  if (!mode) {
+    return html``;
+  }
+  return card(
+    t("m3gan.mode.title"),
+    html`<div class="m3gan__actions">
+        ${M3GAN_MODES.map((m) =>
+          m === mode.mode
+            ? chip(t(`m3gan.mode.${m}`), true)
+            : act(t(`m3gan.mode.${m}`), "m3gan.mode", { mode: m }, m === "normal" ? "primary" : ""),
+        )}
+      </div>
+      ${mode.lastSummary ? html`<p class="muted">${t("m3gan.mode.summary", { summary: mode.lastSummary })}</p>` : nothing}`,
+    t("m3gan.mode.hint", {
+      since: clock(mode.sinceISO),
+      by: mode.by,
+      disabled: mode.restrictions.disabledCapabilities.join(", ") || t("m3gan.safety.none"),
+    }),
+  );
+}
+
 function renderSafety(s: M3ganStatePayload, act: ReturnType<typeof makeAction>): TemplateResult {
   const o = s.safety.overrides;
   const p = s.privacy;
@@ -197,6 +233,7 @@ function renderSafety(s: M3ganStatePayload, act: ReturnType<typeof makeAction>):
         by: o.updatedBy,
       }),
     )}
+    ${renderMode(s, act)}
     ${card(
       t("m3gan.safety.confirmations"),
       table(s.safety.pendingConfirmations, [
@@ -292,11 +329,57 @@ function renderPeople(s: M3ganStatePayload, act: ReturnType<typeof makeAction>):
             "m3gan.people.consent",
             { personId: p.id, voiceRecognition: !p.consent.voiceRecognition },
           )}
+          ${
+            p.consent.faceRecognition
+              ? act(t("m3gan.people.enrollFace"), "m3gan.people.enroll", {
+                  personId: p.id,
+                  modality: "face",
+                })
+              : nothing
+          }
+          ${
+            p.consent.voiceRecognition
+              ? act(t("m3gan.people.enrollVoice"), "m3gan.people.enroll", {
+                  personId: p.id,
+                  modality: "voice",
+                })
+              : nothing
+          }
           ${act(t("m3gan.people.forget"), "m3gan.people.forget", { personId: p.id }, "danger")}
         </div>`,
       ],
+      [t("m3gan.people.templates"), (p) => templatesOf(s, p.id)],
     ]),
   );
+}
+
+function templatesOf(s: M3ganStatePayload, personId: string): string {
+  const mine = (s.sensors?.templates ?? []).filter((x) => x.personId === personId);
+  return mine.map((x) => `${t(`m3gan.people.${x.modality}`)} ×${x.samples}`).join(", ") || "—";
+}
+
+function sensorRow(label: string, status: M3ganSensorStatus | undefined) {
+  if (!status) {
+    return { label, state: t("m3gan.sensors.absent"), ok: true, detail: "" };
+  }
+  const state = !status.allowed
+    ? t("m3gan.sensors.off")
+    : status.running
+      ? t("m3gan.sensors.on")
+      : t("m3gan.sensors.stopped");
+  const names = status.present.map((p) => p.name).join(", ");
+  return {
+    label,
+    state,
+    ok: !status.allowed || status.running,
+    detail: [
+      names ? t("m3gan.sensors.recognized", { names }) : "",
+      status.unknown > 0 ? t("m3gan.sensors.unknown", { count: String(status.unknown) }) : "",
+      status.lastError ?? "",
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  };
 }
 
 function renderTree(
@@ -334,6 +417,21 @@ function renderHealth(s: M3ganStatePayload): TemplateResult {
       t("m3gan.health.beats", { beats: String(s.health.beats) }),
     )}
     ${card(
+      t("m3gan.sensors.title"),
+      table(
+        [
+          sensorRow(t("m3gan.sensors.camera"), s.sensors?.camera),
+          sensorRow(t("m3gan.sensors.microphone"), s.sensors?.microphone),
+        ],
+        [
+          [t("m3gan.columns.sensor"), (r) => r.label],
+          [t("m3gan.columns.state"), (r) => chip(r.state, r.ok)],
+          [t("m3gan.columns.detail"), (r) => r.detail],
+        ],
+      ),
+      t("m3gan.sensors.hint"),
+    )}
+    ${card(
       t("m3gan.health.sensors"),
       html`${table(s.self.sensors, [
           [t("m3gan.columns.sensor"), (x) => x.kind],
@@ -357,7 +455,12 @@ function renderRobot(s: M3ganStatePayload, act: ReturnType<typeof makeAction>): 
     ${card(
       t("m3gan.robot.body"),
       s.robot
-        ? html`<pre class="m3gan__pre">${JSON.stringify(s.robot, null, 2)}</pre>`
+        ? html`<pre class="m3gan__pre">
+${JSON.stringify(
+              s.simulator ? { telemetry: s.robot, simulator: s.simulator } : s.robot,
+              null,
+              2,
+            )}</pre>`
         : html`<p class="muted">${t("m3gan.robot.noBody")}</p>`,
     )}
     ${card(
@@ -397,8 +500,101 @@ function renderRobot(s: M3ganStatePayload, act: ReturnType<typeof makeAction>): 
   `;
 }
 
-function renderDeveloper(s: M3ganStatePayload): TemplateResult {
+function renderReflection(
+  s: M3ganStatePayload,
+  act: ReturnType<typeof makeAction>,
+): TemplateResult {
+  const report = s.reflection;
+  return card(
+    t("m3gan.reflection.title"),
+    html`<div class="m3gan__actions">
+        ${act(t("m3gan.reflection.run"), "m3gan.reflect", {}, "primary")}
+      </div>
+      ${
+        report
+          ? html`${table(report.findings, [
+              [t("m3gan.columns.kind"), (f) => f.kind],
+              [t("m3gan.columns.what"), (f) => f.subject],
+              [t("m3gan.columns.detail"), (f) => f.detail],
+            ])}
+            ${table(report.proposedLessons, [
+              [t("m3gan.reflection.lesson"), (l) => l.claim],
+              [t("m3gan.columns.confidence"), (l) => l.confidence.toFixed(2)],
+              [t("m3gan.reflection.evidence"), (l) => l.evidence],
+              [
+                "",
+                (l) =>
+                  act(t("m3gan.reflection.accept"), "m3gan.lesson.accept", {
+                    trigger: l.trigger,
+                    claim: l.claim,
+                    confidence: l.confidence,
+                  }),
+              ],
+            ])}`
+          : html`<p class="muted">${t("m3gan.reflection.none")}</p>`
+      }`,
+    t("m3gan.reflection.hint"),
+  );
+}
+
+function renderEvaluation(
+  s: M3ganStatePayload,
+  act: ReturnType<typeof makeAction>,
+): TemplateResult {
+  const report = s.evaluation;
+  const failures = report ? report.results.filter((r) => !r.passed) : [];
+  return card(
+    t("m3gan.evaluation.title"),
+    html`<div class="m3gan__actions">
+        ${act(t("m3gan.evaluation.run"), "m3gan.evaluate", {}, "primary")}
+      </div>
+      ${
+        report
+          ? html`<div class="chip-row">
+                ${Object.entries(report.scores).map(([suite, score]) =>
+                  chip(`${suite} ${score.passed}/${score.total}`, score.passed === score.total),
+                )}
+              </div>
+              <p class="muted">
+                ${t("m3gan.evaluation.performance", {
+                  rate: String(report.performance.routerEventsPerSecond),
+                  p95: String(report.performance.loopP95Ms),
+                })}
+              </p>
+              ${
+                failures.length > 0
+                  ? table(failures, [
+                      [t("m3gan.columns.kind"), (r) => r.suite],
+                      [t("m3gan.columns.what"), (r) => r.name],
+                      [t("m3gan.columns.detail"), (r) => r.detail],
+                    ])
+                  : nothing
+              }`
+          : html`<p class="muted">${t("m3gan.evaluation.none")}</p>`
+      }`,
+    t("m3gan.evaluation.hint"),
+  );
+}
+
+function renderDeveloper(s: M3ganStatePayload, act: ReturnType<typeof makeAction>): TemplateResult {
   return html`
+    ${renderEvaluation(s, act)} ${renderReflection(s, act)}
+    ${
+      s.artifacts
+        ? card(
+            t("m3gan.developer.artifacts"),
+            table(s.artifacts, [
+              [t("m3gan.columns.name"), (a) => `${a.name} (${a.version})`],
+              [t("m3gan.columns.kind"), (a) => a.kind],
+              [t("m3gan.columns.license"), (a) => a.license],
+              [t("m3gan.columns.state"), (a) => chip(a.status, a.status === "ok")],
+              [t("m3gan.columns.hash"), (a) => a.sha256.slice(0, 12)],
+              [t("m3gan.columns.time"), (a) => clock(a.checkedISO)],
+            ]),
+            t("m3gan.developer.artifactsHint"),
+          )
+        : nothing
+    }
     ${card(
       t("m3gan.developer.cycles"),
       table(s.cycles, [
@@ -441,13 +637,23 @@ export function renderM3gan(props: M3ganProps) {
           ),
         health: () => renderHealth(s),
         robot: () => renderRobot(s, act),
-        developer: () => renderDeveloper(s),
+        developer: () => renderDeveloper(s, act),
       }[state.tab]();
 
   return html`
     <div class="m3gan">
       <header class="m3gan__header">
-        <div>
+        ${
+          s?.expression
+            ? html`<openclaw-mascot
+                class="m3gan__face"
+                mood=${s.expression.expression}
+                size="64"
+                title=${s.expression.reason}
+              ></openclaw-mascot>`
+            : nothing
+        }
+        <div class="m3gan__heading">
           <div class="card-title">${t("m3gan.title")}</div>
           <div class="card-sub">${t("m3gan.subtitle")}</div>
         </div>

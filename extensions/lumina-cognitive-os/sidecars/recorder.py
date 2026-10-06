@@ -25,7 +25,7 @@ Protocol — one JSON object per line:
     {"event": "error", "where": "...", "message": "..."}
     {"event": "bye"}
 
-Each recorded event is ALSO appended to <sessionDir>/events.jsonl with
+Each recorded event is ALSO appended to <sessionDir>/events.ndjson with
 its full payload (the "tick" line on stdout is a lightweight notification
 for the TS supervisor — not all metadata is duplicated).
 
@@ -126,6 +126,7 @@ class SessionState:
     paused: bool = False
     stopped: bool = False
     startedAtMs: float = 0.0
+    startedAtISO: str = ""
     idx: int = 0
     lastScreencastTickMs: float = 0.0
     lastEventKind: str = ""
@@ -152,20 +153,18 @@ def ensure_session_layout(state: SessionState) -> None:
     if state.captureUia:
         state.uia_dir = state.sessionDir / "uia"
         state.uia_dir.mkdir(exist_ok=True)
-    state.events_path = state.sessionDir / "events.jsonl"
+    state.events_path = state.sessionDir / "events.ndjson"
     state.events_fh = state.events_path.open("a", encoding="utf-8")
-    # meta.json written once at start, then again at stop with totals.
-    write_meta(state, finalize=False)
 
 
-def write_meta(state: SessionState, finalize: bool, extra: Optional[Dict[str, Any]] = None) -> None:
+def build_meta(state: SessionState, finalize: bool, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     meta = {
         "sessionId": state.sessionId,
         "version": VERSION,
         "mode": state.mode,
         "captureUia": state.captureUia,
         "fpsHintHz": state.fpsHintHz,
-        "startedAtISO": iso_from_monotonic(state.startedAtMs),
+        "startedAtISO": state.startedAtISO,
         "platform": sys.platform,
         "python": sys.version.split()[0],
     }
@@ -174,13 +173,7 @@ def write_meta(state: SessionState, finalize: bool, extra: Optional[Dict[str, An
         meta["eventCount"] = state.idx
     if extra:
         meta.update(extra)
-    (state.sessionDir / "meta.json").write_text(
-        json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
-
-
-def iso_from_monotonic(monotonic_ms: float) -> str:
-    # Approximate: stored at start time using current UTC.
-    return datetime.now(timezone.utc).isoformat()
+    return meta
 
 
 # ── Screenshot + UIA capture ────────────────────────────────────────
@@ -459,6 +452,7 @@ def _cmd_start(deps: Dict[str, Any], msg: Dict[str, Any]) -> bool:
                 captureUia=bool(msg.get("captureUia", True)),
                 fpsHintHz=float(msg.get("fpsHint", 5)),
                 startedAtMs=time.monotonic(),
+                startedAtISO=datetime.now(timezone.utc).isoformat(),
             )
             ensure_session_layout(state)
             _state = state
@@ -468,7 +462,8 @@ def _cmd_start(deps: Dict[str, Any], msg: Dict[str, Any]) -> bool:
                 "platform": sys.platform,
             })
             emit("started", sessionId=session_id, sessionDir=str(session_dir),
-                 atISO=datetime.now(timezone.utc).isoformat())
+                 atISO=_state.startedAtISO,
+                 meta=build_meta(_state, finalize=False, extra={"label": msg.get("label", "")}))
         except Exception as e:
             emit_error("start", e)
     return True
@@ -485,7 +480,7 @@ def _stop_session_locked() -> None:
         # Write a closing event with stats.
         try:
             duration_ms = int((time.monotonic() - _state.startedAtMs) * 1000)
-            write_meta(_state, finalize=True)
+            meta = build_meta(_state, finalize=True)
             if _state.events_fh is not None:
                 _state.events_fh.flush()
                 _state.events_fh.close()
@@ -493,7 +488,7 @@ def _stop_session_locked() -> None:
                 "events": _state.idx,
                 "durationMs": duration_ms,
                 "sessionDir": str(_state.sessionDir),
-            })
+            }, meta=meta)
         except Exception as e:
             emit_error("stop", e)
         finally:

@@ -37,6 +37,12 @@ export type M3ganEventPayloads = {
     readonly speakerId?: string;
     readonly language?: string;
   };
+  /** Someone spoke; who, when a consented voice template matched. No transcript. */
+  "speech.detected": {
+    readonly speakerId?: string;
+    readonly confidence: number;
+    readonly durationMs: number;
+  };
   "object.moved": {
     readonly objectId: string;
     readonly toPlaceId: string;
@@ -75,6 +81,13 @@ export type M3ganEventPayloads = {
   "screen.foreground": { readonly process: string; readonly title: string };
   /** A large part of the screen changed. */
   "screen.changed": { readonly changedRatio: number };
+  /** A sensor saw something new whose use nothing explains (curiosity, spec §92). */
+  "knowledge.gap": {
+    readonly entityId: string;
+    readonly label: string;
+    readonly kind: string;
+    readonly placeId?: string;
+  };
 };
 
 export type M3ganEventKind = keyof M3ganEventPayloads;
@@ -125,6 +138,11 @@ const PAYLOAD_SCHEMAS = {
     speakerId: Type.Optional(id),
     language: Type.Optional(Type.String()),
   }),
+  "speech.detected": Type.Object({
+    speakerId: Type.Optional(id),
+    confidence,
+    durationMs: Type.Number({ minimum: 0 }),
+  }),
   "object.moved": Type.Object({
     objectId: id,
     toPlaceId: id,
@@ -173,6 +191,12 @@ const PAYLOAD_SCHEMAS = {
   }),
   "screen.foreground": Type.Object({ process: Type.String(), title: Type.String() }),
   "screen.changed": Type.Object({ changedRatio: confidence }),
+  "knowledge.gap": Type.Object({
+    entityId: id,
+    label: Type.String({ minLength: 1, maxLength: 256 }),
+    kind: id,
+    placeId: Type.Optional(id),
+  }),
 } satisfies Record<M3ganEventKind, object>;
 
 /** Default salience priors per kind; a producer can override per event. */
@@ -182,6 +206,7 @@ export const EVENT_PRIORS: Readonly<
   "person.detected": { importance: 0.55, urgency: 0.4 },
   "person.left": { importance: 0.35, urgency: 0.2 },
   "speech.recognized": { importance: 0.7, urgency: 0.7 },
+  "speech.detected": { importance: 0.35, urgency: 0.3 },
   "object.moved": { importance: 0.25, urgency: 0.1 },
   "task.created": { importance: 0.5, urgency: 0.3 },
   "tool.completed": { importance: 0.3, urgency: 0.2 },
@@ -195,6 +220,7 @@ export const EVENT_PRIORS: Readonly<
   "subsystem.health": { importance: 0.5, urgency: 0.5 },
   "screen.foreground": { importance: 0.3, urgency: 0.2 },
   "screen.changed": { importance: 0.1, urgency: 0.05 },
+  "knowledge.gap": { importance: 0.45, urgency: 0.2 },
 };
 
 export const M3GAN_EVENT_KINDS = Object.keys(EVENT_PRIORS) as ReadonlyArray<M3ganEventKind>;

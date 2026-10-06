@@ -226,6 +226,11 @@ export const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   "lumina_people",
   "lumina_mind",
   "lumina_health",
+  "lumina_reflect",
+  "lumina_mode",
+  "lumina_practice",
+  "lumina_artifacts",
+  "lumina_evaluate",
 ]);
 
 export function validatePlan(input: unknown): PlanValidation {

@@ -12,6 +12,7 @@
 import { Type } from "typebox";
 import { detectRoutines, temporalFacts } from "../cognition/consolidation.js";
 import { jsonResult, ToolInputError, type AnyAgentTool } from "../shared/tool-result.js";
+import { affordancesOf } from "./affordances.js";
 import {
   ENTITY_KINDS,
   type EntityKind,
@@ -94,7 +95,7 @@ export function createWorldObserveTool(world: WorldModel): AnyAgentTool {
   };
 }
 
-const QUERY_ACTIONS = ["where", "query", "contents", "facts", "routines"] as const;
+const QUERY_ACTIONS = ["where", "query", "contents", "facts", "routines", "affordances"] as const;
 
 export function createWorldQueryTool(world: WorldModel): AnyAgentTool {
   return {
@@ -104,12 +105,17 @@ export function createWorldQueryTool(world: WorldModel): AnyAgentTool {
       "Asks the world model. 'where' locates one thing by id or name and says whether the belief is " +
       "stale (look again before relying on it); 'contents' lists what is in or on a place; 'query' " +
       "filters by kind, place and minimum confidence; 'facts' answers when something was first and last seen, " +
-      "how often and where it usually is; 'routines' finds hour-of-day patterns across days. Confidences " +
+      "how often and where it usually is; 'routines' finds hour-of-day patterns across days; 'affordances' " +
+      "says what a thing lets you do (contain, sit, open, toggle, grasp...), which is never by itself a " +
+      "reason to do it. Confidences " +
       "already account for time passed.",
     parameters: Type.Object({
       action: Type.Union(QUERY_ACTIONS.map((a) => Type.Literal(a))),
       target: Type.Optional(
-        Type.String({ maxLength: 128, description: "Id or name, for where/contents." }),
+        Type.String({
+          maxLength: 128,
+          description: "Id or name, for where/contents/facts/routines/affordances.",
+        }),
       ),
       kind: Type.Optional(Type.Union(ENTITY_KINDS.map((k) => Type.Literal(k)))),
       placeId: Type.Optional(Type.String({ maxLength: 128 })),
@@ -144,6 +150,24 @@ export function createWorldQueryTool(world: WorldModel): AnyAgentTool {
             ok: true,
             place: place.id,
             contents: world.contents(place.id).slice(0, p.limit ?? 20),
+          });
+        }
+        case "affordances": {
+          const entity = p.target ? world.find(p.target, p.kind) : undefined;
+          if (!entity) {
+            throw new ToolInputError(
+              "target must name something in the world model for affordances",
+            );
+          }
+          const assessment = affordancesOf(entity);
+          return jsonResult({
+            ok: true,
+            entity: { id: entity.id, label: entity.label, kind: entity.kind },
+            ...assessment,
+            note:
+              assessment.source === "unknown"
+                ? "Unknown: ask a person if it matters for the task; do not experiment with it."
+                : "Possible is not permission: body actions still go through safety review and consent.",
           });
         }
         case "facts":

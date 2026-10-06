@@ -23,17 +23,14 @@
 import path from "node:path";
 import type { AwarenessEventBus } from "../awareness/event-bus.js";
 import type { EnvironmentSnapshot } from "../awareness/snapshot.js";
-import { Brainstem, type Probe, type ProbeResult } from "../brainstem/brainstem.js";
+import { Brainstem } from "../brainstem/brainstem.js";
+import { coreProbes } from "../brainstem/core-probes.js";
 import { assessEnergy, type EnergyAdvice } from "../brainstem/energy.js";
 import { createHealthTool } from "../brainstem/health-tool.js";
 import { createBehaviorTool } from "../embodiment/behavior-tool.js";
+import { createBodyAdapter, type SimulatorContext } from "../embodiment/body-adapter.js";
 import { createBodyTool } from "../embodiment/body-tool.js";
-import {
-  BODY_CAPABILITIES,
-  NullBody,
-  SimulatedBody,
-  type BodyAdapter,
-} from "../embodiment/body.js";
+import { BODY_CAPABILITIES, type BodyAdapter } from "../embodiment/body.js";
 import {
   EmbodiedController,
   type EmbodiedResult,
@@ -41,22 +38,43 @@ import {
 } from "../embodiment/embodied-controller.js";
 import { SimulatedRobot } from "../embodiment/simulated-robot.js";
 import { TeleoperationGateway } from "../embodiment/teleoperation.js";
+import {
+  ArtifactRegistry,
+  type ArtifactInput,
+  type ArtifactRecord,
+} from "../evaluation/artifact-registry.js";
+import { createArtifactTool } from "../evaluation/artifact-tool.js";
 import { payloadOf } from "../events/catalog.js";
 import type { EpisodicMemoryStore } from "../memory/episodic-memory.js";
 import type { WorkingMemory } from "../memory/working-memory.js";
 import type { PerceptionEvent } from "../perception/perception-process.js";
+import {
+  createRecognition,
+  type Recognition,
+  type RecognitionSensors,
+} from "../perception/recognition.js";
+import { createForgetSession } from "../privacy/forget-session.js";
 import { PrivacyControls, type PrivacyState } from "../privacy/privacy-state.js";
 import { createPrivacyTool } from "../privacy/privacy-tool.js";
+import type { CheckpointStore } from "../safety/audit-checkpoint.js";
 import { AuditLog, type AuditRecord } from "../safety/audit-log.js";
+import { InteractionModes, MODE_GUIDANCE, type ModeState } from "../safety/interaction-mode.js";
+import { createModeTool } from "../safety/mode-tool.js";
 import { HumanOverrides, type OverrideState } from "../safety/overrides.js";
+import type { ConfirmPort } from "../safety/physical-confirm.js";
+import { attachSafeguards } from "../safety/safeguards.js";
 import { SafetyKernel, type KernelEmergencyStop } from "../safety/safety-kernel.js";
 import { createExplainTool, createSafetyTool } from "../safety/safety-tools.js";
 import type { StateStorePort } from "../shared/state-store.js";
 import type { AnyAgentTool } from "../shared/tool-result.js";
+import type { BiometricRecord } from "../social/biometrics.js";
 import { PeopleRegistry, type Person } from "../social/people.js";
+import { createPracticeTool } from "../social/practice-tool.js";
+import { PracticeBook, type PracticeItem } from "../social/practice.js";
 import { presenceState, type PresenceState } from "../social/presence.js";
 import { createMindTool, createPeopleTool } from "../social/social-tools.js";
 import { MindModel, type Belief } from "../social/theory-of-mind.js";
+import { knowledgeGap } from "../world/curiosity.js";
 import { WorldModel, type Observation } from "../world/world-model.js";
 import { attachWorldModel } from "../world/world-perception.js";
 import { createWorldObserveTool, createWorldQueryTool } from "../world/world-tools.js";
@@ -65,9 +83,16 @@ import { createGoalTool, createSelfModelTool, createWorkspaceTool } from "./cogn
 import { consolidate } from "./consolidation.js";
 import { GoalManager, type Goal } from "./goals/goal-manager.js";
 import { LessonStore, type Lesson } from "./learning/lessons.js";
+import { createReflectTool } from "./learning/reflection-tool.js";
+import { createReflection } from "./learning/reflection.js";
 import { attachAwareness } from "./loop/awareness-bridge.js";
 import { CognitiveLoop, type CycleRecord, type Reasoner } from "./loop/cognitive-loop.js";
 import { attachScreenPerception } from "./loop/perception-bridge.js";
+import {
+  createSituationalReasoner,
+  surfaceProposals,
+  type Initiative,
+} from "./loop/situational-reasoner.js";
 import { ThalamicRouter } from "./router/thalamic-router.js";
 import {
   buildSelfModel,
@@ -79,6 +104,8 @@ import { GlobalWorkspace } from "./workspace/global-workspace.js";
 
 /** Body modes the runtime can construct; "physical" needs a hardware adapter. */
 export type RuntimeBodyMode = Exclude<BodyMode, "physical">;
+
+export type { SimulatorContext } from "../embodiment/body-adapter.js";
 
 export type CognitiveRuntimeOptions = {
   /** Where goals, lessons and the world log persist. */
@@ -117,11 +144,33 @@ export type CognitiveRuntimeOptions = {
     readonly privacy?: StateStorePort<PrivacyState>;
     readonly people?: StateStorePort<Person>;
     readonly beliefs?: StateStorePort<Belief>;
+    readonly biometrics?: StateStorePort<BiometricRecord>;
     readonly goals?: StateStorePort<Goal>;
     readonly lessons?: StateStorePort<Lesson>;
+    readonly mode?: StateStorePort<ModeState>;
+    readonly practice?: StateStorePort<PracticeItem>;
+    readonly artifacts?: StateStorePort<ArtifactRecord>;
   };
+  /** Model and dataset files to register and check against their pinned hashes (spec §135). */
+  readonly artifacts?: ReadonlyArray<ArtifactInput>;
   /** The owner, given the owner role when nobody holds it (config is an owner channel). */
   readonly ownerName?: string;
+  /**
+   * Wakes the agent with an initiative. With it, the situational reasoner runs: at L3 its
+   * proposals reach the agent as questions for the person, at L4+ reversible low-risk ones run.
+   */
+  readonly initiative?: (initiative: Initiative) => void;
+  /** Append-only store outside the gateway for the audit chain's head (spec §24, §48). */
+  readonly auditCheckpoints?: CheckpointStore;
+  /** Real-keyboard confirmation of physical actions; injected key presses never count. */
+  readonly physicalConfirm?: ConfirmPort;
+  /**
+   * A richer simulated body (a physics simulator, a ROS 2 robot in simulation) in place of the
+   * symbolic one when bodyMode is "simulated". It still only receives supervised intents.
+   */
+  readonly simulator?: (context: SimulatorContext) => BodyAdapter;
+  /** Recognizing sensors (webcam faces, microphone voices); each runs only while allowed. */
+  readonly sensors?: RecognitionSensors;
   /** Stop real sensor daemons when a person switches a sensor off. */
   readonly sensorDaemons?: {
     readonly stopMicrophone?: () => void;
@@ -150,6 +199,18 @@ export type CognitiveRuntime = {
   readonly workspace: GlobalWorkspace;
   readonly body: EmbodiedController;
   readonly teleop: TeleoperationGateway;
+  /** Who Lumina sees and hears: consented templates and the recognizing sensors. */
+  readonly recognition: Recognition;
+  /** The adapter the supervised intents reach (none, symbolic, physics simulator...). */
+  readonly bodyAdapter: BodyAdapter;
+  /** Looks back at the audit and cycles and proposes lessons for a person to accept. */
+  readonly reflection: ReturnType<typeof createReflection>;
+  /** Normal, child, companion or maintenance: restrictions on top of a person's overrides. */
+  readonly modes: InteractionModes;
+  /** What people are learning with Lumina (teaching and language practice). */
+  readonly practice: PracticeBook;
+  /** Lumina's own models and datasets, with provenance and pinned hashes. */
+  readonly artifacts: ArtifactRegistry;
   readonly safety: SafetyKernel;
   readonly audit: AuditLog;
   readonly privacy: PrivacyControls;
@@ -209,6 +270,8 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
     ...(stores.overrides ? { store: stores.overrides } : {}),
   });
   const audit = new AuditLog({ now, onError, ...(stores.audit ? { store: stores.audit } : {}) });
+  // A person's sensor switch reaches the recognizing sensors at once (they exist further down).
+  let refreshSensors: () => void = () => undefined;
   // Until stored privacy choices load, camera and microphone count as off.
   const privacy = new PrivacyControls({
     now,
@@ -221,6 +284,7 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
       if (!state.camera) {
         options.sensorDaemons?.stopCamera?.();
       }
+      refreshSensors();
       const on = (v: boolean) => (v ? "on" : "off");
       audit.append({
         actor: state.updatedBy,
@@ -235,6 +299,16 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
     onError,
     ...(stores.people ? { store: stores.people } : {}),
   });
+  const practice = new PracticeBook({
+    now,
+    onError,
+    ...(stores.practice ? { store: stores.practice } : {}),
+  });
+  const artifacts = new ArtifactRegistry({
+    now,
+    onError,
+    ...(stores.artifacts ? { store: stores.artifacts } : {}),
+  });
   const mind = new MindModel({
     now,
     onError,
@@ -246,44 +320,55 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
     // Privacy is enforced here: a switched-off sensor's events never enter.
     admit: (event) => privacy.admits(event),
   });
+  const recognition = createRecognition({
+    people,
+    router,
+    privacy: () => privacy.state(),
+    now,
+    onError,
+    ...(options.sensors ? { sensors: options.sensors } : {}),
+    ...(stores.biometrics ? { store: stores.biometrics } : {}),
+  });
+  refreshSensors = () => recognition.refresh();
 
   const granted = new Set(options.grantedCapabilities.filter((c) => BODY_CAPABILITIES.includes(c)));
   const preAuthorized = new Set(options.preAuthorizedCapabilities.filter((c) => granted.has(c)));
-  const resolvePlace = (id: string): string | undefined => {
-    const entity = world.get(id);
-    if (!entity) {
-      return undefined;
-    }
-    return entity.kind === "room" || entity.kind === "location"
-      ? entity.id
-      : entity.position?.placeId;
-  };
-  const adapter: BodyAdapter =
-    options.bodyMode === "simulated" ? new SimulatedBody(resolvePlace) : new NullBody();
+  const adapter = createBodyAdapter({
+    bodyMode: options.bodyMode,
+    world,
+    nameOf: (id) => people.get(id)?.name ?? world.get(id)?.label,
+    ingest: (event) => void router.ingest(event),
+    ...(options.simulator ? { simulator: options.simulator } : {}),
+  });
   const robot = options.bodyMode === "simulated" ? new SimulatedRobot({ now }) : undefined;
 
   const sensors = (): SensorStatus[] => {
     const p = privacy.state();
+    const { camera: webcam, microphone } = recognition.status();
     return [
       { id: "screen", kind: "screen", available: true },
       { id: "battery", kind: "battery", available: options.environment()?.battery != null },
       {
         id: "camera",
         kind: "camera",
-        available: p.camera && robot !== undefined,
+        available: p.camera && (webcam?.running === true || robot !== undefined),
         detail: !p.camera
           ? "switched off by a person"
-          : robot
-            ? "simulated camera (MOCK)"
-            : "no camera perception adapter is connected",
+          : webcam?.running
+            ? "webcam: face detection and consented recognition"
+            : robot
+              ? "simulated camera (MOCK)"
+              : (webcam?.lastError ?? "no camera perception adapter is connected"),
       },
       {
         id: "microphone",
         kind: "microphone",
-        available: false,
-        detail: p.microphone
-          ? "no audio perception adapter is connected to the cognitive core"
-          : "switched off by a person",
+        available: p.microphone && microphone?.running === true,
+        detail: !p.microphone
+          ? "switched off by a person"
+          : microphone?.running
+            ? "microphone: voice activity and consented speaker recognition"
+            : (microphone?.lastError ?? "no audio perception adapter is connected"),
       },
     ];
   };
@@ -307,12 +392,26 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
 
   // Construction order follows the dependencies, so nothing is read before it exists:
   // loop -> self model -> workspace -> body.
+  const initiative = options.initiative;
   const loop = new CognitiveLoop({
     level: overrides.effectiveLevel(options.autonomyLevel),
-    reason: options.reason ?? observeOnlyReasoner(lessons),
+    reason:
+      options.reason ??
+      (initiative
+        ? createSituationalReasoner({
+            people,
+            deliver: initiative,
+            fallback: observeOnlyReasoner(lessons),
+            now,
+            world,
+            presence,
+            mode: () => modes.state().mode,
+          })
+        : observeOnlyReasoner(lessons)),
     goals,
     now,
     ...(options.onCycle ? { onCycle: options.onCycle } : {}),
+    ...(initiative ? { onSurface: surfaceProposals(initiative) } : {}),
   });
 
   const selfModel = (): SelfModel => {
@@ -332,6 +431,7 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
       tasks: goals.rank(now()).map((r) => ({ id: r.goal.id, title: r.goal.title, score: r.score })),
       ...(focus ? { attentionTarget: focus.event.kind } : {}),
       pendingEvents: router.pending,
+      interactionMode: { mode: modes.state().mode, guidance: MODE_GUIDANCE[modes.state().mode] },
     });
   };
 
@@ -368,8 +468,15 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
       world,
       canObserve: sensors().some((s) => s.kind === "camera" && s.available),
       canAsk: true,
-      paused: overrides.state().paused,
-      disabledCapabilities: new Set(overrides.state().disabledCapabilities),
+      // A mode's restrictions add to a person's overrides; neither ever lifts the other.
+      paused: overrides.state().paused || modes.restrictions().paused,
+      ...(!overrides.state().paused && modes.restrictions().paused
+        ? { pauseReason: "Maintenance mode: autonomy is paused while someone works on Lumina." }
+        : {}),
+      disabledCapabilities: new Set([
+        ...overrides.state().disabledCapabilities,
+        ...modes.restrictions().disabledCapabilities,
+      ]),
       energy: options.environment()?.battery ?? null,
       people: world.query({ kind: "person" }).map(({ entity, confidence }) => ({
         id: entity.id,
@@ -384,7 +491,9 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
 
   const syncLevel = () =>
     loop.setLevel(
-      options.emergencyStop.isEngaged() ? 0 : overrides.effectiveLevel(options.autonomyLevel),
+      options.emergencyStop.isEngaged() || modes.restrictions().paused
+        ? 0
+        : overrides.effectiveLevel(options.autonomyLevel),
     );
   const safety = new SafetyKernel({
     overrides,
@@ -403,6 +512,40 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
   if (options.emergencyStop.isEngaged()) {
     latchEmergency();
   }
+  const modes = new InteractionModes({
+    safety,
+    now,
+    onError,
+    ...(stores.mode ? { store: stores.mode } : {}),
+    activity: () => audit.recent(1000),
+    onChange: (state) => {
+      syncLevel();
+      audit.append({
+        actor: state.by,
+        action: "mode.change",
+        reason: `interaction mode ${state.mode}`,
+        execution: "executed",
+        ...(state.lastSummary ? { outcome: state.lastSummary } : {}),
+      });
+      initiative?.({
+        key: "mode",
+        text: `Interaction mode is now ${state.mode}. ${MODE_GUIDANCE[state.mode]}${
+          state.mode === "normal" && state.lastSummary
+            ? ` Tell the guardian: ${state.lastSummary}`
+            : ""
+        }`,
+      });
+    },
+  });
+  const safeguards = attachSafeguards({
+    audit,
+    safety,
+    body,
+    onError,
+    ...(options.auditCheckpoints ? { checkpoints: options.auditCheckpoints } : {}),
+    ...(options.physicalConfirm ? { physicalConfirm: options.physicalConfirm } : {}),
+    ...(options.notify ? { notify: (message: string) => options.notify?.(message, "warn") } : {}),
+  });
   // The loop starts at the stored-override level (paused while loading) and
   // takes the real one once a person's stored orders are known.
   const ready = Promise.all([
@@ -414,6 +557,10 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
     audit.ready,
     privacy.ready,
     mind.ready,
+    recognition.ready,
+    modes.ready,
+    practice.ready,
+    artifacts.ready,
     people.ready.then(() => {
       const ownerName = options.ownerName?.trim();
       if (ownerName && !people.owner()) {
@@ -427,113 +574,31 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
   ]).then(syncLevel);
 
   // Brainstem: every subsystem checked on a timer, with no language model involved.
-  const probe = (name: string, critical: boolean, check: () => ProbeResult): Probe => ({
-    name,
-    critical,
-    check,
-  });
-  const on = (v: boolean) => (v ? "on" : "off");
-  const persistent = Boolean(
-    stores.audit &&
-    stores.overrides &&
-    stores.world &&
-    stores.goals &&
-    stores.lessons &&
-    options.episodicMemory,
-  );
   const brainstem = new Brainstem({
     now,
     ...(options.brainstemIntervalMs ? { intervalMs: options.brainstemIntervalMs } : {}),
     probes: [
-      probe("awareness", false, () => {
-        const env = options.environment();
-        if (!env) {
-          return {
-            status: "degraded",
-            detail: "No environment snapshot yet.",
-            recommendation: "Wait for the first awareness poll.",
-          };
-        }
-        const ageMs = now() - Date.parse(env.atISO);
-        return ageMs > 5 * 60_000
-          ? {
-              status: "degraded",
-              detail: `Environment snapshot is ${Math.round(ageMs / 60_000)} min old.`,
-              recommendation: "Check the awareness poller.",
-            }
-          : { status: "ok", detail: "Environment snapshot is current." };
+      ...coreProbes({
+        environment: options.environment,
+        energy,
+        hasBody: adapter.mode !== "none",
+        persistent: Boolean(
+          stores.audit &&
+          stores.overrides &&
+          stores.world &&
+          stores.goals &&
+          stores.lessons &&
+          options.episodicMemory,
+        ),
+        audit,
+        robot,
+        privacy: () => privacy.state(),
+        ...(options.activeModel ? { activeModel: options.activeModel } : {}),
+        now,
       }),
-      probe("network", false, () =>
-        options.environment()?.network.online === false
-          ? {
-              status: "degraded",
-              detail: "Offline: cloud models and messaging may fail; local functions continue.",
-              recommendation: "Check the connection.",
-            }
-          : { status: "ok", detail: "Online or unknown." },
-      ),
-      probe("energy", adapter.mode !== "none", () => {
-        const advice = energy();
-        const status =
-          advice.level === "critical"
-            ? "down"
-            : advice.level === "low"
-              ? "degraded"
-              : advice.level === "unknown"
-                ? "absent"
-                : "ok";
-        return {
-          status,
-          detail: advice.detail,
-          ...(advice.action !== "none" ? { recommendation: advice.action } : {}),
-        };
-      }),
-      probe("stores", false, () =>
-        persistent
-          ? {
-              status: "ok",
-              detail:
-                "Safety, world, goals, lessons and episodic memory persist in SQLite plugin state.",
-            }
-          : {
-              status: "degraded",
-              detail:
-                "One or more cognitive stores are session-only and will not survive a restart.",
-              recommendation: "Run inside the gateway with plugin state available.",
-            },
-      ),
-      probe("audit", true, () => {
-        const v = audit.verify();
-        return v.ok
-          ? { status: "ok", detail: `Audit chain intact (${v.entries} entries).` }
-          : {
-              status: "down",
-              detail: `Audit chain broken at entry ${v.brokenAt}: ${v.reason}.`,
-              recommendation: "Treat as tampering; a person must review.",
-            };
-      }),
-      probe("body", false, () =>
-        robot
-          ? { status: robot.health().status, detail: robot.health().detail }
-          : { status: "absent", detail: "No body: this is a desktop." },
-      ),
-      probe("privacy", false, () => {
-        const p = privacy.state();
-        return {
-          status: "ok",
-          detail: `microphone ${on(p.microphone)}, camera ${on(p.camera)}, recording ${on(p.recording)}, private mode ${on(p.privateMode)}`,
-        };
-      }),
-      probe("model", false, () => {
-        const model = options.activeModel?.();
-        return model
-          ? { status: "ok", detail: `Active model: ${model}.` }
-          : {
-              status: "degraded",
-              detail: "No active model reported: reasoning may be unavailable.",
-              recommendation: "Check the agent model configuration.",
-            };
-      }),
+      ...safeguards.probes(),
+      ...recognition.probes(),
+      artifacts.probe(),
     ],
     onDegraded: (subsystem) => {
       audit.append({
@@ -568,9 +633,29 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
     },
   });
 
+  const reflection = createReflection({ audit, loop, now });
   const timers: Array<ReturnType<typeof setInterval>> = [];
   if (options.startTimers !== false) {
     brainstem.start();
+    const reflecting = setInterval(() => {
+      try {
+        reflection.run();
+      } catch (error) {
+        onError(error);
+      }
+    }, 6 * 3_600_000);
+    reflecting.unref?.();
+    timers.push(reflecting);
+    // Pin what is on disk, then check it now and every 6 hours.
+    const checkArtifacts = () =>
+      void artifacts
+        .registerPresent(options.artifacts ?? [])
+        .then(() => artifacts.verifyAll())
+        .catch(onError);
+    checkArtifacts();
+    const artifactCheck = setInterval(checkArtifacts, 6 * 3_600_000);
+    artifactCheck.unref?.();
+    timers.push(artifactCheck);
     const consolidation = setInterval(
       () => {
         try {
@@ -585,28 +670,12 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
     timers.push(consolidation);
   }
 
-  const forgetSession = (sinceISO: string) => {
-    const worldForgotten = world.forgetSince(sinceISO);
-    const episodicForgotten = options.episodicMemory?.forgetSince(sinceISO) ?? 0;
-    const beliefsForgotten = mind.forgetSince(sinceISO);
-    const forgotten = worldForgotten + episodicForgotten + beliefsForgotten;
-    audit.append({
-      actor: "agent",
-      action: "privacy.forget_session",
-      reason: `session-local world observations, episodes and mind beliefs since ${sinceISO}`,
-      execution: "executed",
-      outcome: `${forgotten} removed (world=${worldForgotten}, episodic=${episodicForgotten}, beliefs=${beliefsForgotten})`,
-    });
-    return {
-      forgotten,
-      worldForgotten,
-      episodicForgotten,
-      beliefsForgotten,
-      note:
-        "World observations, episodic memories and theory-of-mind beliefs from this session were removed. " +
-        "Shared Supabase memory is a separate continuity store and was not changed.",
-    };
-  };
+  const forgetSession = createForgetSession({
+    world,
+    mind,
+    audit,
+    ...(options.episodicMemory ? { episodicMemory: options.episodicMemory } : {}),
+  });
 
   const detachers = [
     options.emergencyStop.onEngage(latchEmergency),
@@ -625,7 +694,13 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
         );
       }
     }),
-    attachWorldModel(router, world),
+    // Curiosity (spec §92): a new thing nothing explains earns a cycle of its own.
+    attachWorldModel(router, world, (result, event) => {
+      const gap = knowledgeGap(result, event);
+      if (gap) {
+        void router.ingest(gap);
+      }
+    }),
     attachAwareness(options.awarenessBus, router, { onError: (error) => options.onError?.(error) }),
     loop.consume(router, { onError: (error) => options.onError?.(error) }),
     ...(options.screenPerception
@@ -642,6 +717,12 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
     workspace,
     body,
     teleop,
+    bodyAdapter: adapter,
+    recognition,
+    reflection,
+    modes,
+    practice,
+    artifacts,
     safety,
     audit,
     privacy,
@@ -663,6 +744,10 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
         privacy.flush(),
         people.flush(),
         mind.flush(),
+        recognition.gallery.flush(),
+        modes.flush(),
+        practice.flush(),
+        artifacts.flush(),
       ]);
     },
     selfModel,
@@ -677,9 +762,13 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
       createSafetyTool(safety, audit),
       createExplainTool(audit, loop),
       createPrivacyTool(privacy, forgetSession),
-      createPeopleTool(people, presence),
+      createPeopleTool(people, presence, recognition),
       createMindTool(mind),
       createHealthTool(brainstem, energy),
+      createReflectTool(reflection),
+      createModeTool(modes),
+      createPracticeTool(practice, people),
+      createArtifactTool(artifacts),
     ],
     dispose: () => {
       brainstem.stop();
@@ -690,6 +779,9 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
       for (const detach of detachers) {
         detach();
       }
+      recognition.dispose();
+      safeguards.dispose();
+      adapter.dispose?.();
       body.dispose();
     },
   };

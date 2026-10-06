@@ -129,7 +129,12 @@
       "lumina_privacy",
       "lumina_people",
       "lumina_mind",
-      "lumina_health"
+      "lumina_health",
+      "lumina_reflect",
+      "lumina_mode",
+      "lumina_practice",
+      "lumina_artifacts",
+      "lumina_evaluate"
     ]
   },
   "configSchema": {
@@ -322,6 +327,72 @@
         },
         "default": [],
         "description": "Granted capabilities that may run without asking at L4+, only when reversible and low risk. Grasping and handing objects to people always ask."
+      },
+      "cameraPerception": {
+        "type": "boolean",
+        "default": false,
+        "description": "Run the webcam sidecar: faces become presence, recognized only for people whose face-recognition consent the owner granted. Runs only while the camera privacy state is on; frames are never stored."
+      },
+      "cameraIndex": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 16,
+        "default": 0,
+        "description": "Which webcam to read."
+      },
+      "cameraFps": {
+        "type": "number",
+        "minimum": 0.2,
+        "maximum": 5,
+        "default": 1,
+        "description": "Webcam frames analyzed per second."
+      },
+      "voicePerception": {
+        "type": "boolean",
+        "default": false,
+        "description": "Run the microphone sidecar: speech is detected and the speaker recognized only with voice-recognition consent. Runs only while the microphone privacy state is on; audio is never stored or transcribed there."
+      },
+      "perceptionPlaceId": {
+        "type": "string",
+        "default": "",
+        "description": "World-model place where the webcam and microphone are, for sightings (e.g. desk)."
+      },
+      "perceptionModelsDir": {
+        "type": "string",
+        "default": "",
+        "description": "Folder for the face and voice model files; empty means ~/.openclaw/models."
+      },
+      "bodySimulator": {
+        "type": "string",
+        "enum": ["symbolic", "mujoco", "ros2"],
+        "default": "symbolic",
+        "description": "With bodyMode 'simulated': 'symbolic' teleports between places; 'mujoco' runs a small mobile robot in the MuJoCo physics simulator (speed limits, collisions, reach); 'ros2' drives a ROS 2 robot in simulation (Gazebo, Isaac) through rosbridge."
+      },
+      "ros2Url": {
+        "type": "string",
+        "default": "ws://127.0.0.1:9090",
+        "description": "rosbridge WebSocket for bodySimulator 'ros2'."
+      },
+      "ros2Places": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 3
+        },
+        "default": {},
+        "description": "Named goal poses in the map frame for bodySimulator 'ros2', as [x, y, yaw]."
+      },
+      "physicalConfirmation": {
+        "type": "boolean",
+        "default": false,
+        "description": "Physical actions waiting for a person can also be approved with Ctrl+Alt+Y (or refused with Ctrl+Alt+N) on the real keyboard; software-injected key presses never count."
+      },
+      "ownerAgentId": {
+        "type": "string",
+        "default": "main",
+        "description": "The owner's agent: the core's initiatives reach its main session."
       },
       "ownerName": {
         "type": "string",

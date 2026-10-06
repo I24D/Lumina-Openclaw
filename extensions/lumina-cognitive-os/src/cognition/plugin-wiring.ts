@@ -7,8 +7,10 @@
  * of `index.ts` is what keeps the entry a list of capabilities rather than a
  * monolith.
  */
+import os from "node:os";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { resolveAgentModelPrimaryValue } from "openclaw/plugin-sdk/provider-onboard";
+import { buildAgentMainSessionKey } from "openclaw/plugin-sdk/routing";
 import type { PlanStore } from "../action/action-tools.js";
 import { createPlanRunTool } from "../action/plan-run-tool.js";
 import { PlanRunner } from "../action/plan-run.js";
@@ -17,16 +19,33 @@ import type { EnvironmentSnapshot } from "../awareness/snapshot.js";
 import { registerM3ganGatewayMethods } from "../dashboard/gateway-methods.js";
 import { createM3ganHealthHandler, M3GAN_HEALTH_PATH } from "../dashboard/health-http.js";
 import type { OwnerChannelDeps } from "../dashboard/owner-channel.js";
+import { PhysicsBody, type PhysicsEvent } from "../embodiment/physics-body.js";
+import { Ros2Body, websocketTransport, type Ros2Places } from "../embodiment/ros2-body.js";
+import { perceptionModels, type ArtifactRecord } from "../evaluation/artifact-registry.js";
+import { createEvaluateTool } from "../evaluation/eval-tool.js";
+import { createEvaluation } from "../evaluation/m3gan-eval.js";
 import { EpisodicMemoryStore, type Episode } from "../memory/episodic-memory.js";
 import type { WorkingMemory } from "../memory/working-memory.js";
 import { killSwitch } from "../operator/kill-switch.js";
+import {
+  createSensorSidecars,
+  resolvePerceptionSettings,
+  type PerceptionSettings,
+} from "../perception/sensor-sidecars.js";
 import type { PrivacyState } from "../privacy/privacy-state.js";
 import type { AuditRecord } from "../safety/audit-log.js";
+import { createChildGuard, type ChildGuard } from "../safety/child-guard.js";
+import type { ModeState } from "../safety/interaction-mode.js";
 import type { OverrideState } from "../safety/overrides.js";
+import type { ConfirmEvent } from "../safety/physical-confirm.js";
+import { NdjsonSidecar } from "../shared/ndjson-sidecar.js";
 import { DeferredStateStore, type StateStorePort } from "../shared/state-store.js";
 import type { AnyAgentTool } from "../shared/tool-result.js";
+import type { BiometricRecord } from "../social/biometrics.js";
 import type { Person } from "../social/people.js";
+import type { PracticeItem } from "../social/practice.js";
 import type { Belief } from "../social/theory-of-mind.js";
+import { createSupabaseCheckpointStore } from "../supabase/audit-checkpoint-store.js";
 import type { ActivityLog } from "../transparency/activity-log.js";
 import type { Observation } from "../world/world-model.js";
 import type { AutonomyLevel } from "./autonomy-levels.js";
@@ -34,10 +53,12 @@ import {
   createCognitiveRuntime,
   type CognitiveRuntime,
   type CognitiveRuntimeOptions,
+  type SimulatorContext,
   type RuntimeBodyMode,
 } from "./cognitive-runtime.js";
 import type { Goal } from "./goals/goal-manager.js";
 import type { Lesson } from "./learning/lessons.js";
+import type { Initiative } from "./loop/situational-reasoner.js";
 
 export type CognitiveSettings = {
   readonly enabled: boolean;
@@ -46,6 +67,27 @@ export type CognitiveSettings = {
   readonly grantedCapabilities: ReadonlyArray<string>;
   readonly preAuthorizedCapabilities: ReadonlyArray<string>;
   readonly ownerName: string;
+  /** Recognizing sensors: webcam faces and microphone voices (off unless configured). */
+  readonly perception: PerceptionSettings;
+  /** Physical actions can also be approved on the real keyboard (Ctrl+Alt+Y / N). */
+  readonly physicalConfirmation: boolean;
+  /** Which simulator a simulated body runs on: symbolic (teleports), MuJoCo physics, or ROS 2. */
+  readonly bodySimulator: "symbolic" | "mujoco" | "ros2";
+  /** rosbridge WebSocket and named poses, for bodySimulator "ros2". */
+  readonly ros2: { readonly url: string; readonly places: Ros2Places };
+};
+
+/** Named poses from config: { kitchen: [x, y, yaw?] }; malformed entries are dropped. */
+const asPoses = (value: unknown): Ros2Places => {
+  const out: Record<string, readonly [number, number, number?]> = {};
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    for (const [name, pose] of Object.entries(value)) {
+      if (Array.isArray(pose) && pose.length >= 2 && pose.every((n) => typeof n === "number")) {
+        out[name] = [pose[0] as number, pose[1] as number, pose[2] as number | undefined];
+      }
+    }
+  }
+  return out;
 };
 
 // Which capabilities exist is the runtime's call; here config is only type-checked.
@@ -74,6 +116,19 @@ export function resolveCognitiveSettings(pluginConfig: unknown): CognitiveSettin
     preAuthorizedCapabilities: asStrings(raw.preAuthorizedCapabilities),
     ownerName:
       typeof raw.ownerName === "string" && raw.ownerName.trim() ? raw.ownerName.trim() : "Dal",
+    perception: resolvePerceptionSettings(raw),
+    physicalConfirmation: raw.physicalConfirmation === true,
+    bodySimulator:
+      raw.bodySimulator === "mujoco" || raw.bodySimulator === "ros2"
+        ? raw.bodySimulator
+        : "symbolic",
+    ros2: {
+      url:
+        typeof raw.ros2Url === "string" && raw.ros2Url.trim()
+          ? raw.ros2Url.trim()
+          : "ws://127.0.0.1:9090",
+      places: asPoses(raw.ros2Places),
+    },
   };
 }
 
@@ -120,8 +175,12 @@ export type CognitiveCoreDeps = {
     | { readonly agents?: { readonly defaults?: { readonly model?: unknown } } }
     | undefined;
   readonly logger: { info(message: string): void; warn(message: string): void };
+  /** Wakes the agent's main session with one of the core's initiatives (live gateway only). */
+  readonly initiative?: (initiative: Initiative) => void;
   /** Publishes the owner channel: the Control UI's M3GAN tab, its gateway methods, /health. */
   readonly dashboard?: (channel: OwnerChannelDeps) => void;
+  /** Puts the mode's guidance in every turn and screens replies in child mode (live gateway only). */
+  readonly conversationHooks?: (guard: ChildGuard) => void;
   /** The screen perception sidecar's bus, fed into the thalamic router. */
   readonly perceptionBus?: CognitiveRuntimeOptions["screenPerception"];
   /** Real sensor daemons to stop when a person switches a sensor off. */
@@ -147,10 +206,18 @@ export function hostDeps(
     | "registerService"
     | "session"
     | "registrationMode"
+    | "on"
   >,
 ): Pick<
   CognitiveCoreDeps,
-  "live" | "pluginConfig" | "liveConfig" | "openStore" | "logger" | "dashboard"
+  | "live"
+  | "pluginConfig"
+  | "liveConfig"
+  | "openStore"
+  | "logger"
+  | "dashboard"
+  | "initiative"
+  | "conversationHooks"
 > {
   const base = {
     pluginConfig: api.pluginConfig,
@@ -170,6 +237,55 @@ export function hostDeps(
   return {
     ...base,
     live: true,
+    // The core speaks to the owner's agent through its main session, like any system notice.
+    // With several agents the bare "main" key is ambiguous, so the session is named in full.
+    initiative: ({ key, text }) => {
+      try {
+        const raw = (api.pluginConfig ?? {}) as Readonly<Record<string, unknown>>;
+        const sessionKey = buildAgentMainSessionKey({
+          agentId:
+            typeof raw.ownerAgentId === "string" && raw.ownerAgentId.trim()
+              ? raw.ownerAgentId.trim()
+              : "main",
+          mainKey: (api.runtime.config?.current?.() ?? api.config)?.session?.mainKey,
+        });
+        const queued = api.runtime.system.enqueueSystemEvent(`[M3GAN] ${text}`, {
+          sessionKey,
+          contextKey: `m3gan:${key}`,
+          replace: true,
+        });
+        if (queued) {
+          api.runtime.system.requestHeartbeat({
+            source: "other",
+            intent: "immediate",
+            reason: "m3gan-initiative",
+            sessionKey,
+          });
+        }
+      } catch (error) {
+        api.logger.warn(`[lumina-cognitive-os] initiative not delivered: ${String(error)}`);
+      }
+    },
+    conversationHooks: (guard) => {
+      api.on("before_prompt_build", () => {
+        const context = guard.systemContext();
+        return context ? { appendSystemContext: context } : undefined;
+      });
+      api.on("before_agent_finalize", (event) => {
+        const instruction = guard.revise(event.lastAssistantMessage);
+        return instruction
+          ? { action: "revise", reason: "child mode", retry: { instruction, maxAttempts: 1 } }
+          : undefined;
+      });
+      api.on("reply_payload_sending", (event) => {
+        const text = guard.outgoing(event.payload.text);
+        return text ? { payload: { ...event.payload, text } } : undefined;
+      });
+      api.on("message_sending", (event) => {
+        const content = guard.outgoing(event.content);
+        return content ? { content } : undefined;
+      });
+    },
     openStore: <T>(namespace: string) =>
       new DeferredStateStore<T>(running, () =>
         api.runtime.state.openKeyedStore<T>({ namespace, retention: "retained" }),
@@ -222,8 +338,12 @@ export const COGNITIVE_STORE_NAMESPACES = {
   privacy: "m3gan.privacy",
   people: "m3gan.people",
   beliefs: "m3gan.beliefs",
+  biometrics: "m3gan.biometrics",
   goals: "m3gan.goals",
   lessons: "m3gan.lessons",
+  mode: "m3gan.mode",
+  practice: "m3gan.practice",
+  artifacts: "m3gan.artifacts",
   episodic: "m3gan.episodic",
 } as const;
 
@@ -259,8 +379,12 @@ function openStores(deps: CognitiveCoreDeps): NonNullable<CognitiveRuntimeOption
       privacy: open<PrivacyState>(COGNITIVE_STORE_NAMESPACES.privacy),
       people: open<Person>(COGNITIVE_STORE_NAMESPACES.people),
       beliefs: open<Belief>(COGNITIVE_STORE_NAMESPACES.beliefs),
+      biometrics: open<BiometricRecord>(COGNITIVE_STORE_NAMESPACES.biometrics),
       goals: open<Goal>(COGNITIVE_STORE_NAMESPACES.goals),
       lessons: open<Lesson>(COGNITIVE_STORE_NAMESPACES.lessons),
+      mode: open<ModeState>(COGNITIVE_STORE_NAMESPACES.mode),
+      practice: open<PracticeItem>(COGNITIVE_STORE_NAMESPACES.practice),
+      artifacts: open<ArtifactRecord>(COGNITIVE_STORE_NAMESPACES.artifacts),
     };
   } catch (error) {
     deps.logger.warn(
@@ -277,6 +401,8 @@ export function startCognitiveCore(deps: CognitiveCoreDeps): CognitiveRuntime | 
     deps.logger.info("[lumina-cognitive-os] cognitive core disabled by config");
     return undefined;
   }
+  // The webcam and microphone run only in the live gateway, never in discovery or CLI loads.
+  const sensors = deps.live ? createSensorSidecars(settings.perception) : undefined;
   const runtime = createCognitiveRuntime({
     stores: openStores(deps),
     startTimers: deps.live,
@@ -307,6 +433,38 @@ export function startCognitiveCore(deps: CognitiveCoreDeps): CognitiveRuntime | 
     },
     onError: (error) => deps.logger.warn(`[lumina-cognitive-os] cognitive core: ${String(error)}`),
     ownerName: settings.ownerName,
+    ...(sensors ? { sensors } : {}),
+    // The models the sensors load, pinned and checked by hash (spec §135).
+    ...(sensors ? { artifacts: perceptionModels(settings.perception.modelsDir) } : {}),
+    ...(deps.initiative ? { initiative: deps.initiative } : {}),
+    ...(deps.live && settings.physicalConfirmation
+      ? {
+          physicalConfirm: new NdjsonSidecar<ConfirmEvent>({
+            name: "physical_confirm",
+            args: () => [],
+          }),
+        }
+      : {}),
+    // A physics simulator runs only in the live gateway; elsewhere the symbolic body stands in.
+    ...(deps.live && settings.bodyMode === "simulated" && settings.bodySimulator !== "symbolic"
+      ? {
+          simulator: ({ nameOf, observe }: SimulatorContext) =>
+            settings.bodySimulator === "ros2"
+              ? new Ros2Body(websocketTransport(settings.ros2.url), settings.ros2.places, nameOf)
+              : new PhysicsBody(
+                  new NdjsonSidecar<PhysicsEvent>({
+                    name: "mujoco_body",
+                    args: () => ["--realtime", "1"],
+                  }),
+                  nameOf,
+                  observe,
+                ),
+        }
+      : {}),
+    // Only the live gateway checkpoints the audit chain it owns.
+    ...(deps.live
+      ? { auditCheckpoints: createSupabaseCheckpointStore({ host: os.hostname() }) }
+      : {}),
     ...(deps.perceptionBus ? { screenPerception: deps.perceptionBus } : {}),
     sensorDaemons: {
       stopMicrophone: () => void deps.sensorDaemons?.microphone?.stop(),
@@ -330,8 +488,14 @@ export function startCognitiveCore(deps: CognitiveCoreDeps): CognitiveRuntime | 
   if (deps.plans) {
     deps.registerTool(createPlanRunTool(deps.plans, planRunner(runtime)));
   }
+  const evaluation = createEvaluation();
+  deps.registerTool(createEvaluateTool(evaluation));
+  deps.conversationHooks?.(
+    createChildGuard({ mode: () => runtime.modes.state().mode, audit: runtime.audit }),
+  );
   deps.dashboard?.({
     runtime,
+    evaluation,
     version: M3GAN_CORE_VERSION,
     // Re-arming is a person's action: it exists only behind the owner channel.
     rearmEmergencyStop: () => void killSwitch.reset(),

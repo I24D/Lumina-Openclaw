@@ -22,18 +22,18 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { getLuminaEnvVar } from "../env.js";
+import { sidecarRoot } from "../shared/python.js";
 import { textOf } from "../shared/text.js";
 import {
   generateSessionId,
   RecorderStore,
   type RecorderMode,
+  type RecordingMeta,
   type RecordingSummary,
 } from "./recorder-store.js";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const SIDECAR = path.resolve(here, "../../sidecars/recorder.py");
+const SIDECAR = path.join(sidecarRoot(), "recorder.py");
 
 const DEFAULT_WINDOWS_SIDECAR_ROOT =
   "C:\\I24D_WhatsApp\\Lumina_PC\\Open_PC\\extensions\\lumina-cognitive-os\\sidecars";
@@ -270,6 +270,10 @@ export class RecorderProcess {
         const sessionId = textOf(msg.sessionId);
         const sessionDir = textOf(msg.sessionDir);
         const startedAtISO = textOf(msg.atISO, new Date().toISOString());
+        const meta = msg.meta as RecordingMeta | undefined;
+        if (meta?.sessionId === sessionId) {
+          this.store.recordMeta(meta);
+        }
         this.state = {
           kind: "recording",
           pid: this.child?.pid ?? -1,
@@ -282,6 +286,8 @@ export class RecorderProcess {
         return;
       }
       case "stopped": {
+        const active =
+          this.state.kind === "recording" || this.state.kind === "paused" ? this.state : undefined;
         const stats = (msg.stats as
           | { events: number; durationMs: number; sessionDir: string }
           | undefined) ?? {
@@ -289,6 +295,15 @@ export class RecorderProcess {
           durationMs: 0,
           sessionDir: "",
         };
+        const meta = msg.meta as RecordingMeta | undefined;
+        if (active && meta?.sessionId === active.sessionId) {
+          const previous = this.store.readMeta(active.sessionId);
+          this.store.recordMeta({
+            ...(previous ?? meta),
+            ...meta,
+            ...(previous?.label ? { label: previous.label } : {}),
+          });
+        }
         this.state = { kind: "ready", pid: this.child?.pid ?? -1 };
         this.pendingStop?.({ ok: true, stats });
         this.pendingStop = null;

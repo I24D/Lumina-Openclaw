@@ -7,20 +7,22 @@
  *   - reads back manifests / event slices for the tools
  *   - applies the optional scrubbing pass (PII redaction)
  *
- * On-disk layout per session:
+ * On-disk artifact layout per session:
  *
  *   <recordingsDir>/<sessionId>/
- *   ├── meta.json
- *   ├── events.jsonl
+ *   ├── events.ndjson
  *   ├── screenshots/000001.png ...
  *   └── uia/000001.json ...
  *
- * The sidecar owns ALL writes during a session. This file only writes
- * post-stop (when scrubbing runs).
+ * Session metadata is durable plugin state in SQLite. Legacy meta.json and
+ * events.jsonl recordings are imported/read for backwards compatibility.
+ * The sidecar owns event/image writes during a session; this module only
+ * rewrites the current event artifact when post-stop scrubbing runs.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { getLuminaEnvVar } from "../env.js";
+import type { StateStorePort } from "../shared/state-store.js";
 import { redactSecretsInText, type ScrubbingPolicy, defaultScrubbingPolicy } from "./scrubbing.js";
 
 export type RecorderMode = "events" | "screencast";
@@ -75,6 +77,29 @@ export type RecordingSummary = {
 };
 
 const DEFAULT_RECORDINGS_DIR = "c:/I24D_WhatsApp/recordings";
+export const RECORDER_METADATA_NAMESPACE = "m3gan.recorder.sessions";
+const EVENTS_FILE = "events.ndjson";
+const LEGACY_EVENTS_FILE = "events.jsonl";
+const LEGACY_META_FILE = "meta.json";
+
+export type RecorderStoreOptions = {
+  readonly rootDir?: string;
+  readonly metadataStore?: StateStorePort<RecordingMeta>;
+  readonly onError?: (error: unknown) => void;
+};
+
+export function createRecorderStore(
+  rootDir: string | undefined,
+  openStore: (<T>(namespace: string) => StateStorePort<T>) | undefined,
+  onError: (error: unknown) => void,
+): RecorderStore {
+  const metadataStore = openStore?.<RecordingMeta>(RECORDER_METADATA_NAMESPACE);
+  return new RecorderStore({
+    ...(rootDir ? { rootDir } : {}),
+    ...(metadataStore ? { metadataStore } : {}),
+    onError,
+  });
+}
 
 export function resolveRecordingsDir(override?: string): string {
   if (override && override.trim()) {
@@ -106,14 +131,45 @@ export function generateSessionId(prefix = "rec"): string {
 
 export class RecorderStore {
   readonly rootDir: string;
+  private readonly metadata = new Map<string, RecordingMeta>();
+  private readonly metadataStore: StateStorePort<RecordingMeta> | undefined;
+  private readonly onError: (error: unknown) => void;
+  private writes: Promise<void> = Promise.resolve();
+  readonly ready: Promise<void>;
 
-  constructor(rootDir?: string) {
-    this.rootDir = resolveRecordingsDir(rootDir);
+  constructor(input?: string | RecorderStoreOptions) {
+    const options: RecorderStoreOptions =
+      typeof input === "string" ? { rootDir: input } : (input ?? {});
+    this.rootDir = resolveRecordingsDir(options.rootDir);
+    this.metadataStore = options.metadataStore;
+    this.onError = options.onError ?? (() => undefined);
     try {
       fs.mkdirSync(this.rootDir, { recursive: true });
     } catch {
       /* lazy */
     }
+
+    const legacy = this.scanLegacyMetadata();
+    for (const meta of legacy) {
+      this.metadata.set(meta.sessionId, meta);
+    }
+
+    this.ready = this.metadataStore
+      ? this.metadataStore.entries().then(
+          async (rows) => {
+            for (const { key, value } of rows) {
+              this.metadata.set(key, value);
+            }
+            const durableIds = new Set(rows.map((row) => row.key));
+            for (const meta of legacy) {
+              if (!durableIds.has(meta.sessionId)) {
+                await this.metadataStore!.register(meta.sessionId, meta);
+              }
+            }
+          },
+          (error: unknown) => this.onError(error),
+        )
+      : Promise.resolve();
   }
 
   sessionDir(sessionId: string): string {
@@ -127,13 +183,72 @@ export class RecorderStore {
     return dir;
   }
 
+  private scanLegacyMetadata(): RecordingMeta[] {
+    if (!fs.existsSync(this.rootDir)) {
+      return [];
+    }
+    const out: RecordingMeta[] = [];
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(this.rootDir, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const file = path.join(this.rootDir, entry.name, LEGACY_META_FILE);
+      if (!fs.existsSync(file)) {
+        continue;
+      }
+      try {
+        const meta = JSON.parse(fs.readFileSync(file, "utf8")) as RecordingMeta;
+        if (meta.sessionId && meta.startedAtISO) {
+          out.push(meta);
+        }
+      } catch {
+        /* skip malformed legacy metadata */
+      }
+    }
+    return out;
+  }
+
+  recordMeta(meta: RecordingMeta): void {
+    this.metadata.set(meta.sessionId, structuredClone(meta));
+    const store = this.metadataStore;
+    if (!store) {
+      return;
+    }
+    this.writes = this.writes.then(async () => {
+      await this.ready;
+      await store.register(meta.sessionId, structuredClone(meta)).catch((error: unknown) => {
+        this.onError(error);
+      });
+    });
+  }
+
+  async flush(): Promise<void> {
+    await this.ready;
+    await this.writes;
+  }
+
   readMeta(sessionId: string): RecordingMeta | null {
-    const file = path.join(this.sessionDir(sessionId), "meta.json");
+    const cached = this.metadata.get(sessionId);
+    if (cached) {
+      return structuredClone(cached);
+    }
+    const file = path.join(this.sessionDir(sessionId), LEGACY_META_FILE);
     if (!fs.existsSync(file)) {
       return null;
     }
     try {
-      return JSON.parse(fs.readFileSync(file, "utf8")) as RecordingMeta;
+      const meta = JSON.parse(fs.readFileSync(file, "utf8")) as RecordingMeta;
+      if (!meta.sessionId || !meta.startedAtISO) {
+        return null;
+      }
+      this.recordMeta(meta);
+      return structuredClone(meta);
     } catch {
       return null;
     }
@@ -191,8 +306,17 @@ export class RecorderStore {
     };
   }
 
+  private eventFile(sessionId: string): string {
+    const dir = this.sessionDir(sessionId);
+    const current = path.join(dir, EVENTS_FILE);
+    if (fs.existsSync(current)) {
+      return current;
+    }
+    return path.join(dir, LEGACY_EVENTS_FILE);
+  }
+
   countEventLines(sessionId: string): number {
-    const file = path.join(this.sessionDir(sessionId), "events.jsonl");
+    const file = this.eventFile(sessionId);
     if (!fs.existsSync(file)) {
       return 0;
     }
@@ -205,7 +329,7 @@ export class RecorderStore {
   }
 
   readEvents(sessionId: string, opts: { offset?: number; limit?: number } = {}): RecordingEvent[] {
-    const file = path.join(this.sessionDir(sessionId), "events.jsonl");
+    const file = this.eventFile(sessionId);
     if (!fs.existsSync(file)) {
       return [];
     }
@@ -249,6 +373,17 @@ export class RecorderStore {
     }
     try {
       fs.rmSync(dir, { recursive: true, force: true });
+      this.metadata.delete(sessionId);
+      const store = this.metadataStore;
+      if (store) {
+        this.writes = this.writes.then(async () => {
+          await this.ready;
+          await store.delete(sessionId).catch((error: unknown) => {
+            this.onError(error);
+            return false;
+          });
+        });
+      }
       return true;
     } catch {
       return false;
@@ -256,21 +391,21 @@ export class RecorderStore {
   }
 
   /**
-   * Apply scrubbing to the events.jsonl IN PLACE: redacts key sequences
-   * that look like secrets in the recorded key.* events. Best-effort —
-   * never throws, returns the count of redactions.
+   * Apply scrubbing to the recorded event stream in place. New sessions use
+   * events.ndjson; events.jsonl remains read-only legacy compatibility.
    */
   scrub(
     sessionId: string,
     policy: ScrubbingPolicy = defaultScrubbingPolicy(),
   ): { ok: boolean; redactions: number; error?: string } {
-    const file = path.join(this.sessionDir(sessionId), "events.jsonl");
-    if (!fs.existsSync(file)) {
-      return { ok: false, redactions: 0, error: "events.jsonl missing" };
+    const sourceFile = this.eventFile(sessionId);
+    if (!fs.existsSync(sourceFile)) {
+      return { ok: false, redactions: 0, error: "recorded event stream missing" };
     }
+    const file = path.join(this.sessionDir(sessionId), EVENTS_FILE);
     let raw: string;
     try {
-      raw = fs.readFileSync(file, "utf8");
+      raw = fs.readFileSync(sourceFile, "utf8");
     } catch (e) {
       return { ok: false, redactions: 0, error: (e as Error).message };
     }

@@ -15,7 +15,121 @@
       "pluginApi": ">=2026.4.4"
     },
     "build": {
-      "openclawVersion": "2026.5.22"
+      "openclawVersion": "2026.5.22",
+      "staticAssets": [
+        {
+          "source": "./sidecars/audio_manager.py",
+          "output": "sidecars/audio_manager.py"
+        },
+        {
+          "source": "./sidecars/browser_drive.py",
+          "output": "sidecars/browser_drive.py"
+        },
+        {
+          "source": "./sidecars/browser_session.py",
+          "output": "sidecars/browser_session.py"
+        },
+        {
+          "source": "./sidecars/camera_perception.py",
+          "output": "sidecars/camera_perception.py"
+        },
+        {
+          "source": "./sidecars/capture_analyze.py",
+          "output": "sidecars/capture_analyze.py"
+        },
+        {
+          "source": "./sidecars/code_executor.py",
+          "output": "sidecars/code_executor.py"
+        },
+        {
+          "source": "./sidecars/kill_switch.py",
+          "output": "sidecars/kill_switch.py"
+        },
+        {
+          "source": "./sidecars/lumina_py_stubs.py",
+          "output": "sidecars/lumina_py_stubs.py"
+        },
+        {
+          "source": "./sidecars/mujoco_body.py",
+          "output": "sidecars/mujoco_body.py"
+        },
+        {
+          "source": "./sidecars/now_playing.py",
+          "output": "sidecars/now_playing.py"
+        },
+        {
+          "source": "./sidecars/office_com.py",
+          "output": "sidecars/office_com.py"
+        },
+        {
+          "source": "./sidecars/omniparser.py",
+          "output": "sidecars/omniparser.py"
+        },
+        {
+          "source": "./sidecars/perception.py",
+          "output": "sidecars/perception.py"
+        },
+        {
+          "source": "./sidecars/phone_link.py",
+          "output": "sidecars/phone_link.py"
+        },
+        {
+          "source": "./sidecars/physical_confirm.py",
+          "output": "sidecars/physical_confirm.py"
+        },
+        {
+          "source": "./sidecars/play_media.py",
+          "output": "sidecars/play_media.py"
+        },
+        {
+          "source": "./sidecars/recorder.py",
+          "output": "sidecars/recorder.py"
+        },
+        {
+          "source": "./sidecars/registry_manager.py",
+          "output": "sidecars/registry_manager.py"
+        },
+        {
+          "source": "./sidecars/requirements-omniparser.txt",
+          "output": "sidecars/requirements-omniparser.txt"
+        },
+        {
+          "source": "./sidecars/requirements.txt",
+          "output": "sidecars/requirements.txt"
+        },
+        {
+          "source": "./sidecars/uia_tree.py",
+          "output": "sidecars/uia_tree.py"
+        },
+        {
+          "source": "./sidecars/vision_click.py",
+          "output": "sidecars/vision_click.py"
+        },
+        {
+          "source": "./sidecars/vision_stream.py",
+          "output": "sidecars/vision_stream.py"
+        },
+        {
+          "source": "./sidecars/voice_perception.py",
+          "output": "sidecars/voice_perception.py"
+        },
+        {
+          "source": "./sidecars/wake_word.py",
+          "output": "sidecars/wake_word.py"
+        },
+        {
+          "source": "./sidecars/whatsapp.py",
+          "output": "sidecars/whatsapp.py"
+        },
+        {
+          "source": "./sidecars/win_input.py",
+          "output": "sidecars/win_input.py"
+        },
+        {
+          "source": "./sidecars/win_window.py",
+          "output": "sidecars/win_window.py"
+        }
+      ]
     }
   }
 }

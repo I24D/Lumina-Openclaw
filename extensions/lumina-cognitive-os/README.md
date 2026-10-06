@@ -32,30 +32,39 @@ authority above the agent's, and keeps the body behind a safety supervisor. See
 [docs/m3gan/](../../docs/m3gan/PROJECT_M3GAN_REAL.md) for the architecture, roadmap, tasks,
 section map and decision records.
 
-| Tool                   | Purpose                                                                          |
-| ---------------------- | -------------------------------------------------------------------------------- |
-| `lumina_workspace`     | Global workspace: goal, people, place, attention, task, events, memories, body.  |
-| `lumina_self_model`    | What Lumina knows about itself: body, sensors, tools, energy, limits.            |
-| `lumina_goal`          | Goals that persist across sessions, ranked by priority and deadline.             |
-| `lumina_world_observe` | Record where things are and how they are; claims never count as sensor data.     |
-| `lumina_world_query`   | "Where is X?", with confidence that decays over time, facts and routines.        |
-| `lumina_body`          | Review or request a body intent through the safety supervisor.                   |
-| `lumina_behavior`      | Plan, predict or run a behavior (come here, bring, greet, charge...) as intents. |
-| `lumina_safety`        | Status, audit, verify; pause, stop motion, cancel, disable autonomy or a skill.  |
-| `lumina_explain`       | Why something happened, from the audit log and the loop's cycles.                |
-| `lumina_privacy`       | Stop listening, stop the camera, private mode, stop recording, forget session.   |
-| `lumina_people`        | People Lumina knows, their roles and recognition consent.                        |
-| `lumina_mind`          | What a person probably believes or wants, always as an estimate.                 |
-| `lumina_health`        | The brainstem's probes: awareness, network, energy, stores, audit, body, model.  |
+| Tool                   | Purpose                                                                             |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| `lumina_workspace`     | Global workspace: goal, people, place, attention, task, events, memories, body.     |
+| `lumina_self_model`    | What Lumina knows about itself: body, sensors, tools, energy, limits.               |
+| `lumina_goal`          | Goals that persist across sessions, ranked by priority and deadline.                |
+| `lumina_world_observe` | Record where things are and how they are; claims never count as sensor data.        |
+| `lumina_world_query`   | "Where is X?", with confidence that decays over time, facts, routines, affordances. |
+| `lumina_body`          | Review or request a body intent through the safety supervisor.                      |
+| `lumina_behavior`      | Plan, predict or run a behavior (come here, bring, greet, charge...) as intents.    |
+| `lumina_safety`        | Status, audit, verify; pause, stop motion, cancel, disable autonomy or a skill.     |
+| `lumina_explain`       | Why something happened, from the audit log and the loop's cycles.                   |
+| `lumina_privacy`       | Stop listening, stop the camera, private mode, stop recording, forget session.      |
+| `lumina_people`        | People Lumina knows, their roles and recognition consent.                           |
+| `lumina_mind`          | What a person probably believes or wants, always as an estimate.                    |
+| `lumina_health`        | The brainstem's probes: awareness, network, energy, stores, audit, body, model.     |
+| `lumina_plan_run`      | Walk a validated plan step by step under the safety gate, with ordered rollback.    |
+| `lumina_reflect`       | Look back at the audit and cycles; propose lessons a person accepts.                |
+| `lumina_evaluate`      | Run the evaluation suite (world, people, memory, body, speed) in sandboxes.         |
+| `lumina_mode`          | Interaction mode: enter child or maintenance mode; leaving them is the owner's.     |
+| `lumina_practice`      | Teaching and language practice: items, spaced review, corrections, progress.        |
+| `lumina_artifacts`     | Models and datasets with source, licence, version, purpose and pinned hash.         |
 
-Tools only narrow: resuming, re-enabling, switching a sensor back on, roles, consent, physical
-confirmations, teleoperation and re-arming the emergency stop are done by a person from the
+Tools only narrow: resuming, re-enabling, switching a sensor back on, roles, consent, learning a
+face or a voice, leaving child or maintenance mode, physical confirmations, teleoperation and
+re-arming the emergency stop are done by a person from the
 **M3GAN** tab of the Control UI, a native view over `m3gan.*` gateway methods. Probes:
 `/plugins/lumina-cognitive-os/m3gan/health`, `/ready` and `/version`.
 
 Config: `cognitiveCoreEnabled` (default on), `autonomyLevel` (0-5, default 3), `bodyMode`
 (`none` or `simulated`), `grantedCapabilities` and `preAuthorizedCapabilities` (Dal only; no
-tool can write them), `ownerName` (default `Dal`).
+tool can write them), `ownerName` (default `Dal`), `cameraPerception` and `voicePerception`
+(webcam faces and microphone voices, each still gated by its privacy state), `physicalConfirmation`
+(Ctrl+Alt+Y/N on the real keyboard), `bodySimulator` (`symbolic`, `mujoco` or `ros2`).
 
 ## Configuration
 

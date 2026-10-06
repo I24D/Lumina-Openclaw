@@ -88,8 +88,8 @@ export const SAFETY_INVARIANTS: ReadonlyArray<SafetyInvariant> = Object.freeze([
   },
   {
     id: "tamper-evident-audit",
-    rule: "Safety decisions go to a hash-chained audit log in the plugin's SQLite state, apart from editable memory, and edits or reordering are detected. Tail deletion across a restart needs an external checkpoint, which is not connected.",
-    enforcedBy: "safety/audit-log.ts",
+    rule: "Safety decisions go to a hash-chained audit log in the plugin's SQLite state, apart from editable memory, and edits or reordering are detected. Its head is checkpointed to an append-only store outside the gateway, so deleting the newest entries is caught at startup.",
+    enforcedBy: "safety/audit-log.ts, safety/audit-checkpoint.ts",
     spec: ["§24", "§48"],
   },
   {

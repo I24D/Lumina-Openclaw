@@ -9,7 +9,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { RecorderStore, generateSessionId, type RecordingEvent } from "./recorder-store.js";
+import { MemoryStateStore } from "../shared/state-store.js";
+import {
+  RecorderStore,
+  generateSessionId,
+  type RecordingEvent,
+  type RecordingMeta,
+} from "./recorder-store.js";
 import { redactSecretsInText, defaultScrubbingPolicy } from "./scrubbing.js";
 
 let tmpDir = "";
@@ -171,6 +177,46 @@ describe("RecorderStore — read", () => {
     expect(events.length).toBe(2);
     expect(events[0]!.kind).toBe("a");
     expect(events[1]!.kind).toBe("b");
+  });
+});
+
+describe("RecorderStore — durable metadata", () => {
+  it("persists session metadata in the keyed store and reloads it", async () => {
+    const metadataStore = new MemoryStateStore<RecordingMeta>();
+    const first = new RecorderStore({ rootDir: tmpDir, metadataStore });
+    const meta: RecordingMeta = {
+      sessionId: "durable",
+      version: "1.0.0-test",
+      mode: "events",
+      captureUia: true,
+      fpsHintHz: 5,
+      startedAtISO: "2026-10-05T12:00:00.000Z",
+      stoppedAtISO: "2026-10-05T12:00:03.000Z",
+      eventCount: 4,
+      platform: "win32",
+      label: "durable demo",
+    };
+    first.prepareNewSessionDir(meta.sessionId);
+    first.recordMeta(meta);
+    await first.flush();
+
+    const restarted = new RecorderStore({ rootDir: tmpDir, metadataStore });
+    await restarted.ready;
+    expect(restarted.readMeta(meta.sessionId)).toEqual(meta);
+  });
+
+  it("imports legacy meta.json once into durable metadata", async () => {
+    const legacy = new RecorderStore(tmpDir);
+    writeSession(legacy, "legacy-meta", [{ idx: 1, atMs: 0, kind: "session.start" }]);
+    const metadataStore = new MemoryStateStore<RecordingMeta>();
+
+    const migrated = new RecorderStore({ rootDir: tmpDir, metadataStore });
+    await migrated.ready;
+
+    expect((await metadataStore.lookup("legacy-meta"))?.sessionId).toBe("legacy-meta");
+    // Runtime imports legacy metadata but does not rename/delete legacy state;
+    // database-first reserves cleanup for an explicit migration owner.
+    expect(fs.existsSync(path.join(tmpDir, "legacy-meta", "meta.json"))).toBe(true);
   });
 });
 

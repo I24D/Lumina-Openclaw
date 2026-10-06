@@ -49,6 +49,9 @@ function deriveLimitations(input: SelfModelInput): string[] {
   if (!input.activeModel) {
     out.push("No language model reported as active: reasoning may be unavailable.");
   }
+  if (input.interactionMode && input.interactionMode.mode !== "normal") {
+    out.push(input.interactionMode.guidance);
+  }
   return out;
 }
 
@@ -66,6 +69,7 @@ export function buildSelfModel(input: SelfModelInput): SelfModel {
     },
     activeModel: input.activeModel ?? null,
     autonomyLevel: input.autonomyLevel,
+    interactionMode: input.interactionMode?.mode ?? "normal",
     limitations: deriveLimitations(input),
     currentTasks: input.tasks,
     functionalState: {

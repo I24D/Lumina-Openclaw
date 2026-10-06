@@ -124,6 +124,7 @@ export function createRecorderStartTool(deps: RecorderToolDeps): AnyAgentTool {
         });
         return jsonResult({ ok: false, error: result.error });
       }
+      await deps.recorder.store.flush();
       deps.log?.append({
         action: "recorder.start",
         target: `session:${result.sessionId}`,
@@ -152,8 +153,8 @@ export function createRecorderStopTool(deps: RecorderToolDeps): AnyAgentTool {
     name: "lumina_recorder_stop",
     label: "Lumina Recorder — Stop",
     description:
-      "Stops the active recording, flushes the events.jsonl, finalizes meta.json, runs scrubbing if " +
-      "LUMINA_RECORDER_REDACT=1, and emits a Windows toast confirming the session ended.",
+      "Stops the active recording, flushes the events.ndjson artifact, persists session metadata to " +
+      "SQLite, runs scrubbing if LUMINA_RECORDER_REDACT=1, and emits a Windows toast confirming the session ended.",
     parameters: Type.Object({}),
     async execute() {
       const state = deps.recorder.getState();
@@ -170,6 +171,7 @@ export function createRecorderStopTool(deps: RecorderToolDeps): AnyAgentTool {
         });
         return jsonResult({ ok: false, error: result.error });
       }
+      await deps.recorder.store.flush();
       let redactions = 0;
       const redactRequested = (getLuminaEnvVar("LUMINA_RECORDER_REDACT") ?? "0").trim() === "1";
       if (sessionId && redactRequested) {
@@ -259,6 +261,7 @@ export function createRecorderListTool(deps: RecorderToolDeps): AnyAgentTool {
       // Narrowed once against this tool's schema; the tool runtime
       // validates the payload before execute() is ever called.
       const p = rawParams as { limit?: number };
+      await deps.recorder.store.ready;
       const list = deps.recorder.store.list().slice(0, p.limit ?? 50);
       return jsonResult({
         ok: true,
@@ -290,6 +293,7 @@ export function createRecorderGetTool(deps: RecorderToolDeps): AnyAgentTool {
       if (!id) {
         throw new ToolInputError("sessionId is required");
       }
+      await deps.recorder.store.ready;
       const summary = deps.recorder.store.summarize(id);
       if (!summary) {
         return jsonResult({ ok: false, error: `recording '${id}' not found` });
@@ -336,8 +340,10 @@ export function createRecorderDeleteTool(deps: RecorderToolDeps): AnyAgentTool {
           sessionId: id,
         });
       }
+      await deps.recorder.store.ready;
       const summary = deps.recorder.store.summarize(id);
       const ok = deps.recorder.store.delete(id);
+      await deps.recorder.store.flush();
       deps.log?.append({
         action: "recorder.delete",
         target: id,

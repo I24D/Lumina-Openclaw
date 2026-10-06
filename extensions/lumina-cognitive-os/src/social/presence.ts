@@ -51,7 +51,7 @@ export function presenceState(params: {
   const departures: string[] = [];
   // Events are newest first (router order): the first speaker found is the latest.
   for (const event of recent) {
-    const speech = payloadOf(event, "speech.recognized");
+    const speech = payloadOf(event, "speech.recognized") ?? payloadOf(event, "speech.detected");
     if (speech?.speakerId) {
       speakers.add(speech.speakerId);
       speakerId ??= speech.speakerId;

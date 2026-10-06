@@ -50,6 +50,8 @@ export type SelfModelInput = {
   }>;
   readonly attentionTarget?: string;
   readonly pendingEvents: number;
+  /** The interaction mode (child, companion, maintenance) and what it asks of Lumina. */
+  readonly interactionMode?: { readonly mode: string; readonly guidance: string };
 };
 
 export type SelfModel = {
@@ -62,6 +64,7 @@ export type SelfModel = {
   readonly energy: { readonly batteryPercent: number | null; readonly charging: boolean | null };
   readonly activeModel: string | null;
   readonly autonomyLevel: AutonomyLevel;
+  readonly interactionMode: string;
   readonly limitations: ReadonlyArray<string>;
   readonly currentTasks: SelfModelInput["tasks"];
   readonly functionalState: {

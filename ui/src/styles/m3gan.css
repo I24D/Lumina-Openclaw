@@ -11,9 +11,18 @@
 
 .m3gan__header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 12px;
+}
+
+.m3gan__heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.m3gan__face {
+  --openclaw-mascot-size: 64px;
+  flex: none;
 }
 
 .m3gan__panel {

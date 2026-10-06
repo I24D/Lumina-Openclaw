@@ -158,7 +158,7 @@ import { createBootGreetingTool } from "./src/presence/boot-greeting.js";
 import { WakeWordDaemon, createWakeWordTool } from "./src/presence/wake-word.js";
 // Recorder (LfD Fase B)
 import { RecorderProcess } from "./src/recorder/recorder-process.js";
-import { RecorderStore } from "./src/recorder/recorder-store.js";
+import { createRecorderStore } from "./src/recorder/recorder-store.js";
 import {
   createRecorderStartTool,
   createRecorderStopTool,
@@ -705,7 +705,9 @@ export default definePluginEntry({
     });
 
     // ── LfD Fase B: Recorder ─────────────────────────────────────
-    const recorderStore = new RecorderStore(cfg.recordingsDir);
+    const recorderStore = createRecorderStore(cfg.recordingsDir, host.openStore, (error) =>
+      api.logger.warn(`[lumina-cognitive-os] recorder metadata: ${String(error)}`),
+    );
     const recorder = new RecorderProcess(recorderStore);
     registerTool(createRecorderStartTool({ recorder, log: actionLog }));
     registerTool(createRecorderStopTool({ recorder, log: actionLog }));

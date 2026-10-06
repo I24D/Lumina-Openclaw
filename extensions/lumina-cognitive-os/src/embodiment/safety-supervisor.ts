@@ -38,6 +38,7 @@ import {
   type ConfidenceStance,
   type LowConfidenceResolution,
 } from "../contracts/uncertainty.js";
+import { affordancesOf } from "../world/affordances.js";
 import { effectiveConfidence, type WorldModel } from "../world/world-model.js";
 import {
   INTENT_PROFILES,
@@ -70,8 +71,10 @@ export type SafetyContext = {
   /** Someone is around to answer a question. */
   readonly canAsk: boolean;
   readonly nowMs: number;
-  /** A person paused autonomous activity (spec §143). */
+  /** A person paused autonomous activity (spec §143), or a mode such as maintenance did. */
   readonly paused?: boolean;
+  /** Why, when it was not a person's pause. */
+  readonly pauseReason?: string;
   /** Capabilities a person switched off at runtime. */
   readonly disabledCapabilities?: ReadonlySet<string>;
   /** People near the body. */
@@ -158,7 +161,8 @@ export function reviewIntent(intent: BodyIntent, context: SafetyContext): Safety
   }
   if (context.paused) {
     return review("deny", [
-      "A person paused autonomous activity; only stop is accepted until they resume it.",
+      context.pauseReason ??
+        "A person paused autonomous activity; only stop is accepted until they resume it.",
     ]);
   }
   if (context.bodyMode === "none") {
@@ -225,6 +229,21 @@ export function reviewIntent(intent: BodyIntent, context: SafetyContext): Safety
       (entity.kind === "person" || entity.kind === "animal")
     ) {
       return review("deny", ["A person or animal cannot be treated as a graspable object."]);
+    }
+    if ((intent.type === "grasp" || intent.type === "handover") && id === intent.objectId) {
+      // Possible is necessary, never sufficient: the rest of the review still applies.
+      const assessment = affordancesOf(entity);
+      if (assessment.source !== "unknown" && !assessment.affords.includes("grasp")) {
+        return review("deny", [
+          `${entity.label} cannot be picked up (${assessment.category ?? entity.kind}).`,
+        ]);
+      }
+      if (assessment.sharp && intent.type === "handover") {
+        limits = tighter(limits, SLOW_LIMITS);
+        modifications.push(
+          `${entity.label} is sharp: reduced speed and force; handle orientation is not verified by this supervisor.`,
+        );
+      }
     }
     if (!profile.needsConfidentTarget) {
       continue;
