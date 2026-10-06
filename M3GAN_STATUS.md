@@ -18,8 +18,16 @@ Updated: 2026-10-06 America/New_York, by Claude Code.
 
 Active in the live gateway since 2026-10-05 (`plugins.allow` + `plugins.entries`, body simulated
 on MuJoCo, autonomy L3, owner Dal, camera and voice perception on, keyboard confirmation on).
-Verified by tests: 591 cognitive-os tests plus the context-engine and Control UI tests; tsgo for
-extensions, extension tests and the UI with 0 errors; oxlint and oxfmt clean.
+Verified live on 2026-10-06 after the last build: the webcam, microphone and keyboard-confirmation
+sidecars run (`camera ok`, `microphone ok`, `physical-confirm ok`); five model files match their
+pinned hashes; `m3gan.mode` switches child mode on and off from the owner channel with the self
+model, restrictions, audit and guardian summary following; the evaluation suite passes 16/16 live
+(router about 97,000 events/s, a cycle p95 0.02 ms); 131 `lumina_*` tools are in the agent's
+catalog, including `lumina_mode`, `lumina_practice` and `lumina_artifacts`; initiatives queue for
+the owner's agent without errors (outside the 11:00 to 23:00 heartbeat window they wait for the
+next turn). Only the audit-checkpoint probe is degraded, waiting for task 23. Verified by tests:
+599 cognitive-os tests plus the context-engine and Control UI tests; tsgo for extensions,
+extension tests and the UI with 0 errors; oxlint, oxfmt and lit-analyzer clean.
 
 - Cognitive core: thalamic router with a privacy gate, attention queue with preemption, serial
   cognitive loop (untrusted events only proposed), global workspace, self model with the
@@ -75,7 +83,7 @@ Reinforcement learning in simulation only (task 25) and acoustic pronunciation s
 
 ## CURRENT TASK
 
-Claude Code: build, restart and verify this cycle live, then publish.
+Claude Code: this cycle is built, verified live and published (`a54459e6339`).
 ChatGPT-LUMINA: task 22 (translations). Task 21 is done (`66c74d34954`).
 
 ## NEXT TASKS
@@ -111,3 +119,6 @@ interaction modes are a restriction layer, never written into a person's overrid
 - `66c74d34954` recorder metadata in SQLite (ChatGPT-LUMINA, task 21).
 - `b490cfda215` interaction modes, curiosity, affordances, practice book and model provenance
   (with Codex's review of probes and affordances).
+- `180a7c040bf` child-mode guard on the conversation hooks.
+- `e79a086c918` Python sidecars run from the built gateway; the camera names objects (task 24).
+- `a54459e6339` initiatives reach the owner's agent.
