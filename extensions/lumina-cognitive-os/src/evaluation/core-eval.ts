@@ -2,24 +2,33 @@
  * core-eval.ts — Does Lumina still behave as designed? An evaluation suite.
  *
  * Lumina spec §113 (performance), §137 to §141 (evaluation: memory, world
- * model, social, robot). Every scenario runs against a fresh sandbox runtime
+ * model, social, robot), §62 (failure injection), §100 (red teaming) and §142
+ * (long-term operation). Every scenario runs against a fresh sandbox runtime
  * (temporary folder, session-only stores, simulated body, no timers), never
  * against live state, and checks one behavior through the same public APIs
  * the agent and the Lumina tab use. The suite doubles as a regression test and
  * as a report a person can run from the Lumina tab.
  */
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { AwarenessEventBus } from "../awareness/event-bus.js";
-import { createCognitiveRuntime, type CognitiveRuntime } from "../cognition/cognitive-runtime.js";
+import type { CognitiveRuntime } from "../cognition/cognitive-runtime.js";
 import { coreEvent } from "../events/catalog.js";
-import type { WorkingMemory } from "../memory/working-memory.js";
 import { resolveConflict } from "../safety/authority.js";
 import { UNSENSED_CEILING } from "../world/world-model.js";
+import { ENDURANCE_SCENARIOS } from "./endurance-scenarios.js";
+import {
+  AGENT as agent,
+  EVAL_SUITES,
+  HOUR,
+  OWNER as owner,
+  SANDBOX_OWNER,
+  sandbox,
+  type EvalSuite,
+  type Scenario,
+} from "./eval-sandbox.js";
+import { REDTEAM_SCENARIOS } from "./redteam-scenarios.js";
+import { RESILIENCE_SCENARIOS } from "./resilience-scenarios.js";
 
-export const EVAL_SUITES = ["world", "social", "memory", "robot", "performance"] as const;
-export type EvalSuite = (typeof EVAL_SUITES)[number];
+export { EVAL_SUITES, type EvalSuite } from "./eval-sandbox.js";
 
 export type EvalResult = {
   readonly suite: EvalSuite;
@@ -39,51 +48,8 @@ export type EvalReport = {
   };
 };
 
-const SANDBOX_OWNER = "Evaluator";
-const HOUR = 3_600_000;
-const owner = { channel: "owner", actor: "evaluation" } as const;
-const agent = { channel: "agent", actor: "agent" } as const;
-
-function sandbox(clock: { now: number }): { runtime: CognitiveRuntime; dir: string } {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lumina-eval-"));
-  const working: WorkingMemory = {
-    currentProject: null,
-    activeWindow: null,
-    activeFile: null,
-    currentIntent: null,
-    pinnedContext: [],
-    updatedAtISO: new Date(clock.now).toISOString(),
-  };
-  const runtime = createCognitiveRuntime({
-    memoryDir: dir,
-    autonomyLevel: 4,
-    bodyMode: "simulated",
-    grantedCapabilities: ["robot.stop", "robot.look", "robot.navigate", "robot.grasp"],
-    preAuthorizedCapabilities: ["robot.look", "robot.navigate"],
-    awarenessBus: new AwarenessEventBus(),
-    emergencyStop: {
-      isEngaged: () => false,
-      engage: () => undefined,
-      onEngage: () => () => undefined,
-    },
-    environment: () => null,
-    working: () => working,
-    toolNames: () => [],
-    now: () => clock.now,
-    startTimers: false,
-    ownerName: SANDBOX_OWNER,
-  });
-  return { runtime, dir };
-}
-
-type Scenario = {
-  readonly suite: EvalSuite;
-  readonly name: string;
-  readonly run: (rt: CognitiveRuntime, clock: { now: number }) => Promise<string | undefined>;
-};
-
 /** Each scenario returns undefined when it passes, or what went wrong. */
-const SCENARIOS: ReadonlyArray<Scenario> = [
+const CORE_SCENARIOS: ReadonlyArray<Scenario> = [
   {
     suite: "world",
     name: "remembers where a thing was seen",
@@ -373,9 +339,15 @@ async function measurePerformance(rt: CognitiveRuntime): Promise<EvalReport["per
 /** Runs every scenario in its own sandbox and reports scores and performance. */
 export async function runCoreEvaluation(nowMs: number = Date.now()): Promise<EvalReport> {
   const results: EvalResult[] = [];
-  for (const scenario of SCENARIOS) {
+  const scenarios = [
+    ...CORE_SCENARIOS,
+    ...RESILIENCE_SCENARIOS,
+    ...REDTEAM_SCENARIOS,
+    ...ENDURANCE_SCENARIOS,
+  ];
+  for (const scenario of scenarios) {
     const clock = { now: nowMs };
-    const { runtime, dir } = sandbox(clock);
+    const { runtime, dir } = sandbox(clock, scenario.options?.(clock));
     try {
       await runtime.ready;
       const failure = await scenario.run(runtime, clock);

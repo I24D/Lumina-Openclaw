@@ -10,20 +10,21 @@ Status words: TODO, IN PROGRESS, DONE, BLOCKED.
 
 ## Now
 
-| #   | Task                                                                                                       | Owner          | Status      |
-| --- | ---------------------------------------------------------------------------------------------------------- | -------------- | ----------- |
-| 22  | Translate the Lumina tab: `pnpm ui:i18n:sync`. The catalog baseline already drifted before the tab existed | chatgpt-lumina | IN PROGRESS |
-| 23  | Create the append-only `lumina_audit_checkpoints` table in Supabase (`sql/lumina_audit_checkpoints.sql`)   | dal            | BLOCKED     |
+| #   | Task                                                                                                     | Owner | Status  |
+| --- | -------------------------------------------------------------------------------------------------------- | ----- | ------- |
+| 22  | The Lumina tab in the other 19 Control UI locales: `pnpm ui:i18n:sync` with an OpenAI or Anthropic key   | dal   | BLOCKED |
+| 23  | Create the append-only `lumina_audit_checkpoints` table in Supabase (`sql/lumina_audit_checkpoints.sql`) | dal   | BLOCKED |
 
-Task 23 waits for Dal: it changes the shared Supabase project, so it is his to approve. Until then
-the audit-checkpoint probe reports the external store as unavailable.
+Both wait for Dal. Task 22: Spanish is done; the remaining locales are machine-translated by a paid
+API, so spending on it is Dal's call, and until then `pnpm ui:i18n:check` reports the English
+fallbacks. Task 23 changes the shared Supabase project; until then the audit-checkpoint probe
+reports the external store as unavailable.
 
 ## Next
 
-| #   | Task                                                                                                        | Owner | Status |
-| --- | ----------------------------------------------------------------------------------------------------------- | ----- | ------ |
-| 25  | Reinforcement learning in simulation only: domain-randomized MuJoCo episodes, evaluated before any real use | codex | TODO   |
-| 27  | Acoustic pronunciation scoring for language practice                                                        | codex | TODO   |
+Nothing else is open in software. What remains in the section map needs a robot: SLAM and depth,
+direction of arrival with a microphone array, physical demonstration, a hardware watchdog, secure
+boot and a robot network (BLOCKED), and the physical milestones v0.5 and v1.0.
 
 ## Done
 
@@ -55,3 +56,7 @@ the audit-checkpoint probe reports the external store as unavailable.
 | Task 26: child-mode guard: the mode's guidance in every turn; unsuitable replies rewritten once, replaced on the way out                                    | claude                     | `180a7c040bf`    |
 | Task 24: object detector (YOLOX, COCO) in the camera sidecar feeding the world model and affordances; the plugin's Python sidecars now ship with the bundle | claude                     | `e79a086c918`    |
 | Identity: the tab, gateway methods, health routes, docs and status say Lumina; M3GAN stays only as the film reference (ADR 0010)                            | claude                     | `a5024f6c643`    |
+| Task 22 (Spanish): the Lumina tab in Spanish, from the translation memory                                                                                   | claude                     | `e30c26c4450`    |
+| Task 25: navigation learned only in simulation, evaluated on held-out rooms; only an accepted policy drives the simulated body                              | claude                     | `e30c26c4450`    |
+| Task 27: pronunciation feedback from on-device speech recognition                                                                                           | claude                     | `e30c26c4450`    |
+| Failure-injection, red-team and endurance suites; memory review in the tab; honesty guard; persona ledger; causal model; sounds, tone, affect, human zones  | claude                     | `e30c26c4450`    |

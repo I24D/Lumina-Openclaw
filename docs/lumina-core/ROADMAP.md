@@ -18,7 +18,7 @@ identity, relationships, skills, tasks, personality or continuity.
 | Use tools                       | IMPLEMENTED | About 120 Lumina tools plus OpenClaw's own                                                     |
 | Observe the screen              | IMPLEMENTED | UI Automation, OmniParser, the perception sidecar feeding the router                           |
 | Observe through a camera        | IMPLEMENTED | Webcam sidecar: faces with consented recognition, and objects (YOLOX) into the world model     |
-| Listen                          | IMPLEMENTED | Wake word, speech-to-text, Start Talk                                                          |
+| Listen                          | IMPLEMENTED | Wake word, speech-to-text, voices, tone and sounds with hazards, Start Talk                    |
 | Speak                           | IMPLEMENTED | Start Talk voice                                                                               |
 | Keep a world state              | IMPLEMENTED | World model with decay, history and relations, durable                                         |
 | Run a planner                   | IMPLEMENTED | Hierarchical plan validation and a step-by-step walk with ordered rollback (`lumina_plan_run`) |
@@ -30,23 +30,28 @@ Every v0.1 capability is in place; what is simulated says MOCK in the section ma
 
 ## LUMINA PRESENCE v0.2 (§152)
 
-PARTIAL: authorized face and voice recognition with consent, speaker identification, presence,
-the mascot driven by the workspace, interaction modes (child, companion, maintenance), curiosity
-about unknown things and teaching with spaced practice are implemented. PLANNED: object tracking,
-optimized continuous vision and multimodal conversation beyond Start Talk.
+IMPLEMENTED in software: authorized face and voice recognition with consent, speaker
+identification and anonymous diarization, presence, affect from words, voice and face (estimates,
+consented people only), objects and bodies from the webcam, sounds with hazards, the mascot driven
+by the workspace, interaction modes (child, companion, maintenance) with their guard, curiosity
+about unknown things, and teaching with spaced practice and pronunciation feedback. Multimodal
+conversation is Start Talk's (voice and camera).
 
 ## LUMINA AUTONOMY v0.3 (§153)
 
-PARTIAL: persistent goals, plan walks with rollback, a uniform delegation result, a situational
-reasoner that takes initiative within the autonomy level, and reflection that proposes lessons a
-person accepts are implemented. PLANNED: long-running workflows under the brainstem.
+IMPLEMENTED: persistent goals, plan walks with rollback, a uniform delegation result, a situational
+reasoner that takes initiative within the autonomy level, reflection that proposes lessons a person
+accepts, a causal model of Lumina's own actions, memory review by a person, and long-running work
+in OpenClaw cron and background tasks watched by the brainstem.
 
 ## LUMINA EMBODIED SIM v0.4 (§154)
 
-PARTIAL: body intents, the safety supervisor with an affordance model, behaviors, `predict()`,
-the HAL, the symbolic robot, a MuJoCo body (speed limits, collisions, reach) and a ROS 2 adapter
-for Gazebo or Isaac through rosbridge are implemented, with evaluation scenarios. PLANNED: a
-simulated camera and arm in MuJoCo, and reinforcement learning in simulation only (task 25).
+IMPLEMENTED in simulation: body intents, the safety supervisor with an affordance model and human
+zones, behaviors, `predict()`, the HAL, the symbolic robot, a MuJoCo body (speed limits, collisions,
+reach, map coordinates) and a ROS 2 adapter for Gazebo or Isaac through rosbridge, with evaluation,
+failure-injection, red-team and endurance scenarios, and navigation learned only in simulation
+(domain randomization, held-out evaluation, accepted before the simulated body uses it). A camera
+and arm inside MuJoCo stay MOCK: the simulated sensors report what the scene holds.
 
 ## LUMINA PHYSICAL v0.5 (§155)
 

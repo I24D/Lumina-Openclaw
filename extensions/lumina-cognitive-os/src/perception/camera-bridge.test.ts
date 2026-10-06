@@ -222,3 +222,57 @@ describe("objects in view", () => {
     expect(knowledgeGap(result, sightings[0] as CognitiveEvent)).toBeUndefined();
   });
 });
+
+describe("faces and bodies", () => {
+  it("estimates affect only for a consented face, and keeps bodies as fresh human zones", () => {
+    let clock = Date.parse("2026-10-06T08:00:00.000Z");
+    const people = new PeopleRegistry({ now: () => clock });
+    const dal = people.remember({ name: "Dal" }, OWNER);
+    if (!dal.ok) {
+      throw new Error("setup");
+    }
+    const router = new ThalamicRouter();
+    const events: CognitiveEvent[] = [];
+    router.subscribe({ kind: "affect.estimated" }, ({ event }) => events.push(event));
+    const camera = new FakeCamera();
+    const bridge = attachCamera({
+      camera,
+      router,
+      people,
+      gallery: new BiometricGallery({ people, now: () => clock }),
+      allowed: () => true,
+      now: () => clock,
+      checkEveryMs: 60_000,
+    });
+    bridges.push(bridge);
+    camera.emit({
+      kind: "faces",
+      atISO: "2026-10-06T08:00:00.000Z",
+      faces: [
+        {
+          box: [0, 0, 10, 10],
+          score: 0.95,
+          match: { personId: dal.person.id, similarity: 0.6 },
+          expression: { label: "sad", score: 0.9 },
+        },
+        {
+          box: [0, 0, 10, 10],
+          score: 0.9,
+          match: null,
+          expression: { label: "angry", score: 0.9 },
+        },
+      ],
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toMatchObject({ personId: dal.person.id, possibleState: "sad" });
+    camera.emit({
+      kind: "objects",
+      atISO: "2026-10-06T08:00:01.000Z",
+      objects: [],
+      bodies: [{ score: 0.9, box: [0, 0, 100, 300], distanceM: 1.2 }],
+    });
+    expect(bridge.nearbyBodies()).toEqual([{ id: "body:0", confidence: 0.9, distanceM: 1.2 }]);
+    clock += 10_000;
+    expect(bridge.nearbyBodies()).toEqual([]);
+  });
+});

@@ -49,21 +49,24 @@ section map and decision records.
 | `lumina_health`        | The brainstem's probes: awareness, network, energy, stores, audit, body, model.     |
 | `lumina_plan_run`      | Walk a validated plan step by step under the safety gate, with ordered rollback.    |
 | `lumina_reflect`       | Look back at the audit and cycles; propose lessons a person accepts.                |
-| `lumina_evaluate`      | Run the evaluation suite (world, people, memory, body, speed) in sandboxes.         |
+| `lumina_evaluate`      | Run the evaluation suites in sandboxes: core, failures, red team, endurance, speed. |
 | `lumina_mode`          | Interaction mode: enter child or maintenance mode; leaving them is the owner's.     |
-| `lumina_practice`      | Teaching and language practice: items, spaced review, corrections, progress.        |
+| `lumina_practice`      | Teaching and language practice: spaced review, corrections, pronunciation.          |
 | `lumina_artifacts`     | Models and datasets with source, licence, version, purpose and pinned hash.         |
+| `lumina_causal`        | What Lumina's own actions caused, kept apart from what only happens together.       |
 
 Tools only narrow: resuming, re-enabling, switching a sensor back on, roles, consent, learning a
-face or a voice, leaving child or maintenance mode, physical confirmations, teleoperation and
-re-arming the emergency stop are done by a person from the
+face or a voice, leaving child or maintenance mode, physical confirmations, teleoperation,
+re-arming the emergency stop, reviewing memory (confirm, contradict, archive, forget, merge) and
+starting navigation training in simulation are done by a person from the
 **Lumina** tab of the Control UI, a native view over `lumina.core.*` gateway methods. Probes:
 `/plugins/lumina-cognitive-os/core/health`, `/ready` and `/version`.
 
 Config: `cognitiveCoreEnabled` (default on), `autonomyLevel` (0-5, default 3), `bodyMode`
 (`none` or `simulated`), `grantedCapabilities` and `preAuthorizedCapabilities` (Dal only; no
 tool can write them), `ownerName` (default `Dal`), `cameraPerception` and `voicePerception`
-(webcam faces and microphone voices, each still gated by its privacy state), `physicalConfirmation`
+(webcam faces, expressions, objects and bodies; microphone voices, tone and sounds; each still
+gated by its privacy state), `physicalConfirmation`
 (Ctrl+Alt+Y/N on the real keyboard), `bodySimulator` (`symbolic`, `mujoco` or `ros2`).
 
 ## Configuration

@@ -230,6 +230,7 @@ export const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   "lumina_mode",
   "lumina_practice",
   "lumina_artifacts",
+  "lumina_causal",
   "lumina_evaluate",
 ]);
 

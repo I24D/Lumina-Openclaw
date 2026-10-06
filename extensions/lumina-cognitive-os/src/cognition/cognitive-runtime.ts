@@ -24,7 +24,7 @@ import path from "node:path";
 import type { AwarenessEventBus } from "../awareness/event-bus.js";
 import type { EnvironmentSnapshot } from "../awareness/snapshot.js";
 import { Brainstem } from "../brainstem/brainstem.js";
-import { coreProbes } from "../brainstem/core-probes.js";
+import { brainstemReactions, coreProbes } from "../brainstem/core-probes.js";
 import { assessEnergy, type EnergyAdvice } from "../brainstem/energy.js";
 import { createHealthTool } from "../brainstem/health-tool.js";
 import { createBehaviorTool } from "../embodiment/behavior-tool.js";
@@ -69,6 +69,7 @@ import type { StateStorePort } from "../shared/state-store.js";
 import type { AnyAgentTool } from "../shared/tool-result.js";
 import type { BiometricRecord } from "../social/biometrics.js";
 import { PeopleRegistry, type Person } from "../social/people.js";
+import type { PersonaLedger } from "../social/persona.js";
 import { createPracticeTool } from "../social/practice-tool.js";
 import { PracticeBook, type PracticeItem } from "../social/practice.js";
 import { presenceState, type PresenceState } from "../social/presence.js";
@@ -82,6 +83,8 @@ import type { AutonomyLevel } from "./autonomy-levels.js";
 import { createGoalTool, createSelfModelTool, createWorkspaceTool } from "./cognition-tools.js";
 import { consolidate } from "./consolidation.js";
 import { GoalManager, type Goal } from "./goals/goal-manager.js";
+import { CausalModel, type CausalStats } from "./learning/causal-model.js";
+import { createCausalTool } from "./learning/causal-tool.js";
 import { LessonStore, type Lesson } from "./learning/lessons.js";
 import { createReflectTool } from "./learning/reflection-tool.js";
 import { createReflection } from "./learning/reflection.js";
@@ -150,7 +153,10 @@ export type CognitiveRuntimeOptions = {
     readonly mode?: StateStorePort<ModeState>;
     readonly practice?: StateStorePort<PracticeItem>;
     readonly artifacts?: StateStorePort<ArtifactRecord>;
+    readonly causal?: StateStorePort<CausalStats>;
   };
+  /** The persona files' version history (spec §11, §128); checked with the artifacts. */
+  readonly persona?: PersonaLedger;
   /** Model and dataset files to register and check against their pinned hashes (spec §135). */
   readonly artifacts?: ReadonlyArray<ArtifactInput>;
   /** The owner, given the owner role when nobody holds it (config is an owner channel). */
@@ -211,6 +217,12 @@ export type CognitiveRuntime = {
   readonly practice: PracticeBook;
   /** Lumina's own models and datasets, with provenance and pinned hashes. */
   readonly artifacts: ArtifactRegistry;
+  /** What Lumina's actions cause, apart from what only happens together (spec §123). */
+  readonly causal: CausalModel;
+  /** Lumina's persona versions, when the host keeps them. */
+  readonly persona: PersonaLedger | undefined;
+  /** The shared episodic memory, when the host gave one (for the memory view). */
+  readonly episodic: EpisodicMemoryStore | undefined;
   readonly safety: SafetyKernel;
   readonly audit: AuditLog;
   readonly privacy: PrivacyControls;
@@ -303,6 +315,11 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
     now,
     onError,
     ...(stores.practice ? { store: stores.practice } : {}),
+  });
+  const causal = new CausalModel({
+    now,
+    onError,
+    ...(stores.causal ? { store: stores.causal } : {}),
   });
   const artifacts = new ArtifactRegistry({
     now,
@@ -460,7 +477,10 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
     onTamper: (detail) => {
       void safety.reportTamper(detail, "agent").catch((error) => options.onError?.(error));
     },
-    ...(options.onBodyResult ? { onResult: options.onBodyResult } : {}),
+    onResult: (result) => {
+      causal.recordBody(result);
+      options.onBodyResult?.(result);
+    },
     context: () => ({
       autonomyLevel: overrides.effectiveLevel(loop.getLevel()),
       granted,
@@ -478,11 +498,15 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
         ...modes.restrictions().disabledCapabilities,
       ]),
       energy: options.environment()?.battery ?? null,
-      people: world.query({ kind: "person" }).map(({ entity, confidence }) => ({
-        id: entity.id,
-        confidence,
-        distanceM: entity.position?.distanceM,
-      })),
+      // Known people from the world model, plus bodies the camera sees now: human zones (§118).
+      people: [
+        ...world.query({ kind: "person" }).map(({ entity, confidence }) => ({
+          id: entity.id,
+          confidence,
+          distanceM: entity.position?.distanceM,
+        })),
+        ...recognition.nearbyBodies(),
+      ],
       isCharger: (id) => world.get(id)?.properties.charger === true,
     }),
   });
@@ -561,6 +585,7 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
     modes.ready,
     practice.ready,
     artifacts.ready,
+    causal.ready,
     people.ready.then(() => {
       const ownerName = options.ownerName?.trim();
       if (ownerName && !people.owner()) {
@@ -599,38 +624,14 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
       ...safeguards.probes(),
       ...recognition.probes(),
       artifacts.probe(),
+      ...(options.persona ? [options.persona.probe()] : []),
     ],
-    onDegraded: (subsystem) => {
-      audit.append({
-        actor: "brainstem",
-        action: `health.${subsystem.name}`,
-        reason: subsystem.detail,
-        execution: "recorded",
-      });
-      if (subsystem.status === "down") {
-        options.notify?.(
-          `Subsistema ${subsystem.name} caído: ${subsystem.detail}`,
-          subsystem.critical ? "critical" : "warn",
-        );
-      }
-    },
-    onCriticalDown: async (subsystem) => {
-      if (subsystem.name === "audit") {
-        await safety.reportTamper(subsystem.detail, "brainstem");
-        return;
-      }
-      // Isolate without freezing the rest of Lumina: stop the body and pause autonomy.
-      await body.stopAll(`${subsystem.name} down: ${subsystem.detail}`, "brainstem");
-      await safety.override({ type: "pause" }, { channel: "agent", actor: "brainstem" });
-    },
-    onRecovered: (subsystem) => {
-      audit.append({
-        actor: "brainstem",
-        action: `health.${subsystem.name}`,
-        reason: `recovered: ${subsystem.detail}`,
-        execution: "recorded",
-      });
-    },
+    ...brainstemReactions({
+      audit,
+      safety,
+      body,
+      ...(options.notify ? { notify: options.notify } : {}),
+    }),
   });
 
   const reflection = createReflection({ audit, loop, now });
@@ -647,11 +648,13 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
     reflecting.unref?.();
     timers.push(reflecting);
     // Pin what is on disk, then check it now and every 6 hours.
-    const checkArtifacts = () =>
+    const checkArtifacts = () => {
       void artifacts
         .registerPresent(options.artifacts ?? [])
         .then(() => artifacts.verifyAll())
         .catch(onError);
+      void options.persona?.check().catch(onError);
+    };
     checkArtifacts();
     const artifactCheck = setInterval(checkArtifacts, 6 * 3_600_000);
     artifactCheck.unref?.();
@@ -702,6 +705,7 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
       }
     }),
     attachAwareness(options.awarenessBus, router, { onError: (error) => options.onError?.(error) }),
+    router.subscribe({}, ({ event }) => causal.observe(event)),
     loop.consume(router, { onError: (error) => options.onError?.(error) }),
     ...(options.screenPerception
       ? [attachScreenPerception(options.screenPerception, router, { onError })]
@@ -723,6 +727,9 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
     modes,
     practice,
     artifacts,
+    episodic: options.episodicMemory,
+    causal,
+    persona: options.persona,
     safety,
     audit,
     privacy,
@@ -748,6 +755,8 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
         modes.flush(),
         practice.flush(),
         artifacts.flush(),
+        causal.flush(),
+        options.persona?.flush() ?? Promise.resolve(),
       ]);
     },
     selfModel,
@@ -767,8 +776,9 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
       createHealthTool(brainstem, energy),
       createReflectTool(reflection),
       createModeTool(modes),
-      createPracticeTool(practice, people),
+      createPracticeTool(practice, people, (language) => recognition.transcribe(language)),
       createArtifactTool(artifacts),
+      createCausalTool(causal),
     ],
     dispose: () => {
       brainstem.stop();

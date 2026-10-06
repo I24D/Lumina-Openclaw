@@ -107,7 +107,7 @@ describe("startCognitiveCore", () => {
     const registered: string[] = [];
     const core = startCognitiveCore(deps({}, (t) => registered.push(t.name)));
 
-    expect(registered).toHaveLength(18);
+    expect(registered).toHaveLength(19);
     expect(core?.selfModel().activeModel).toBe("ollama-cloud/glm-5.2");
     core?.dispose();
   });

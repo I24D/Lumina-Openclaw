@@ -8,7 +8,7 @@
  * stores nothing and cannot drift. Gaze ("who looks") needs a camera model and
  * is not derived yet.
  */
-import type { CognitiveEvent } from "../contracts/attention.js";
+import { trustOf, type CognitiveEvent } from "../contracts/attention.js";
 import { payloadOf } from "../events/catalog.js";
 import { STALE_BELOW, type WorldModel } from "../world/world-model.js";
 import type { PeopleRegistry, Person } from "./people.js";
@@ -22,6 +22,8 @@ export type PresentPerson = {
   readonly placeId?: string;
   readonly distanceM?: number;
   readonly speaking: boolean;
+  /** How they might feel, from voice or face: an estimate, never a fact. */
+  readonly affect?: { readonly possibleState: string; readonly confidence: number };
 };
 
 export type PresenceState = {
@@ -43,8 +45,29 @@ export function presenceState(params: {
 }): PresenceState {
   const windowMs = params.windowMs ?? 10_000;
   const since = new Date(params.nowMs - windowMs).toISOString();
-  const recent = (params.recentEvents ?? []).filter((e) => e.atISO >= since);
+  // Who speaks and who arrives is identity evidence: text from the web, mail or someone else's
+  // message cannot claim it (spec §100, identity spoofing).
+  const recent = (params.recentEvents ?? []).filter(
+    (e) => e.atISO >= since && trustOf(e) !== "untrusted",
+  );
 
+  // Affect estimates stay relevant longer than a single utterance.
+  const affectSince = new Date(params.nowMs - 120_000).toISOString();
+  const affect = new Map<string, { possibleState: string; confidence: number }>();
+  for (const event of params.recentEvents ?? []) {
+    const estimate = payloadOf(event, "affect.estimated");
+    if (
+      estimate?.personId &&
+      event.atISO >= affectSince &&
+      trustOf(event) !== "untrusted" &&
+      !affect.has(estimate.personId)
+    ) {
+      affect.set(estimate.personId, {
+        possibleState: estimate.possibleState,
+        confidence: estimate.confidence,
+      });
+    }
+  }
   const speakers = new Set<string>();
   let speakerId: string | undefined;
   const arrivals: string[] = [];
@@ -81,6 +104,10 @@ export function presenceState(params: {
       };
       if (person) {
         entry.personId = person.id;
+        const feeling = affect.get(person.id);
+        if (feeling) {
+          entry.affect = feeling;
+        }
       }
       if (entity.position?.placeId) {
         entry.placeId = entity.position.placeId;

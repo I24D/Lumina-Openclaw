@@ -199,6 +199,24 @@ export class EpisodicMemoryStore {
     return removed;
   }
 
+  /** Forget one episode, from memory and from durable storage (spec §68). */
+  forget(id: string): boolean {
+    const drop = (episode: Episode) => episode.id === id;
+    const kept = this.buf.filter((episode) => !drop(episode));
+    if (kept.length === this.buf.length) {
+      return false;
+    }
+    this.buf = kept;
+    if (this.log) {
+      void this.ready
+        .then(() => this.log?.remove(drop))
+        .catch((error: unknown) => this.onError(error));
+    } else {
+      rewriteJsonl(this.filePath, this.buf);
+    }
+    return true;
+  }
+
   tail(limit = 20): Episode[] {
     return this.buf.slice(-limit).toReversed();
   }

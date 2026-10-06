@@ -98,6 +98,10 @@
           "output": "sidecars/requirements.txt"
         },
         {
+          "source": "./sidecars/sim_training.py",
+          "output": "sidecars/sim_training.py"
+        },
+        {
           "source": "./sidecars/uia_tree.py",
           "output": "sidecars/uia_tree.py"
         },

@@ -8,6 +8,7 @@
  * monolith.
  */
 import os from "node:os";
+import path from "node:path";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { resolveAgentModelPrimaryValue } from "openclaw/plugin-sdk/provider-onboard";
 import { buildAgentMainSessionKey } from "openclaw/plugin-sdk/routing";
@@ -21,6 +22,7 @@ import { createCoreHealthHandler, CORE_HEALTH_PATH } from "../dashboard/health-h
 import type { OwnerChannelDeps } from "../dashboard/owner-channel.js";
 import { PhysicsBody, type PhysicsEvent } from "../embodiment/physics-body.js";
 import { Ros2Body, websocketTransport, type Ros2Places } from "../embodiment/ros2-body.js";
+import { createSimTraining } from "../embodiment/sim-training.js";
 import { perceptionModels, type ArtifactRecord } from "../evaluation/artifact-registry.js";
 import { createEvaluation } from "../evaluation/core-eval.js";
 import { createEvaluateTool } from "../evaluation/eval-tool.js";
@@ -35,6 +37,7 @@ import {
 import type { PrivacyState } from "../privacy/privacy-state.js";
 import type { AuditRecord } from "../safety/audit-log.js";
 import { createChildGuard, type ChildGuard } from "../safety/child-guard.js";
+import { createHonestyGuard, type HonestyGuard } from "../safety/honesty-guard.js";
 import type { ModeState } from "../safety/interaction-mode.js";
 import type { OverrideState } from "../safety/overrides.js";
 import type { ConfirmEvent } from "../safety/physical-confirm.js";
@@ -43,6 +46,7 @@ import { DeferredStateStore, type StateStorePort } from "../shared/state-store.j
 import type { AnyAgentTool } from "../shared/tool-result.js";
 import type { BiometricRecord } from "../social/biometrics.js";
 import type { Person } from "../social/people.js";
+import { PersonaLedger, type PersonaVersion } from "../social/persona.js";
 import type { PracticeItem } from "../social/practice.js";
 import type { Belief } from "../social/theory-of-mind.js";
 import { createSupabaseCheckpointStore } from "../supabase/audit-checkpoint-store.js";
@@ -57,6 +61,7 @@ import {
   type RuntimeBodyMode,
 } from "./cognitive-runtime.js";
 import type { Goal } from "./goals/goal-manager.js";
+import type { CausalStats } from "./learning/causal-model.js";
 import type { Lesson } from "./learning/lessons.js";
 import type { Initiative } from "./loop/situational-reasoner.js";
 
@@ -149,6 +154,9 @@ export function createToolRecorder<T>(host: { registerTool(tool: T): void }): {
   };
 }
 
+/** What the conversation hooks check before a reply is final. */
+export type ConversationGuards = { readonly child: ChildGuard; readonly honesty: HonestyGuard };
+
 export type CognitiveCoreDeps = {
   /**
    * True in the gateway's live registration. Only then do timers run and state persist: discovery
@@ -180,7 +188,7 @@ export type CognitiveCoreDeps = {
   /** Publishes the owner channel: the Control UI's Lumina tab, its gateway methods, /health. */
   readonly dashboard?: (channel: OwnerChannelDeps) => void;
   /** Puts the mode's guidance in every turn and screens replies in child mode (live gateway only). */
-  readonly conversationHooks?: (guard: ChildGuard) => void;
+  readonly conversationHooks?: (guards: ConversationGuards) => void;
   /** The screen perception sidecar's bus, fed into the thalamic router. */
   readonly perceptionBus?: CognitiveRuntimeOptions["screenPerception"];
   /** Real sensor daemons to stop when a person switches a sensor off. */
@@ -266,23 +274,25 @@ export function hostDeps(
         api.logger.warn(`[lumina-cognitive-os] initiative not delivered: ${String(error)}`);
       }
     },
-    conversationHooks: (guard) => {
+    conversationHooks: ({ child, honesty }) => {
       api.on("before_prompt_build", () => {
-        const context = guard.systemContext();
+        const context = child.systemContext();
         return context ? { appendSystemContext: context } : undefined;
       });
+      // Before a reply is final: unsuitable for a child, or claiming an action that never ran.
       api.on("before_agent_finalize", (event) => {
-        const instruction = guard.revise(event.lastAssistantMessage);
+        const instruction =
+          child.revise(event.lastAssistantMessage) ?? honesty.revise(event.lastAssistantMessage);
         return instruction
-          ? { action: "revise", reason: "child mode", retry: { instruction, maxAttempts: 1 } }
+          ? { action: "revise", reason: "lumina core", retry: { instruction, maxAttempts: 1 } }
           : undefined;
       });
       api.on("reply_payload_sending", (event) => {
-        const text = guard.outgoing(event.payload.text);
+        const text = child.outgoing(event.payload.text);
         return text ? { payload: { ...event.payload, text } } : undefined;
       });
       api.on("message_sending", (event) => {
-        const content = guard.outgoing(event.content);
+        const content = child.outgoing(event.content);
         return content ? { content } : undefined;
       });
     },
@@ -349,6 +359,8 @@ export const COGNITIVE_STORE_NAMESPACES = {
   lessons: `${STORE_PREFIX}.lessons`,
   mode: `${STORE_PREFIX}.mode`,
   practice: `${STORE_PREFIX}.practice`,
+  persona: `${STORE_PREFIX}.persona`,
+  causal: `${STORE_PREFIX}.causal`,
   artifacts: `${STORE_PREFIX}.artifacts`,
   episodic: `${STORE_PREFIX}.episodic`,
 } as const;
@@ -391,6 +403,7 @@ function openStores(deps: CognitiveCoreDeps): NonNullable<CognitiveRuntimeOption
       mode: open<ModeState>(COGNITIVE_STORE_NAMESPACES.mode),
       practice: open<PracticeItem>(COGNITIVE_STORE_NAMESPACES.practice),
       artifacts: open<ArtifactRecord>(COGNITIVE_STORE_NAMESPACES.artifacts),
+      causal: open<CausalStats>(COGNITIVE_STORE_NAMESPACES.causal),
     };
   } catch (error) {
     deps.logger.warn(
@@ -409,6 +422,27 @@ export function startCognitiveCore(deps: CognitiveCoreDeps): CognitiveRuntime | 
   }
   // The webcam and microphone run only in the live gateway, never in discovery or CLI loads.
   const sensors = deps.live ? createSensorSidecars(settings.perception) : undefined;
+  // Learning to move happens in simulation only, started by a person from the Lumina tab (§133).
+  const training =
+    deps.live && settings.bodyMode === "simulated" && settings.bodySimulator === "mujoco"
+      ? createSimTraining({ dir: path.join(deps.memoryDir, "simulation") })
+      : undefined;
+  // The persona lives in the agent workspace's identity files, outside any model (spec §11, §128).
+  const workspace = (
+    deps.liveConfig() as { agents?: { defaults?: { workspace?: unknown } } } | undefined
+  )?.agents?.defaults?.workspace;
+  const persona = deps.live
+    ? new PersonaLedger({
+        dir:
+          typeof workspace === "string" && workspace.trim()
+            ? workspace.trim()
+            : path.join(os.homedir(), ".openclaw", "workspace"),
+        ...(deps.openStore
+          ? { store: deps.openStore<PersonaVersion>(COGNITIVE_STORE_NAMESPACES.persona) }
+          : {}),
+        onError: (error) => deps.logger.warn(`[lumina-cognitive-os] persona: ${String(error)}`),
+      })
+    : undefined;
   const runtime = createCognitiveRuntime({
     stores: openStores(deps),
     startTimers: deps.live,
@@ -440,6 +474,7 @@ export function startCognitiveCore(deps: CognitiveCoreDeps): CognitiveRuntime | 
     onError: (error) => deps.logger.warn(`[lumina-cognitive-os] cognitive core: ${String(error)}`),
     ownerName: settings.ownerName,
     ...(sensors ? { sensors } : {}),
+    ...(persona ? { persona } : {}),
     // The models the sensors load, pinned and checked by hash (spec §135).
     ...(sensors ? { artifacts: perceptionModels(settings.perception.modelsDir) } : {}),
     ...(deps.initiative ? { initiative: deps.initiative } : {}),
@@ -460,7 +495,11 @@ export function startCognitiveCore(deps: CognitiveCoreDeps): CognitiveRuntime | 
               : new PhysicsBody(
                   new NdjsonSidecar<PhysicsEvent>({
                     name: "mujoco_body",
-                    args: () => ["--realtime", "1"],
+                    // A navigation policy learned in simulation, once it passed its evaluation (§133).
+                    args: () => {
+                      const policy = training?.policyPath();
+                      return ["--realtime", "1", ...(policy ? ["--policy", policy] : [])];
+                    },
                   }),
                   nameOf,
                   observe,
@@ -496,11 +535,16 @@ export function startCognitiveCore(deps: CognitiveCoreDeps): CognitiveRuntime | 
   }
   const evaluation = createEvaluation();
   deps.registerTool(createEvaluateTool(evaluation));
-  deps.conversationHooks?.(
-    createChildGuard({ mode: () => runtime.modes.state().mode, audit: runtime.audit }),
-  );
+  deps.conversationHooks?.({
+    child: createChildGuard({ mode: () => runtime.modes.state().mode, audit: runtime.audit }),
+    honesty: createHonestyGuard({
+      recentBody: () => runtime.body.recent(20),
+      audit: runtime.audit,
+    }),
+  });
   deps.dashboard?.({
     runtime,
+    ...(training ? { training } : {}),
     evaluation,
     version: LUMINA_CORE_VERSION,
     // Re-arming is a person's action: it exists only behind the owner channel.

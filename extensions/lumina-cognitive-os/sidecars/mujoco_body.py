@@ -41,6 +41,15 @@ DEFAULT_WORLD = {
 REACH_M = 0.35
 ARRIVED_M = 0.12
 PERSON_GAP_M = 0.8
+# How the base steers: the hand-tuned defaults, or a policy learned in simulation
+# (sim_training.py) that passed its evaluation (Lumina spec section 133).
+DEFAULT_POLICY = {
+    "push": 4.0,
+    "swirl": 0.5,
+    "approach": 1.5,
+    "personClearance": 0.95,
+    "obstacleClearance": 0.6,
+}
 
 
 def now_iso() -> str:
@@ -110,8 +119,9 @@ def build_xml(world: dict) -> str:
 
 
 class Body:
-    def __init__(self, world: dict, realtime: float) -> None:
+    def __init__(self, world: dict, realtime: float, policy: dict | None = None) -> None:
         self.world = world
+        self.policy = {**DEFAULT_POLICY, **(policy or {})}
         self.model = mujoco.MjModel.from_xml_string(build_xml(world))
         self.data = mujoco.MjData(self.model)
         self.realtime = realtime
@@ -230,8 +240,10 @@ class Body:
 
     def obstacles(self) -> list[tuple[float, float, float]]:
         """Centers to keep away from, with a clearance radius: people and fixed obstacles."""
-        out = [(float(x), float(y), 0.95) for x, y in self.world.get("people", {}).values()]
-        out += [(float(x), float(y), 0.6 + max(w, h) / 2) for x, y, w, h in self.world.get("obstacles", [])]
+        person = self.policy["personClearance"]
+        obstacle = self.policy["obstacleClearance"]
+        out = [(float(x), float(y), person) for x, y in self.world.get("people", {}).values()]
+        out += [(float(x), float(y), obstacle + max(w, h) / 2) for x, y, w, h in self.world.get("obstacles", [])]
         return out
 
     def halt(self) -> None:
@@ -247,16 +259,17 @@ class Body:
             dist = math.hypot(dx, dy)
             if dist <= stop_short + ARRIVED_M:
                 return True, f"Arrived ({dist:.2f} m from the goal)."
-            speed = min(max_speed, 1.5 * (dist - stop_short))
+            speed = min(max_speed, self.policy["approach"] * (dist - stop_short))
             vx, vy = dx / dist, dy / dist
             # Steer around people and obstacles (a simple potential field), but not around the goal itself.
             for ox, oy, clearance in self.obstacles():
                 ax, ay = x - ox, y - oy
                 d = math.hypot(ax, ay)
                 if 1e-6 < d < clearance and math.hypot(goal[0] - ox, goal[1] - oy) > clearance:
-                    push = (clearance - d) / clearance * 4.0
-                    vx += push * ax / d - push * 0.5 * ay / d
-                    vy += push * ay / d + push * 0.5 * ax / d
+                    push = (clearance - d) / clearance * self.policy["push"]
+                    swirl = self.policy["swirl"]
+                    vx += push * ax / d - push * swirl * ay / d
+                    vy += push * ay / d + push * swirl * ax / d
             norm = math.hypot(vx, vy) or 1.0
             self.data.ctrl[0] = speed * vx / norm
             self.data.ctrl[1] = speed * vy / norm
@@ -353,13 +366,23 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--world", default="", help="JSON file with places, objects, people, obstacles")
     parser.add_argument("--realtime", type=float, default=1.0, help="1 = real time, 0 = as fast as possible")
+    parser.add_argument("--policy", default="", help="JSON report from sim_training.py; used only if accepted")
     args = parser.parse_args()
     world = DEFAULT_WORLD
     if args.world:
         with open(args.world, encoding="utf-8") as handle:
             world = json.load(handle)
+    policy = None
+    if args.policy:
+        try:
+            with open(args.policy, encoding="utf-8") as handle:
+                report = json.load(handle)
+            if report.get("accepted") is True:
+                policy = report.get("policy")
+        except (OSError, ValueError) as error:
+            emit({"kind": "error", "atISO": now_iso(), "message": f"policy ignored: {error}"})
     try:
-        body = Body(world, args.realtime)
+        body = Body(world, args.realtime, policy)
     except Exception as error:  # noqa: BLE001
         emit({"kind": "error", "atISO": now_iso(), "message": f"simulator failed to start: {error}"})
         return 2
@@ -372,6 +395,9 @@ def main() -> int:
         "places": sorted(world["places"]),
         "objects": world.get("objects", {}),
         "people": sorted(world.get("people", {})),
+        # Where things are in the map frame, for the world model's metric map (spec section 6).
+        "coordinates": {name: [float(x), float(y)] for name, (x, y) in world["places"].items()},
+        "policy": "learned" if policy else "default",
     })
     while True:
         command = commands.get()

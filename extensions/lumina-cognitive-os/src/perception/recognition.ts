@@ -17,9 +17,9 @@ import {
   type BiometricResult,
 } from "../social/biometrics.js";
 import type { PeopleRegistry } from "../social/people.js";
-import { attachCamera, type CameraPort } from "./camera-bridge.js";
-import type { SensorBridge, SensorStatus } from "./sensor-bridge.js";
-import { attachVoice, type VoicePort } from "./voice-bridge.js";
+import { attachCamera, type CameraBridge, type CameraPort } from "./camera-bridge.js";
+import type { SensorStatus } from "./sensor-bridge.js";
+import { attachVoice, type Transcript, type VoiceBridge, type VoicePort } from "./voice-bridge.js";
 
 export type RecognitionSensors = {
   readonly camera?: CameraPort;
@@ -43,6 +43,10 @@ export type Recognition = {
   /** Re-reads the privacy states now instead of at the next check. */
   refresh(): void;
   status(): RecognitionStatus;
+  /** Bodies the camera sees right now, as human zones for the body (spec §118). */
+  nearbyBodies(): ReturnType<CameraBridge["nearbyBodies"]>;
+  /** The words of the next utterance, for pronunciation practice. */
+  transcribe(language: string, timeoutMs?: number): Promise<Transcript>;
   probes(): ReadonlyArray<Probe>;
   dispose(): void;
 };
@@ -101,7 +105,7 @@ export function createRecognition(deps: {
     ...(deps.onError ? { onError: deps.onError } : {}),
     ...(deps.checkEveryMs ? { checkEveryMs: deps.checkEveryMs } : {}),
   };
-  const bridges: Partial<Record<BiometricModality, SensorBridge>> = {};
+  const bridges: { face?: CameraBridge; voice?: VoiceBridge } = {};
   // Sensors start only after stored templates load, so the first gallery sent is complete.
   const ready = gallery.ready.then(() => {
     if (deps.sensors?.camera) {
@@ -144,6 +148,11 @@ export function createRecognition(deps: {
       bridges.face?.refresh();
       bridges.voice?.refresh();
     },
+    nearbyBodies: () => bridges.face?.nearbyBodies() ?? [],
+    transcribe: (language, timeoutMs) =>
+      bridges.voice
+        ? bridges.voice.transcribe(language, timeoutMs)
+        : Promise.resolve({ ok: false, reason: "No microphone is configured." }),
     status() {
       return {
         ...(bridges.face ? { camera: bridges.face.status() } : {}),

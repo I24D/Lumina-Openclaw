@@ -20,12 +20,14 @@
 import type { CognitiveRuntime } from "../cognition/cognitive-runtime.js";
 import { intentFromParams } from "../embodiment/body-tool.js";
 import { BODY_INTENT_TYPES, type BodyIntentType } from "../embodiment/body.js";
+import type { SimTraining } from "../embodiment/sim-training.js";
 import type { Evaluation } from "../evaluation/core-eval.js";
 import type { PrivacyChange } from "../privacy/privacy-state.js";
 import { isRole } from "../safety/authority.js";
 import { INTERACTION_MODES, type InteractionMode } from "../safety/interaction-mode.js";
 import type { OverrideAction } from "../safety/overrides.js";
 import { expressionOf } from "../social/expression.js";
+import { memoryCommands, memoryState } from "./memory-channel.js";
 
 const OWNER = { channel: "owner", actor: "dashboard" } as const;
 const SAFE_ID = /^[A-Za-z0-9._:-]{1,160}$/u;
@@ -38,6 +40,8 @@ export type OwnerChannelDeps = {
   readonly activeModel: () => string | undefined;
   /** The evaluation suite, run in sandboxes from the Lumina tab. */
   readonly evaluation?: Evaluation;
+  /** Learning to move in simulation, when the body runs on MuJoCo. */
+  readonly training?: SimTraining;
 };
 
 /** A request the channel will not run as given; nothing was changed. */
@@ -154,6 +158,11 @@ export function coreState(deps: OwnerChannelDeps) {
     reflection: runtime.reflection.latest() ?? null,
     evaluation: deps.evaluation?.latest() ?? null,
     artifacts: runtime.artifacts.checks(),
+    simTraining: deps.training?.status() ?? null,
+    memory: memoryState(runtime),
+    persona: runtime.persona
+      ? { current: runtime.persona.current() ?? null, versions: runtime.persona.history().length }
+      : null,
   };
 }
 
@@ -171,6 +180,7 @@ export function createOwnerCommands(deps: OwnerChannelDeps) {
     });
 
   return {
+    ...memoryCommands(runtime, audited),
     "lumina.core.override": async (params: Params) => {
       const type = params.type;
       if (typeof type !== "string" || !OVERRIDE_TYPES.has(type)) {
@@ -255,6 +265,14 @@ export function createOwnerCommands(deps: OwnerChannelDeps) {
         throw new OwnerChannelError("unknown interaction mode");
       }
       return runtime.modes.set(mode as InteractionMode, OWNER);
+    },
+    "lumina.core.sim.train": async () => {
+      if (!deps.training) {
+        throw new OwnerChannelError("training needs the MuJoCo body (bodySimulator mujoco)");
+      }
+      const started = deps.training.start();
+      audited("sim.train", started.reason ?? "started", started.started);
+      return started;
     },
     "lumina.core.reflect": async () => runtime.reflection.run(),
     "lumina.core.evaluate": async () => {

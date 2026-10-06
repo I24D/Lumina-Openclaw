@@ -205,6 +205,7 @@ describe("createCognitiveRuntime", () => {
       "lumina_mode",
       "lumina_practice",
       "lumina_artifacts",
+      "lumina_causal",
     ]);
     runtime.dispose();
   });

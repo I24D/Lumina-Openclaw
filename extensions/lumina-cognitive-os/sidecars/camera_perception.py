@@ -5,13 +5,18 @@ affordances). Reads the webcam at a low frame rate, finds faces with OpenCV's
 YuNet detector and, for the people whose consent the gateway sent in the
 gallery, recognizes them with SFace embeddings. Every few seconds it also names
 the objects in view with YOLOX (the 80 COCO classes; people are left to the
-face path). Frames never leave memory and are never written to disk; an
-embedding leaves the process only when the gateway asks to enroll someone.
+face path). People's bodies are reported too, with a rough distance, so the
+body's safety supervisor knows where humans are even when no face is visible.
+For faces recognized with consent, an estimate of the facial expression is
+added (OpenCV Zoo FER); it is an estimate, never a fact. Frames never leave
+memory and are never written to disk; an embedding leaves the process only
+when the gateway asks to enroll someone.
 
 Protocol (one JSON object per line):
   stdout  {"kind":"start", ...}
           {"kind":"faces","atISO":...,"faces":[{"box":[x,y,w,h],"score":s,"match":{"personId":id,"similarity":c}|null}]}
-          {"kind":"objects","atISO":...,"objects":[{"label":l,"score":s,"box":[x,y,w,h]}]}
+          {"kind":"objects","atISO":...,"objects":[{"label":l,"score":s,"box":[x,y,w,h]}],
+           "bodies":[{"score":s,"box":[x,y,w,h],"distanceM":d}]}
           {"kind":"enrolled","requestId":r,"personId":id,"embedding":[128 floats]}
           {"kind":"enroll_failed","requestId":r,"personId":id,"reason":...}
           {"kind":"heartbeat","atISO":...}
@@ -45,6 +50,10 @@ MODELS = {
         "face_recognition_sface_2021dec.onnx",
         "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
     ),
+    "expression": (
+        "facial_expression_recognition_mobilefacenet_2022july.onnx",
+        "https://github.com/opencv/opencv_zoo/raw/main/models/facial_expression_recognition/facial_expression_recognition_mobilefacenet_2022july.onnx",
+    ),
     "objects": (
         "object_detection_yolox_2022nov.onnx",
         "https://github.com/opencv/opencv_zoo/raw/main/models/object_detection_yolox/object_detection_yolox_2022nov.onnx",
@@ -63,6 +72,34 @@ COCO_CLASSES = (
     "keyboard", "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book",
     "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush",
 )
+
+
+EXPRESSIONS = ("angry", "disgust", "fearful", "happy", "neutral", "sad", "surprised")
+# Assumed vertical field of view of a webcam and the visible height of a person at a desk
+# (upper body): a smaller assumed height gives a nearer, more cautious distance.
+VERTICAL_FOV_DEG = 45.0
+VISIBLE_PERSON_M = 0.9
+
+
+def distance_m(box_height_px: float, frame_height_px: int) -> float:
+    focal = (frame_height_px / 2) / np.tan(np.radians(VERTICAL_FOV_DEG / 2))
+    return round(float(VISIBLE_PERSON_M * focal / max(1.0, box_height_px)), 2)
+
+
+class ExpressionModel:
+    """OpenCV Zoo facial expression model on an SFace-aligned 112x112 face."""
+
+    def __init__(self, path: str) -> None:
+        self.net = cv2.dnn.readNet(path)
+
+    def estimate(self, aligned) -> tuple[str, float]:
+        rgb = cv2.cvtColor(aligned, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        self.net.setInput(cv2.dnn.blobFromImage((rgb - 0.5) / 0.5))
+        scores = self.net.forward().ravel()
+        probabilities = np.exp(scores - scores.max())
+        probabilities /= probabilities.sum()
+        best = int(np.argmax(probabilities))
+        return EXPRESSIONS[best], round(float(probabilities[best]), 3)
 
 
 class ObjectDetector:
@@ -165,6 +202,12 @@ def main() -> int:
         emit({"kind": "error", "atISO": now_iso(), "message": f"models unavailable: {error}"})
         return 2
 
+    expression: ExpressionModel | None = None
+    try:
+        expression = ExpressionModel(ensure_model(args.models_dir, "expression"))
+    except Exception as error:  # noqa: BLE001 - faces keep working without expressions
+        emit({"kind": "error", "atISO": now_iso(), "message": f"expression model unavailable: {error}"})
+
     objects: ObjectDetector | None = None
     if args.objects_every_sec > 0:
         try:
@@ -235,11 +278,16 @@ def main() -> int:
                     similarity = float(np.dot(feature.ravel(), sample.ravel()))
                     if similarity >= args.match_threshold and (best is None or similarity > best[1]):
                         best = (person_id, similarity)
-                faces.append({
+                entry = {
                     "box": [int(v) for v in face[:4]],
                     "score": round(float(face[14]), 3),
                     "match": None if best is None else {"personId": best[0], "similarity": round(best[1], 3)},
-                })
+                }
+                # Only for someone recognized with consent: an estimate, never stored here.
+                if best is not None and expression is not None:
+                    label, probability = expression.estimate(aligned)
+                    entry["expression"] = {"label": label, "score": probability}
+                faces.append(entry)
 
             for request in list(enrolls):
                 if len(features) == 1 and faces[0]["score"] >= 0.9:
@@ -267,10 +315,17 @@ def main() -> int:
                 last_emit = started
             if objects is not None and started - last_objects_at >= args.objects_every_sec:
                 last_objects_at = started
-                seen = [o for o in objects.detect(frame, args.object_min_score) if o["label"] != "person"]
-                objects_signature = tuple(sorted(o["label"] for o in seen))
-                if objects_signature != last_objects_signature or (seen and started - last_objects_emit >= 60):
-                    emit({"kind": "objects", "atISO": now_iso(), "objects": seen})
+                detected = objects.detect(frame, args.object_min_score)
+                seen = [o for o in detected if o["label"] != "person"]
+                bodies = [
+                    {"score": o["score"], "box": o["box"], "distanceM": distance_m(o["box"][3], height)}
+                    for o in detected
+                    if o["label"] == "person"
+                ]
+                objects_signature = (tuple(sorted(o["label"] for o in seen)), len(bodies))
+                # People move: their distances are worth reporting every time.
+                if bodies or objects_signature != last_objects_signature or (seen and started - last_objects_emit >= 60):
+                    emit({"kind": "objects", "atISO": now_iso(), "objects": seen, "bodies": bodies})
                     last_objects_signature = objects_signature
                     last_objects_emit = started
             if started - last_heartbeat >= 30:

@@ -18,16 +18,18 @@ Updated: 2026-10-06 America/New_York, by Claude Code.
 
 Active in the live gateway since 2026-10-05 (`plugins.allow` + `plugins.entries`, body simulated
 on MuJoCo, autonomy L3, owner Dal, camera and voice perception on, keyboard confirmation on).
-Verified live on 2026-10-06 after the last build: the webcam, microphone and keyboard-confirmation
-sidecars run (`camera ok`, `microphone ok`, `physical-confirm ok`); five model files match their
-pinned hashes; `lumina.core.mode` switches child mode on and off from the owner channel with the self
-model, restrictions, audit and guardian summary following; the evaluation suite passes 16/16 live
-(router about 97,000 events/s, a cycle p95 0.02 ms); 131 `lumina_*` tools are in the agent's
-catalog, including `lumina_mode`, `lumina_practice` and `lumina_artifacts`; initiatives queue for
-the owner's agent without errors (outside the 11:00 to 23:00 heartbeat window they wait for the
-next turn). Only the audit-checkpoint probe is degraded, waiting for task 23. Verified by tests:
-599 cognitive-os tests plus the context-engine and Control UI tests; tsgo for extensions,
-extension tests and the UI with 0 errors; oxlint, oxfmt and lit-analyzer clean.
+Verified live on 2026-10-06 after the build of `e30c26c4450`: the webcam, microphone and
+keyboard-confirmation sidecars run (`camera ok`, `microphone ok`, `physical-confirm ok`), and the
+microphone already keeps an unknown voice anonymous; eight model files (FER, CED and Whisper among
+them) match their pinned hashes; the persona probe reports version 1 of IDENTITY.md and SOUL.md;
+`lumina.core.state` carries memory, persona and simulation training; the evaluation passes 40/40
+live (core 15, failures 10, red team 10, endurance 4, performance: router about 56,000 events/s, a
+cycle p95 0.02 ms); 132 `lumina_*` tools are in the agent's catalog, `lumina_causal` among them;
+navigation training ran from the owner channel in 36 seconds and its policy was rejected (as many
+goals, but two obstacle contacts against the default's one), so the simulated body keeps the
+default, as designed. Only the audit-checkpoint probe is degraded, waiting for task 23. Verified by
+tests: 623 cognitive-os and context-engine tests plus the Control UI tests; tsgo for extensions,
+extension tests and the UI with 0 errors; oxlint, oxfmt, lit-analyzer and stylelint clean.
 
 - Cognitive core: thalamic router with a privacy gate, attention queue with preemption, serial
   cognitive loop (untrusted events only proposed), global workspace, self model with the
@@ -35,9 +37,12 @@ extension tests and the UI with 0 errors; oxlint, oxfmt and lit-analyzer clean.
 - Situational reasoner: greets the owner, reports unknown people, low battery and subsystems down;
   asks about unknown things only with someone present (curiosity, `knowledge.gap`); companion
   check-ins. At L3 these reach the agent as proposals; at L4+ reversible ones run.
-- Perception: webcam faces (YuNet + SFace) and objects (YOLOX, COCO) and microphone voices
-  (Silero VAD + WeSpeaker) in Python sidecars, each running only while its privacy state is on;
-  recognition only with consent; objects become world sightings that affordances understand.
+- Perception: webcam faces (YuNet + SFace), expressions (FER), objects and bodies (YOLOX, COCO)
+  and microphone voices (Silero VAD + WeSpeaker), tone, sounds with hazards (CED mini) and
+  speech-to-text on request (Whisper tiny), in Python sidecars, each running only while its
+  privacy state is on; recognition and affect only with consent; unknown voices stay anonymous;
+  objects become world sightings that affordances understand; bodies give the supervisor human
+  zones even with no face in view.
 - World model with affordances (what a thing lets you do, never a reason to do it), goals, lessons,
   episodic memory, recorder metadata, practice items and model hashes on SQLite plugin state.
 - Safety kernel: invariants as code, authority hierarchy, a person's overrides (tools narrow,
@@ -45,20 +50,26 @@ extension tests and the UI with 0 errors; oxlint, oxfmt and lit-analyzer clean.
   hash-chained audit log with external checkpoints, real-keyboard confirmation, safe state.
 - Body: supervisor aware of people, pauses, modes, disabled capabilities, battery and affordances;
   behaviors, handover, teleoperation by role; symbolic robot, MuJoCo physics or ROS 2 (rosbridge).
-- Learning: reflection proposes lessons a person accepts; practice book with spaced review and
-  corrections for teaching and languages.
-- Evaluation: 15 sandboxed scenarios plus router and loop performance (`lumina_evaluate`).
+- Learning: reflection proposes lessons a person accepts; practice book with spaced review,
+  corrections and pronunciation feedback; a causal model keeps what Lumina's actions caused apart
+  from correlations (`lumina_causal`); navigation learned only in simulation, used by the simulated
+  body only once accepted on held-out rooms.
+- Honesty and continuity: a reply that claims a physical action the body never ran goes back to
+  the model; the identity files are versioned with a probe.
+- Evaluation: core, failure-injection, red-team and endurance scenarios in sandboxes plus router
+  and loop performance (`lumina_evaluate`).
 - Provenance: perception models registered with source, licence, version, purpose and a pinned
   SHA-256, re-checked every 6 hours (`lumina_artifacts`).
 - The Lumina tab renders natively in the Control UI over `lumina.core.*` gateway methods, with modes,
-  sensors, evaluation, reflection and models.
+  sensors, evaluation, reflection, models, memory review and training in simulation.
 
 ## PARTIAL
 
-- Pronunciation is judged by the agent from what it heard; no acoustic scoring.
 - Child-mode content screening is a word list (English and Spanish), not a classifier; voice
   replies spoken live by Start Talk do not pass through it.
-- The Lumina tab is in English for other locales until `pnpm ui:i18n:sync` runs (task 22).
+- The Lumina tab is in English and Spanish; the other 19 Control UI locales fall back to English
+  until task 22 runs (a paid translation API, Dal's call).
+- Conversation without internet needs a local language model; none is active on this machine.
 - Backups: covered by `openclaw backup`; scheduling them is Dal's choice (archives hold credentials).
 
 ## BROKEN
@@ -78,27 +89,28 @@ have re-enabled a capability a person switched off during the mode.
 
 ## PLANNED
 
-Reinforcement learning in simulation only (task 25) and acoustic pronunciation scoring (task 27). Hardware is not available
-(MOCK and INTERFACE ONLY where it applies). See `docs/lumina-core/TASKS.md` and `docs/lumina-core/ROADMAP.md`.
+Nothing in software. What the section map still lists needs a robot (SLAM and depth, direction of
+arrival, physical demonstration, a hardware watchdog, secure boot, a robot network) or is the
+physical milestones v0.5 and v1.0. See `docs/lumina-core/SECTION_MAP.md` and `ROADMAP.md`.
 
 ## CURRENT TASK
 
-Claude Code: this cycle is built, verified live and published, including the identity rename
-(ADR 0010): `lumina.core.state` answers, the old `m3gan.*` methods are gone, `/plugins/lumina-cognitive-os/core/health`
-responds and the audit chain kept its entries across the rename.
-ChatGPT-LUMINA: task 22 (translations). Task 21 is done (`66c74d34954`).
+Claude Code: closing the software side of the specification (`e30c26c4450`): failure-injection,
+red-team and endurance suites, memory review in the tab, honesty guard, persona ledger, causal
+model, pronunciation feedback, sounds, tone, affect, human zones from the webcam and navigation
+learned only in simulation. Codex and ChatGPT-LUMINA: no task open.
 
 ## NEXT TASKS
 
 1. Dal: approve or decline task 23 (the Supabase audit-checkpoint table).
-2. Codex: tasks 25 and 27 in `docs/lumina-core/TASKS.md`.
-3. Claude Code: the next open item in the section map.
+2. Dal: decide on task 22 (translating the tab into 19 more locales with a paid API).
+3. Any agent: keep the suites green; hardware work starts when a body exists.
 
 ## BLOCKERS
 
 - No robot hardware: body paths are simulated.
 - The Supabase table for audit checkpoints needs Dal's approval (task 23).
-- The Control UI translation baseline already drifted before the Lumina tab (`pnpm ui:i18n:check`).
+- `pnpm ui:i18n:check` fails until the other locales are translated (task 22).
 
 ## RECENT DECISIONS
 
@@ -127,3 +139,4 @@ Lumina, while the durable stores keep their `m3gan.` namespaces so no state is l
 - `e79a086c918` Python sidecars run from the built gateway; the camera names objects (task 24).
 - `a54459e6339` initiatives reach the owner's agent.
 - `a5024f6c643` LUMINA is the identity; M3GAN only the reference (ADR 0010).
+- `e30c26c4450` the software side of the specification is finished (tasks 25 and 27 among it).

@@ -13,6 +13,7 @@ import {
   type GatewayRequestHandlerOptions,
 } from "openclaw/plugin-sdk/gateway-runtime";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
+import { MemoryChannelError } from "./memory-channel.js";
 import {
   createOwnerCommands,
   coreState,
@@ -27,7 +28,9 @@ function handler(run: (params: Readonly<Record<string, unknown>>) => unknown) {
     } catch (error) {
       const message = formatErrorMessage(error);
       const code =
-        error instanceof OwnerChannelError ? ErrorCodes.INVALID_REQUEST : ErrorCodes.UNAVAILABLE;
+        error instanceof OwnerChannelError || error instanceof MemoryChannelError
+          ? ErrorCodes.INVALID_REQUEST
+          : ErrorCodes.UNAVAILABLE;
       respond(false, { error: message }, errorShape(code, message));
     }
   };

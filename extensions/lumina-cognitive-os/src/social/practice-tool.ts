@@ -8,13 +8,30 @@
  * none is named).
  */
 import { Type } from "typebox";
+import type { Transcript } from "../perception/voice-bridge.js";
 import { jsonResult, ToolInputError, type AnyAgentTool } from "../shared/tool-result.js";
 import type { PeopleRegistry } from "./people.js";
 import { PRACTICE_KINDS, PracticeError, type PracticeBook, type PracticeKind } from "./practice.js";
+import { scorePronunciation } from "./pronunciation.js";
 
-const PRACTICE_ACTIONS = ["add", "correct", "due", "grade", "progress", "remove"] as const;
+const PRACTICE_ACTIONS = [
+  "add",
+  "correct",
+  "due",
+  "grade",
+  "pronounce",
+  "progress",
+  "remove",
+] as const;
 
-export function createPracticeTool(book: PracticeBook, people: PeopleRegistry): AnyAgentTool {
+/** Listens for the learner's next utterance and returns its words (the microphone sidecar). */
+export type Listen = (language: string) => Promise<Transcript>;
+
+export function createPracticeTool(
+  book: PracticeBook,
+  people: PeopleRegistry,
+  listen?: Listen,
+): AnyAgentTool {
   return {
     name: "lumina_practice",
     label: "Lumina Practice",
@@ -23,7 +40,9 @@ export function createPracticeTool(book: PracticeBook, people: PeopleRegistry): 
       "vocabulary/grammar/pronunciation/fact/skill, prompt and answer); 'correct' records a mistake made in " +
       "conversation (said, correct, why) so it gets practised; 'due' lists what to review now, weakest first: " +
       "ask the person, then 'grade' with right true/false (right answers space reviews out, a wrong one brings " +
-      "it back tomorrow); 'progress' summarizes learned, due, accuracy and what keeps failing. Teach by " +
+      "it back tomorrow); 'pronounce' listens to the person's next utterance (tell them to speak first) and " +
+      "compares it with 'expected' or with item 'id''s answer, naming the words that did not come through, " +
+      "and grades the item; 'progress' summarizes learned, due, accuracy and what keeps failing. Teach by " +
       "explaining and asking, adapt to what the progress shows, and let the person answer for themselves.",
     parameters: Type.Object({
       action: Type.Union(PRACTICE_ACTIONS.map((a) => Type.Literal(a))),
@@ -40,6 +59,13 @@ export function createPracticeTool(book: PracticeBook, people: PeopleRegistry): 
       why: Type.Optional(Type.String({ maxLength: 500 })),
       id: Type.Optional(Type.String({ maxLength: 128 })),
       right: Type.Optional(Type.Boolean()),
+      expected: Type.Optional(Type.String({ maxLength: 500 })),
+      language: Type.Optional(
+        Type.String({
+          maxLength: 8,
+          description: "Spoken language for 'pronounce', e.g. en, es, fr.",
+        }),
+      ),
       limit: Type.Optional(Type.Number({ minimum: 1, maximum: 50, default: 10 })),
     }),
     async execute(_id, rawParams) {
@@ -56,6 +82,8 @@ export function createPracticeTool(book: PracticeBook, people: PeopleRegistry): 
         why?: string;
         id?: string;
         right?: boolean;
+        expected?: string;
+        language?: string;
         limit?: number;
       };
       await book.ready;
@@ -116,6 +144,28 @@ export function createPracticeTool(book: PracticeBook, people: PeopleRegistry): 
               person: person.name,
               subjects: book.progress(person.id),
             });
+          case "pronounce": {
+            if (!listen) {
+              return jsonResult({ ok: false, error: "No microphone is connected to the core." });
+            }
+            const item = p.id
+              ? book.list({ personId: person.id }).find((i) => i.id === p.id)
+              : undefined;
+            const expected = p.expected?.trim() || item?.answer;
+            if (!expected) {
+              throw new ToolInputError("expected or the id of an item is required for pronounce");
+            }
+            const heard = await listen(p.language?.trim() || "en");
+            if (!heard.ok) {
+              return jsonResult({ ok: false, error: heard.reason });
+            }
+            const result = scorePronunciation(expected, heard.text);
+            return jsonResult({
+              ok: true,
+              ...result,
+              ...(item ? { item: book.grade(item.id, result.right) } : {}),
+            });
+          }
           case "remove":
             return jsonResult({ ok: book.remove(need(p.id, "id")) });
           default:

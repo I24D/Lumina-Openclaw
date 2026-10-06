@@ -49,7 +49,16 @@ export function createBodyAdapter(params: {
             label: sighting.label,
             confidence: 0.99,
             source: "sensor",
-            ...(sighting.placeId ? { position: { placeId: sighting.placeId } } : {}),
+            ...(sighting.placeId || sighting.metric
+              ? {
+                  position: {
+                    ...(sighting.placeId ? { placeId: sighting.placeId } : {}),
+                    ...(sighting.metric
+                      ? { metric: { x: sighting.metric.x, y: sighting.metric.y, frame: "map" } }
+                      : {}),
+                  },
+                }
+              : {}),
           }),
         ),
     }) ?? new SimulatedBody(resolvePlace)

@@ -103,6 +103,71 @@ describe("Lumina core view", () => {
   });
 });
 
+describe("Lumina core memory view", () => {
+  it("filters what Lumina remembers and offers to merge two things with one name", () => {
+    const host = {};
+    hosts.push(host);
+    const state = getCoreState(host);
+    state.state = sample({
+      memory: {
+        lessons: [
+          {
+            id: "les_1",
+            trigger: "coffee",
+            claim: "Dal drinks coffee at 9",
+            confidence: 0.7,
+            origin: "2 confirmations, 0 contradictions",
+            archived: false,
+            updatedAtISO: "2026-10-06T12:00:00.000Z",
+          },
+          {
+            id: "les_2",
+            trigger: "music",
+            claim: "Dal likes silence at night",
+            confidence: 0.6,
+            origin: "0 confirmations, 0 contradictions",
+            archived: true,
+            updatedAtISO: "2026-10-06T12:00:00.000Z",
+          },
+        ],
+        episodes: [],
+        entities: [
+          {
+            id: "mug-a",
+            label: "taza",
+            kind: "object",
+            origin: "sensor",
+            confidence: 0.9,
+            observations: 3,
+            lastSeenISO: "2026-10-06T12:00:00.000Z",
+          },
+          {
+            id: "mug-b",
+            label: "Taza",
+            kind: "object",
+            origin: "agent",
+            confidence: 0.5,
+            observations: 1,
+            lastSeenISO: "2026-10-06T11:00:00.000Z",
+          },
+        ],
+        beliefs: [],
+      },
+    });
+    state.tab = "memory";
+    state.memoryQuery = "coffee";
+
+    const container = document.createElement("div");
+    render(renderLuminaCore({ host, client: null, connected: false }), container);
+
+    expect(container.textContent).toContain("Dal drinks coffee at 9");
+    expect(container.textContent).not.toContain("silence at night");
+    const buttons = [...container.querySelectorAll("button")].map((b) => b.textContent?.trim());
+    expect(buttons).toContain("Merge Taza into taza");
+    expect(buttons).toContain("Archive");
+  });
+});
+
 describe("Lumina core controller", () => {
   it("runs an owner command, shows a refusal's reason and refreshes", async () => {
     const host = {};

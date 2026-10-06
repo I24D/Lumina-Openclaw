@@ -71,3 +71,15 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.lumina-core__search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.lumina-core__search input {
+  flex: 1;
+  max-width: 420px;
+}

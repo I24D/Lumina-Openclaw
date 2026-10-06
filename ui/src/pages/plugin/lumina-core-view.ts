@@ -9,8 +9,10 @@ import {
   configureLuminaCorePolling,
   getCoreState,
   loadLuminaCore,
-  runLuminaCoreCommand,
 } from "./lumina-core-controller.ts";
+import { renderMemory } from "./lumina-core-memory-view.ts";
+import { card, chip, clock, makeAction, table } from "./lumina-core-parts.ts";
+import { renderSimTraining } from "./lumina-core-sim-view.ts";
 import {
   LUMINA_CORE_MODES,
   type LuminaCorePerson,
@@ -29,76 +31,16 @@ type LuminaCoreProps = {
   onRequestUpdate?: () => void;
 };
 
-type ControllerState = ReturnType<typeof getCoreState>;
-type Column<T> = readonly [label: string, cell: (row: T) => unknown];
-type Variant = "primary" | "danger" | "";
-
 const TABS: ReadonlyArray<LuminaCoreTab> = [
   "live",
   "safety",
   "people",
   "world",
+  "memory",
   "health",
   "robot",
   "developer",
 ];
-
-const clock = (iso: string | undefined) => (iso ? iso.slice(11, 19) : "—");
-
-function table<T>(rows: ReadonlyArray<T>, columns: ReadonlyArray<Column<T>>): TemplateResult {
-  if (rows.length === 0) {
-    return html`<p class="muted">—</p>`;
-  }
-  return html`
-    <div class="data-table-container">
-      <table class="data-table">
-        <thead>
-          <tr>
-            ${columns.map(([label]) => html`<th>${label}</th>`)}
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.map(
-            (row) =>
-              html`<tr>
-                ${columns.map(([, cell]) => html`<td>${cell(row)}</td>`)}
-              </tr>`,
-          )}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function chip(label: string, ok: boolean): TemplateResult {
-  return html`<span class="chip ${ok ? "chip-ok" : "chip-warn"}">${label}</span>`;
-}
-
-function card(title: string, body: unknown, sub?: string): TemplateResult {
-  return html`
-    <section class="card lumina-core__card">
-      <div class="card-title">${title}</div>
-      ${sub ? html`<div class="card-sub">${sub}</div>` : nothing} ${body}
-    </section>
-  `;
-}
-
-function makeAction(state: ControllerState, client: GatewayBrowserClient | null) {
-  return (
-    label: string,
-    method: string,
-    params: Record<string, unknown> = {},
-    variant: Variant = "",
-  ) =>
-    html`<button
-      class="btn btn--sm ${variant}"
-      type="button"
-      ?disabled=${state.pending !== null}
-      @click=${() => void runLuminaCoreCommand(state, client, method, params)}
-    >
-      ${label}
-    </button>`;
-}
 
 function renderStatus(s: CoreStatePayload): TemplateResult {
   const o = s.safety.overrides;
@@ -468,6 +410,7 @@ function renderRobot(s: CoreStatePayload, act: ReturnType<typeof makeAction>): T
   );
   const places = s.world.filter((n) => n.kind === "room" || n.kind === "location");
   return html`
+    ${renderSimTraining(s, act)}
     ${card(
       t("luminaCore.robot.body"),
       s.robot
@@ -649,6 +592,7 @@ export function renderLuminaCore(props: LuminaCoreProps) {
               ? renderTree(s.world, act)
               : html`<p class="muted">${t("luminaCore.world.empty")}</p>`,
           ),
+        memory: () => renderMemory(s, act, state),
         health: () => renderHealth(s),
         robot: () => renderRobot(s, act),
         developer: () => renderDeveloper(s, act),

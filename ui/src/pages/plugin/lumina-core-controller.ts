@@ -24,6 +24,7 @@ export function getCoreState(host: object): LuminaCoreControllerState {
       error: null,
       pending: null,
       notice: null,
+      memoryQuery: "",
       requestUpdate: null,
       client: null,
       generation: 0,

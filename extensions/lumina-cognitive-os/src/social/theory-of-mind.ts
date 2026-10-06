@@ -127,6 +127,13 @@ export class MindModel {
     return structuredClone(belief);
   }
 
+  /** Every belief modeled, newest first, for the memory view. */
+  list(limit = 200): ReadonlyArray<Belief> {
+    return structuredClone(
+      [...this.beliefs.values()].toSorted((a, b) => b.atISO.localeCompare(a.atISO)).slice(0, limit),
+    );
+  }
+
   /** Everything modeled about one person, most confident first. */
   about(holderId: string): ReadonlyArray<Belief> {
     return structuredClone(

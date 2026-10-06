@@ -111,6 +111,50 @@ export type CoreStatePayload = {
       evidence: string;
     }>;
   } | null;
+  /** Learning to move in simulation; null without the MuJoCo body, absent in older cores. */
+  simTraining?: {
+    running: boolean;
+    startedAtISO?: string;
+    progress?: { iteration: number; bestScore: number };
+    error?: string;
+    report?: {
+      atISO: string;
+      accepted: boolean;
+      baseline: LuminaCoreSimEvaluation;
+      learned: LuminaCoreSimEvaluation;
+    };
+  } | null;
+  /** What Lumina remembers, with origin and confidence; absent in older cores. */
+  memory?: {
+    lessons: Array<{
+      id: string;
+      trigger: string;
+      claim: string;
+      confidence: number;
+      origin: string;
+      archived: boolean;
+      updatedAtISO: string;
+    }>;
+    episodes: Array<{ id: string; atISO: string; kind: string; summary: string; tags: string[] }>;
+    entities: Array<{
+      id: string;
+      label: string;
+      kind: string;
+      origin: string;
+      confidence: number;
+      observations: number;
+      lastSeenISO: string;
+    }>;
+    beliefs: Array<{
+      id: string;
+      holderId: string;
+      stance: string;
+      proposition: string;
+      confidence: number;
+      provenance: string;
+      atISO: string;
+    }>;
+  };
   /** Models and datasets with pinned hashes; absent in older cores. */
   artifacts?: Array<{
     id: string;
@@ -146,11 +190,21 @@ export type LuminaCoreSensorStatus = {
   lastError?: string;
 };
 
+export type LuminaCoreSimEvaluation = {
+  episodes: number;
+  successRate: number;
+  personContacts: number;
+  obstacleContacts: number;
+  meanSeconds: number;
+  minPersonM: number | null;
+};
+
 export type LuminaCoreTab =
   | "live"
   | "safety"
   | "people"
   | "world"
+  | "memory"
   | "health"
   | "robot"
   | "developer";
@@ -164,5 +218,7 @@ export type LuminaCoreUiState = {
   pending: string | null;
   /** The last answer a command gave, e.g. a refusal and its reason. */
   notice: string | null;
+  /** What the Memory view filters by. */
+  memoryQuery: string;
   requestUpdate: (() => void) | null;
 };

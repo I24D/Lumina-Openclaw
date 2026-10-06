@@ -42,6 +42,14 @@ export type CoreEventPayloads = {
     readonly speakerId?: string;
     readonly confidence: number;
     readonly durationMs: number;
+    /** An unknown voice told apart from the others in this run, never an identity. */
+    readonly voiceTag?: string;
+    /** Tone: loudness (dBFS), median pitch (Hz) and its relative spread. */
+    readonly prosody?: {
+      readonly loudnessDb: number;
+      readonly pitchHz: number;
+      readonly pitchVar: number;
+    };
   };
   "object.moved": {
     readonly objectId: string;
@@ -81,6 +89,19 @@ export type CoreEventPayloads = {
   "screen.foreground": { readonly process: string; readonly title: string };
   /** A large part of the screen changed. */
   "screen.changed": { readonly changedRatio: number };
+  /** A sound that matters (spec §8, sound classification); dangerous ones also raise a hazard. */
+  "sound.detected": {
+    readonly label: string;
+    readonly score: number;
+    readonly hazard?: string;
+  };
+  /** How someone might feel, from their voice or face: an estimate, never a fact (spec §10). */
+  "affect.estimated": {
+    readonly personId?: string;
+    readonly possibleState: string;
+    readonly confidence: number;
+    readonly signals: ReadonlyArray<string>;
+  };
   /** A sensor saw something new whose use nothing explains (curiosity, spec §92). */
   "knowledge.gap": {
     readonly entityId: string;
@@ -142,6 +163,14 @@ const PAYLOAD_SCHEMAS = {
     speakerId: Type.Optional(id),
     confidence,
     durationMs: Type.Number({ minimum: 0 }),
+    voiceTag: Type.Optional(id),
+    prosody: Type.Optional(
+      Type.Object({
+        loudnessDb: Type.Number(),
+        pitchHz: Type.Number({ minimum: 0 }),
+        pitchVar: Type.Number({ minimum: 0 }),
+      }),
+    ),
   }),
   "object.moved": Type.Object({
     objectId: id,
@@ -191,6 +220,17 @@ const PAYLOAD_SCHEMAS = {
   }),
   "screen.foreground": Type.Object({ process: Type.String(), title: Type.String() }),
   "screen.changed": Type.Object({ changedRatio: confidence }),
+  "sound.detected": Type.Object({
+    label: Type.String({ minLength: 1, maxLength: 128 }),
+    score: confidence,
+    hazard: Type.Optional(Type.String({ maxLength: 64 })),
+  }),
+  "affect.estimated": Type.Object({
+    personId: Type.Optional(id),
+    possibleState: Type.String({ minLength: 1, maxLength: 32 }),
+    confidence,
+    signals: Type.Array(Type.String({ maxLength: 160 }), { maxItems: 8 }),
+  }),
   "knowledge.gap": Type.Object({
     entityId: id,
     label: Type.String({ minLength: 1, maxLength: 256 }),
@@ -220,6 +260,8 @@ export const EVENT_PRIORS: Readonly<
   "subsystem.health": { importance: 0.5, urgency: 0.5 },
   "screen.foreground": { importance: 0.3, urgency: 0.2 },
   "screen.changed": { importance: 0.1, urgency: 0.05 },
+  "sound.detected": { importance: 0.45, urgency: 0.4 },
+  "affect.estimated": { importance: 0.3, urgency: 0.2 },
   "knowledge.gap": { importance: 0.45, urgency: 0.2 },
 };
 

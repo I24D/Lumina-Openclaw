@@ -31,4 +31,4 @@ create trigger lumina_audit_checkpoints_no_rewrite
 alter table public.lumina_audit_checkpoints enable row level security;
 
 comment on table public.lumina_audit_checkpoints is
-  'Append-only head hashes of Lumina's safety audit chain, kept outside the gateway so tail deletion is detectable.';
+  'Append-only head hashes of the Lumina safety audit chain, kept outside the gateway so tail deletion is detectable.';

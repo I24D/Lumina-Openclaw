@@ -84,6 +84,37 @@ export function perceptionModels(modelsDir: string): ArtifactInput[] {
     },
     {
       kind: "model",
+      name: "Facial expression model (MobileFaceNet)",
+      source:
+        "https://github.com/opencv/opencv_zoo/raw/main/models/facial_expression_recognition/facial_expression_recognition_mobilefacenet_2022july.onnx",
+      license: "as published by OpenCV Zoo; check before redistribution",
+      version: "2022july",
+      purpose: "Expression estimates for faces recognized with consent; estimates, never facts.",
+      path: path.join(opencv, "facial_expression_recognition_mobilefacenet_2022july.onnx"),
+    },
+    {
+      kind: "model",
+      name: "CED mini audio tagger",
+      source:
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models/sherpa-onnx-ced-mini-audio-tagging-2024-04-19.tar.bz2",
+      license: "as published by sherpa-onnx (CED); check before redistribution",
+      version: "2024-04-19",
+      purpose: "Sounds that matter (alarms, glass, screams, doorbell) from microphone audio.",
+      path: path.join(voice, "sherpa-onnx-ced-mini-audio-tagging-2024-04-19"),
+      trainedOn: "AudioSet",
+    },
+    {
+      kind: "model",
+      name: "Whisper tiny speech recognizer",
+      source:
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2",
+      license: "MIT (OpenAI Whisper)",
+      version: "tiny",
+      purpose: "The words of one utterance, on request, for pronunciation practice.",
+      path: path.join(voice, "sherpa-onnx-whisper-tiny"),
+    },
+    {
+      kind: "model",
       name: "Silero VAD",
       source: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
       license: "MIT (Silero)",

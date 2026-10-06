@@ -7,10 +7,12 @@
  * probes; the runtime puts them all on one brainstem.
  */
 import type { EnvironmentSnapshot } from "../awareness/snapshot.js";
+import type { EmbodiedController } from "../embodiment/embodied-controller.js";
 import type { SimulatedRobot } from "../embodiment/simulated-robot.js";
 import type { PrivacyState } from "../privacy/privacy-state.js";
 import type { AuditLog } from "../safety/audit-log.js";
-import type { Probe, ProbeResult } from "./brainstem.js";
+import type { SafetyKernel } from "../safety/safety-kernel.js";
+import type { BrainstemOptions, Probe, ProbeResult } from "./brainstem.js";
 import type { EnergyAdvice } from "./energy.js";
 
 const probe = (name: string, critical: boolean, check: () => ProbeResult): Probe => ({
@@ -145,4 +147,50 @@ export function coreProbes(deps: {
           };
     }),
   ];
+}
+
+/**
+ * What the brainstem does about what it finds: record every degradation and
+ * recovery, tell a person when something is down, and isolate a critical
+ * failure without freezing the rest of Lumina (a broken audit chain is
+ * treated as tampering).
+ */
+export function brainstemReactions(deps: {
+  readonly audit: Pick<AuditLog, "append">;
+  readonly safety: Pick<SafetyKernel, "reportTamper" | "override">;
+  readonly body: Pick<EmbodiedController, "stopAll">;
+  readonly notify?: (message: string, severity: "info" | "warn" | "critical") => void;
+}): Pick<BrainstemOptions, "onDegraded" | "onCriticalDown" | "onRecovered"> {
+  return {
+    onDegraded: (subsystem) => {
+      deps.audit.append({
+        actor: "brainstem",
+        action: `health.${subsystem.name}`,
+        reason: subsystem.detail,
+        execution: "recorded",
+      });
+      if (subsystem.status === "down") {
+        deps.notify?.(
+          `Subsistema ${subsystem.name} caído: ${subsystem.detail}`,
+          subsystem.critical ? "critical" : "warn",
+        );
+      }
+    },
+    onCriticalDown: async (subsystem) => {
+      if (subsystem.name === "audit") {
+        await deps.safety.reportTamper(subsystem.detail, "brainstem");
+        return;
+      }
+      await deps.body.stopAll(`${subsystem.name} down: ${subsystem.detail}`, "brainstem");
+      await deps.safety.override({ type: "pause" }, { channel: "agent", actor: "brainstem" });
+    },
+    onRecovered: (subsystem) => {
+      deps.audit.append({
+        actor: "brainstem",
+        action: `health.${subsystem.name}`,
+        reason: `recovered: ${subsystem.detail}`,
+        execution: "recorded",
+      });
+    },
+  };
 }

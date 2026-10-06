@@ -20,6 +20,8 @@ export type Lesson = {
   readonly contradictions: number;
   readonly createdAtISO: string;
   readonly updatedAtISO: string;
+  /** Kept for the record but no longer applied (spec §68, archive). */
+  readonly archived?: boolean;
 };
 
 export type LessonStoreOptions = {
@@ -187,9 +189,42 @@ export class LessonStore {
     return this.adjust(id, -EVIDENCE_STEP, nowISO);
   }
 
+  /** Archive or restore a lesson: an archived one is kept but no longer applied. */
+  archive(
+    id: string,
+    archived: boolean,
+    nowISO: string = new Date().toISOString(),
+  ): Lesson | undefined {
+    const current = this.lessons.find((l) => l.id === id);
+    if (!current) {
+      return undefined;
+    }
+    const next: Lesson = { ...current, archived, updatedAtISO: nowISO };
+    this.lessons = this.lessons.map((l) => (l.id === id ? next : l));
+    this.persistSnapshot(next, true);
+    return next;
+  }
+
+  /** Forget a lesson entirely, from memory and from durable storage. */
+  forget(id: string): boolean {
+    const before = this.lessons.length;
+    this.lessons = this.lessons.filter((l) => l.id !== id);
+    if (this.lessons.length === before) {
+      return false;
+    }
+    if (this.log) {
+      void this.ready
+        .then(() => this.log?.remove((l) => l.id === id))
+        .catch((error: unknown) => this.onError(error));
+    } else {
+      rewriteJsonl(this.filePath, this.lessons);
+    }
+    return true;
+  }
+
   applicable(trigger: string, minConfidence = 0.5): ReadonlyArray<Lesson> {
     return this.lessons
-      .filter((l) => l.trigger === trigger && l.confidence >= minConfidence)
+      .filter((l) => l.trigger === trigger && !l.archived && l.confidence >= minConfidence)
       .toSorted((a, b) => b.confidence - a.confidence);
   }
 }

@@ -29,6 +29,8 @@ export type PhysicsEvent =
       /** Object name to the place it starts at. */
       readonly objects: Readonly<Record<string, string>>;
       readonly people: ReadonlyArray<string>;
+      /** Place coordinates in the map frame (metres). */
+      readonly coordinates?: Readonly<Record<string, readonly [number, number]>>;
     }
   | {
       readonly kind: "result";
@@ -54,6 +56,8 @@ export type SimulatedSighting = {
   readonly kind: "room" | "object";
   readonly label: string;
   readonly placeId?: string;
+  /** Map-frame position in metres, when the simulator knows it. */
+  readonly metric?: { readonly x: number; readonly y: number };
 };
 
 const TIMEOUT_MS = 150_000;
@@ -80,7 +84,13 @@ export class PhysicsBody implements BodyAdapter {
           this.names = new Set([...event.places, ...Object.keys(event.objects), ...event.people]);
           // What the simulated robot's sensors see goes into the world model like any sighting.
           for (const place of event.places) {
-            this.observe({ id: place, kind: "room", label: place.replaceAll("_", " ") });
+            const at = event.coordinates?.[place];
+            this.observe({
+              id: place,
+              kind: "room",
+              label: place.replaceAll("_", " "),
+              ...(at ? { metric: { x: at[0], y: at[1] } } : {}),
+            });
           }
           for (const [object, place] of Object.entries(event.objects)) {
             this.observe({ id: object, kind: "object", label: object, placeId: place });

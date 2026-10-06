@@ -1,7 +1,7 @@
 /**
  * eval-tool.ts — Tool: lumina_evaluate.
  *
- * "¿Sigues funcionando como debes?" Runs the evaluation suite in sandbox
+ * "¿Sigues funcionando como debes?" Runs the evaluation suites in sandbox
  * runtimes (never on live state) and returns scores per suite, failures and
  * performance numbers.
  */
@@ -15,7 +15,8 @@ export function createEvaluateTool(evaluation: Evaluation): AnyAgentTool {
     label: "Lumina Evaluate",
     description:
       "Check that Lumina still behaves as designed: world model, people and consent, memory, body safety in " +
-      "simulation, and performance. Runs in a sandbox, never on live state. 'run' evaluates now; 'latest' " +
+      "simulation, injected failures (dead sensors, no internet, no model, broken motor), red-team attacks, " +
+      "endurance and performance. Runs in a sandbox, never on live state. 'run' evaluates now; 'latest' " +
       "returns the last report.",
     parameters: Type.Object({
       action: Type.Union([Type.Literal("run"), Type.Literal("latest")], { default: "latest" }),

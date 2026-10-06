@@ -204,6 +204,12 @@ export const STALE_BELOW = 0.5;
 
 /** Sightings retained per entity for temporal questions. */
 export const HISTORY_LIMIT = 64;
+/**
+ * A sensor that keeps seeing the same thing, unchanged and in the same place, is stored at most
+ * this often (spec §142, database growth): the view stays current, the durable log does not grow
+ * by one row per frame. Any change (a move, a new state, a claim) is stored at once.
+ */
+export const COALESCE_MS = 5 * 60_000;
 
 /** Ceiling for merged evidence: repeated sightings never become certainty. */
 const MAX_CONFIDENCE = 0.999;
@@ -243,6 +249,8 @@ export class WorldModel {
   private readonly sightings = new Map<string, Sighting[]>();
   /** Every observation this process knows, stored and new, oldest first. */
   private log: Observation[] = [];
+  /** When each entity's last observation went into the log. */
+  private readonly lastLogged = new Map<string, number>();
   private readonly store: KeyedLog<Observation> | undefined;
   /** Forget requests made while stored observations were still loading. */
   private readonly loadingPurges: Array<(obs: Observation) => boolean> = [];
@@ -291,9 +299,32 @@ export class WorldModel {
   private replay(log: ReadonlyArray<Observation>): void {
     this.entities.clear();
     this.sightings.clear();
+    this.lastLogged.clear();
     for (const obs of log) {
       this.apply(obs);
+      if (obs.id) {
+        this.lastLogged.set(obs.id, Date.parse(obs.atISO ?? ""));
+      }
     }
+  }
+
+  /** The same sensor sighting again, unchanged and soon after the last stored one. */
+  private isRepeat(previous: WorldEntity, obs: Observation): boolean {
+    const loggedAt = this.lastLogged.get(previous.id);
+    return (
+      obs.source === "sensor" &&
+      previous.source === "sensor" &&
+      loggedAt !== undefined &&
+      Date.parse(obs.atISO ?? "") - loggedAt < COALESCE_MS &&
+      obs.label === previous.label &&
+      (obs.position === undefined ||
+        JSON.stringify(obs.position) === JSON.stringify(previous.position)) &&
+      Object.entries(obs.state ?? {}).every(([key, value]) => previous.state[key] === value) &&
+      Object.entries(obs.properties ?? {}).every(
+        ([key, value]) => previous.properties[key] === value,
+      ) &&
+      (obs.relations ?? []).length === 0
+    );
   }
 
   /** Resolves when every observation so far has been handed to the store. */
@@ -323,9 +354,16 @@ export class WorldModel {
     if (!Number.isFinite(Date.parse(stamped.atISO ?? ""))) {
       throw new Error("An observation needs a valid timestamp.");
     }
+    const previousId = stamped.id ?? this.find(stamped.label, stamped.kind)?.id;
+    const previous = previousId ? this.entities.get(previousId) : undefined;
+    const repeat = previous !== undefined && this.isRepeat(previous, stamped);
     const result = this.apply(stamped);
+    if (repeat) {
+      return result;
+    }
     const record = { ...stamped, id: result.entity.id };
     this.log.push(record);
+    this.lastLogged.set(record.id, Date.parse(record.atISO ?? ""));
     this.store?.append(record);
     return result;
   }
@@ -352,6 +390,34 @@ export class WorldModel {
   /** Forget an entity entirely: its observations leave the log, not just the view. */
   forget(id: string): number {
     return this.purge((obs) => obs.id === id);
+  }
+
+  /**
+   * Merge two entities that are the same thing (spec §68): every observation of `dropId`
+   * becomes one of `keepId`, and the view is rebuilt. Returns how many observations moved.
+   */
+  merge(keepId: string, dropId: string): number {
+    if (keepId === dropId || !this.entities.has(keepId) || !this.entities.has(dropId)) {
+      return 0;
+    }
+    const moved = this.log
+      .filter((obs) => obs.id === dropId)
+      .map((obs) =>
+        Object.assign({}, obs, {
+          id: keepId,
+          label: this.entities.get(keepId)?.label ?? obs.label,
+        }),
+      );
+    this.purge((obs) => obs.id === dropId);
+    const merged = [...this.log, ...moved].toSorted((a, b) =>
+      (a.atISO ?? "").localeCompare(b.atISO ?? ""),
+    );
+    this.log = merged;
+    this.replay(merged);
+    for (const obs of moved) {
+      this.store?.append(obs);
+    }
+    return moved.length;
   }
 
   /** Forget everything observed at or after `sinceISO` ("forget this session"). */
