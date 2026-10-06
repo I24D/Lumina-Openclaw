@@ -1,3 +1,55 @@
+diff --git a/lib/Socket/socket.js b/lib/Socket/socket.js
+index ae34a8f315a0b9fd101472cc69e59624c6c63861..e2d0d1aacb76071c24a46a000f3ddd8a2dd1c35b 100644
+--- a/lib/Socket/socket.js
++++ b/lib/Socket/socket.js
+@@ -527,19 +527,36 @@ export const makeSocket = (config) => {
+             ws.off('error', onClose);
+         });
+     };
+-    const startKeepAliveRequest = () => (keepAliveReq = setInterval(() => {
++    let lastKeepAliveTickAt = 0;
++    let keepAliveStallGraceUsed = false;
++    const startKeepAliveRequest = () => {
++        lastKeepAliveTickAt = Date.now();
++        keepAliveStallGraceUsed = false;
++        return (keepAliveReq = setInterval(() => {
++        const tickAt = Date.now();
++        // A tick that fires this late means this process stalled (event loop blocked), not the
++        // network: the pings due meanwhile were never sent and frames that arrived are not read yet.
++        // Ping first and judge the link on the next tick; a second late tick in a row is judged.
++        const sinceLastTickMs = tickAt - lastKeepAliveTickAt;
++        const stalled = sinceLastTickMs > keepAliveIntervalMs + 5000;
++        lastKeepAliveTickAt = tickAt;
++        const graced = stalled && !keepAliveStallGraceUsed;
++        keepAliveStallGraceUsed = graced;
+         if (!lastDateRecv) {
+             lastDateRecv = new Date();
+         }
+-        const diff = Date.now() - lastDateRecv.getTime();
++        const diff = tickAt - lastDateRecv.getTime();
+         /*
+             check if it's been a suspicious amount of time since the server responded with our last seen
+             it could be that the network is down
+         */
+-        if (diff > keepAliveIntervalMs + 5000) {
++        if (diff > keepAliveIntervalMs + 5000 && !graced) {
+             void end(new Boom('Connection was lost', { statusCode: DisconnectReason.connectionLost }));
+         }
+         else if (ws.isOpen) {
++            if (graced && diff > keepAliveIntervalMs + 5000) {
++                logger.warn({ sinceLastTickMs, sinceLastFrameMs: diff }, 'keep alive delayed by a stalled event loop; pinging before judging the connection');
++            }
+             // if its all good, send a keep alive request
+             query({
+                 tag: 'iq',
+@@ -558,6 +575,7 @@ export const makeSocket = (config) => {
+             logger.warn('keep alive called when WS not open');
+         }
+     }, keepAliveIntervalMs));
++    };
+     /** i have no idea why this exists. pls enlighten me */
+     const sendPassiveIq = (tag) => query({
+         tag: 'iq',
 diff --git a/lib/Utils/messages-media.js b/lib/Utils/messages-media.js
 index a3d2fa6bae6af021a4a50b4270584fed08623f34..436162b2a11406663c6ade8e55bb2e0ce9998634 100644
 --- a/lib/Utils/messages-media.js
