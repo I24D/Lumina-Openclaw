@@ -156,7 +156,11 @@ export function readWindowsProcessStartTimeSync(
       "-Command",
       // Read the kernel timestamp without CIM module discovery consuming the
       // caller's short ownership-query budget. Dispose the opened process handle.
-      `$process = [System.Diagnostics.Process]::GetProcessById(${pid}); try { [Console]::Out.Write($process.StartTime.ToUniversalTime().ToString("o")) } finally { $process.Dispose() }`,
+      // Lumina fork: another account's process (a reused PID, often a service)
+      // denies StartTime, which PowerShell reports as null; only then ask CIM,
+      // because WMIC is gone from current Windows and a reused PID would
+      // otherwise keep a dead owner's lock alive forever.
+      `$t = $null; try { $process = [System.Diagnostics.Process]::GetProcessById(${pid}); try { $t = $process.StartTime } finally { $process.Dispose() } } catch {}; if ($null -eq $t) { $t = (Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" -Property CreationDate -ErrorAction Stop).CreationDate }; [Console]::Out.Write($t.ToUniversalTime().ToString("o"))`,
     ],
     {
       encoding: "utf8",

@@ -48,3 +48,13 @@ it.skipIf(process.platform !== "win32")(
     expect(stdout.trim()).toBe("native identity matches");
   },
 );
+
+it.skipIf(process.platform !== "win32")(
+  "reads another account's process start time, so a reused lock PID is recognized",
+  async () => {
+    const { readWindowsProcessStartTimeSync } = await import("./windows-process-start.js");
+    // PID 4 is the System process: its StartTime is denied to a user, and WMIC
+    // no longer ships with Windows, so only the CIM fallback can answer.
+    expect(Number.isFinite(readWindowsProcessStartTimeSync(4, 15_000))).toBe(true);
+  },
+);
