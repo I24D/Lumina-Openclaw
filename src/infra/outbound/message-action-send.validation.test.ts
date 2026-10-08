@@ -190,6 +190,81 @@ describe("runMessageAction send validation", () => {
 
   it.each([
     {
+      name: "attachment",
+      extra: { attachment: "C:\\podcasts\\goldbach.mp3", asVoice: true },
+      error: /no "attachment" param: put the file path or URL in "media"/,
+    },
+    {
+      name: "file",
+      extra: { file: "/tmp/report.pdf", asDocument: true },
+      error: /no "file" param/,
+    },
+    {
+      name: "bare attachments path",
+      extra: { attachments: ["/tmp/goldbach.mp3"] },
+      error: /"attachments" entries must be objects/,
+    },
+  ])("rejects a file under $name instead of sending only the caption", async (testCase) => {
+    const sentText: string[] = [];
+    const sendText: NonNullable<
+      NonNullable<typeof workspaceTestPlugin.outbound>["sendText"]
+    > = async (ctx) => {
+      sentText.push(ctx.text);
+      return { channel: "workspace", messageId: "caption-only" };
+    };
+    setActivePluginRegistry(
+      createTestRegistry([
+        {
+          pluginId: "workspace",
+          source: "test",
+          plugin: {
+            ...workspaceTestPlugin,
+            outbound: {
+              ...workspaceTestPlugin.outbound,
+              sendText,
+            },
+          },
+        },
+      ]),
+    );
+
+    await expect(
+      runMessageAction({
+        cfg: workspaceConfig,
+        action: "send",
+        actionOrigin: "message-tool",
+        params: {
+          channel: "workspace",
+          target: "#C12345678",
+          message: "Here is the podcast.",
+          ...testCase.extra,
+        },
+      }),
+    ).rejects.toThrow(testCase.error);
+    expect(sentText).toEqual([]);
+  });
+
+  it("sends the file when the same path is passed in media", async () => {
+    const result = await runDrySend({
+      cfg: workspaceConfig,
+      actionParams: {
+        channel: "workspace",
+        target: "#C12345678",
+        message: "Here is the podcast.",
+        media: "https://example.com/goldbach.mp3",
+        asVoice: true,
+      },
+      toolContext: { currentChannelId: "C12345678" },
+    });
+
+    expect(result.kind).toBe("send");
+    expect(result.kind === "send" ? result.payload : undefined).toMatchObject({
+      mediaUrl: "https://example.com/goldbach.mp3",
+    });
+  });
+
+  it.each([
+    {
       name: "structured poll params",
       actionParams: {
         channel: "workspace",

@@ -69,6 +69,24 @@ function resolveReplyMediaAttachmentType(value: unknown): ReplyMediaAttachment["
     : undefined;
 }
 
+// Lumina fork: keys models invent for the file they mean to send. None is a
+// send param, so the file was dropped, the caption went out, the send reported
+// ok, and the model told the user an audio had arrived when nothing had.
+const UNSUPPORTED_SEND_MEDIA_PARAM_KEYS = ["attachment", "file", "audio", "video", "document"];
+
+function findUnsupportedSendMediaParam(actionParams: Record<string, unknown>): string | undefined {
+  const key = UNSUPPORTED_SEND_MEDIA_PARAM_KEYS.find((candidate) =>
+    normalizeOptionalString(actionParams[candidate]),
+  );
+  if (key) {
+    return key;
+  }
+  // Structured attachments must be objects; bare path strings are skipped too.
+  const attachments = actionParams.attachments;
+  const items = Array.isArray(attachments) ? attachments : [attachments];
+  return items.some((item) => normalizeOptionalString(item)) ? "attachments" : undefined;
+}
+
 export async function buildMessagePayload(params: {
   cfg: OpenClawConfig;
   actionParams: Record<string, unknown>;
@@ -105,6 +123,14 @@ export async function buildMessagePayload(params: {
   const hasBuffer = Boolean(readToolStringParam(actionParams, "buffer", { trim: false }));
   const hasMediaHint =
     hasBuffer || Boolean(mediaHint) || mediaUrlHints.length > 0 || attachmentSources.length > 0;
+  const unsupportedMediaParam = findUnsupportedSendMediaParam(actionParams);
+  if (unsupportedMediaParam) {
+    throw new Error(
+      unsupportedMediaParam === "attachments"
+        ? 'send "attachments" entries must be objects such as { "media": "<path or URL>" }. Nothing was sent.'
+        : `send has no "${unsupportedMediaParam}" param: put the file path or URL in "media". Nothing was sent.`,
+    );
+  }
   const hasPresentation = hasMessagePresentationBlocks(actionParams.presentation);
   const hasInteractive = hasLegacyInteractiveReplyBlocks(actionParams.interactive);
   const rawLocation = actionParams.location;
