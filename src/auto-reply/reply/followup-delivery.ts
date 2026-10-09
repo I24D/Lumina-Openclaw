@@ -13,6 +13,7 @@ import {
 } from "../../agents/reply-completion.js";
 import { buildAgentRuntimeDeliveryPlan } from "../../agents/runtime-plan/build.js";
 import { logVerbose } from "../../globals.js";
+import { isExternalContactChannel, isRuntimeNoticePayload } from "../../lumina/contact-channels.js";
 import { defaultRuntime } from "../../runtime.js";
 import { sessionDeliveryChannel } from "../../utils/delivery-context.read.js";
 import { isInternalMessageChannel } from "../../utils/message-channel.js";
@@ -376,9 +377,17 @@ async function sendFollowupPayloads(params: {
     workspaceDir: turn.queued.run.workspaceDir,
     agentDir: turn.queued.run.agentDir,
   });
+  // Lumina: a queued turn answering a third-party contact withholds runtime
+  // notices and failure text, as dispatch-from-config.finalize.ts does for the
+  // turn that queued it. See src/lumina/contact-channels.ts.
+  const deliversToExternalContact = isExternalContactChannel([
+    originatingChannel,
+    turn.queued.run.messageProvider,
+  ]);
   const payloads = params.payloads.filter(
     (payload) =>
       hasOutboundReplyContent(payload) &&
+      !(deliversToExternalContact && isRuntimeNoticePayload(payload)) &&
       (!deliveryPlan.isSilentPayload(payload) ||
         getReplyPayloadMetadata(payload)?.deliverDespiteSourceReplySuppression === true),
   );
@@ -504,7 +513,8 @@ async function sendFollowupPayloads(params: {
   const terminalFailure = crossChannelFailures.some(isReplyPayloadTerminalContent);
   if (
     (terminalFailure || (crossChannelFailures.length > 0 && !deliveredCrossChannelOrigin)) &&
-    dispatcherAvailable
+    dispatcherAvailable &&
+    !isExternalContactChannel([turn.queued.run.messageProvider])
   ) {
     await dispatchPayload({
       text:

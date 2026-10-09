@@ -96,4 +96,34 @@ describe("sanitizeWhatsAppOutboundText", () => {
       filtered: false,
     });
   });
+
+  const contactEnv = { LUMINA_CONTACT_CHANNELS: "whatsapp" };
+
+  it.each([
+    "⚠️ API provider returned a billing error — your API key has run out of credits or has an insufficient balance. Check your provider's billing dashboard and top up or switch to a different API key.",
+    "⚠️ Something went wrong while processing your request. Please try again, or use /new to start a fresh session.",
+    "⚠️ API rate limit reached. Please try again later.",
+    "↪️ Model Fallback: google/gemini-3.6-flash (selected ollama-cloud/gemma4:31b; rate limit)",
+    "OpenClaw couldn't produce or deliver a reply. Reference: run-1",
+  ])("never sends OpenClaw runtime copy to a contact: %s", (text) => {
+    expect(sanitizeWhatsAppOutboundText(text, contactEnv)).toEqual({ action: "suppress" });
+  });
+
+  it("keeps a warning-led reply that is ordinary Spanish", () => {
+    const text = "⚠️ Ojo, mañana cierran la carretera por la lluvia.";
+    expect(sanitizeWhatsAppOutboundText(text, contactEnv)).toEqual({
+      action: "send",
+      text,
+      filtered: false,
+    });
+  });
+
+  it("leaves runtime copy alone when WhatsApp is not a contact channel", () => {
+    const text = "⚠️ API rate limit reached. Please try again later.";
+    expect(sanitizeWhatsAppOutboundText(text, {})).toEqual({
+      action: "send",
+      text,
+      filtered: false,
+    });
+  });
 });

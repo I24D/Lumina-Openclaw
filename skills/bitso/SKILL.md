@@ -188,6 +188,20 @@ Estas reglas mandan sobre cualquier criterio propio al elegir qué comprar.
 | 2026-09-20 13:45 ET | `xrp_mxn` | 400,00 MXN   | 16,36881808 XRP | 24,2461 MXN   | `j45DTjyNkB0lS2W3` | 2027-09-20    |
 | 2026-09-20 14:24 ET | `btc_mxn` | 4.025,00 MXN | 0,00285557 BTC  | 1.398.530 MXN | `Y4K9nv85sC9uCBGl` | 2027-09-20    |
 
+El historial completo de operaciones vive en el Excel, no aquí: este repo es
+público y los importes y order ids de Dal no se publican.
+
+Cuando Dal nombra la cripto ("compra todo en MANA"), se simula y se compra
+esa, sin rehacer la elección: el análisis a 12 meses es para cuando la
+elección es nuestra.
+
+La comisión taker de Bitso ha rondado el 0,78 %, cobrada en la cripto
+recibida. Para añadir filas al Excel con openpyxl: copia de seguridad antes,
+insertar la fila antes del bloque "POLITICA", desplazar a mano las alturas
+de fila y poner `fullCalcOnLoad`. Al guardar, openpyxl borra los valores en
+caché de las fórmulas de "Analisis 10 Criptos" y Excel las recalcula al
+abrir el archivo.
+
 XRP se eligió sobre SOL, LTC y TRX porque el saldo era de 425 MXN (por debajo
 del umbral de 2.000, así que BTC y ETH quedaban fuera) y a ese importe los
 cuatro pares se llenaban sin slippage: decidió la fricción, con un spread de

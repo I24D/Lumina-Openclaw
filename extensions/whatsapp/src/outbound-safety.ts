@@ -31,6 +31,31 @@ const RESPONSE_PLANNING_PATTERNS = [
   /\b(?:responder|contestar) (?:naturalmente|brevemente|de forma (?:casual|c[a\u00e1]lida|amigable|natural))\b/i,
 ];
 
+// Lumina fork: the last net under the core contact-channel guard
+// (src/lumina/contact-channels.ts). OpenClaw's runtime notices are English copy
+// led by a warning or fallback emoji; when WhatsApp reaches third-party
+// contacts none of it may go out, whichever delivery path produced it.
+const RUNTIME_NOTICE_LEAD_RE = /^(?:⚠|↪)/u;
+const RUNTIME_NOTICE_PHRASE_RE =
+  /\b(?:try again|returned a billing error|rate limit|run out of credits|insufficient balance|API key|Something went wrong|Agent (?:couldn't|failed|run failed)|OpenClaw|LLM|Codex|Gateway|Model Fallback|Retried on|context|compaction|timed out|Exec (?:failed|blocked)|session)\b/i;
+const RUNTIME_NOTICE_UNPREFIXED_RE =
+  /\bOpenClaw (?:could not|couldn't)\b|\bdid not produce a visible reply\b/i;
+
+function isWhatsAppContactChannel(env: NodeJS.ProcessEnv): boolean {
+  return (env.LUMINA_CONTACT_CHANNELS ?? "")
+    .split(",")
+    .some((entry) => entry.trim().toLowerCase() === "whatsapp");
+}
+
+/** True for OpenClaw runtime failure or fallback copy, which is never a reply to a contact. */
+export function isOpenClawRuntimeNoticeText(text: string): boolean {
+  const trimmed = text.trim();
+  return (
+    (RUNTIME_NOTICE_LEAD_RE.test(trimmed) && RUNTIME_NOTICE_PHRASE_RE.test(trimmed)) ||
+    RUNTIME_NOTICE_UNPREFIXED_RE.test(trimmed)
+  );
+}
+
 function matchesAny(text: string, patterns: readonly RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(text));
 }
@@ -62,12 +87,18 @@ function splitParagraphs(text: string): string[] {
  * Ambiguous text is preserved; recognized reasoning without a separable final
  * answer is suppressed so internal analysis cannot reach a contact.
  */
-export function sanitizeWhatsAppOutboundText(text: string): WhatsAppOutboundTextSafetyResult {
+export function sanitizeWhatsAppOutboundText(
+  text: string,
+  env: NodeJS.ProcessEnv = process.env,
+): WhatsAppOutboundTextSafetyResult {
   const trimmed = text.trim();
   if (!trimmed) {
     return { action: "send", text, filtered: false };
   }
   if (SILENT_REPLY_RE.test(trimmed)) {
+    return { action: "suppress" };
+  }
+  if (isWhatsAppContactChannel(env) && isOpenClawRuntimeNoticeText(trimmed)) {
     return { action: "suppress" };
   }
 

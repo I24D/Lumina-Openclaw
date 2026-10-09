@@ -483,6 +483,49 @@ describe("follow-up delivery channel boundary", () => {
     ).toEqual([{ text: "first answer", replyToId: "111.000" }]);
   });
 
+  it("withholds queued failure text from a contact channel and keeps real replies", async () => {
+    vi.stubEnv("LUMINA_CONTACT_CHANNELS", "slack");
+    try {
+      const billing =
+        "⚠️ API provider returned a billing error — your API key has run out of credits.";
+      const onBlockReply = await deliverBatch({
+        messageProvider: "slack",
+        originatingChannel: "slack",
+        outcomes: ["delivered"],
+        payloads: [
+          { text: billing, isError: true },
+          { text: "status", isStatusNotice: true },
+          { text: "Claro, aquí ando." },
+        ],
+      });
+
+      expect(onBlockReply).not.toHaveBeenCalled();
+      expect(channelState.deliver).toHaveBeenCalledOnce();
+      const delivered = JSON.stringify(channelState.deliver.mock.calls);
+      expect(delivered).toContain("Claro, aquí ando.");
+      expect(delivered).not.toContain("billing error");
+      expect(delivered).not.toContain('"status"');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("sends no cross-channel failure notice to a contact channel", async () => {
+    vi.stubEnv("LUMINA_CONTACT_CHANNELS", "discord");
+    try {
+      const onBlockReply = await deliverBatch({
+        messageProvider: "discord",
+        originatingChannel: "slack",
+        outcomes: ["failed"],
+        payloads: [{ text: "terminal reply" }],
+      });
+
+      expect(onBlockReply).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("emits one safe cross-channel error when a terminal payload fails after status delivery", async () => {
     const onBlockReply = await deliverBatch({
       messageProvider: "discord",
