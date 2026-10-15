@@ -1,4 +1,3 @@
-/** Publishes gateway/SSH records through one ciao-owned advertisement lifecycle. */
 import fs from "node:fs";
 import os from "node:os";
 import type { CiaoService } from "@homebridge/ciao";
@@ -12,7 +11,6 @@ type GatewayBonjourAdvertiser = {
   stop: () => Promise<void>;
 };
 
-/** Input data used to publish OpenClaw gateway Bonjour records. */
 type GatewayBonjourAdvertiseOpts = {
   instanceName?: string;
   gatewayPort: number;
@@ -56,12 +54,8 @@ function isContainerEnvironment() {
   }
 
   for (const sentinelPath of ["/.dockerenv", "/run/.containerenv", "/var/run/.containerenv"]) {
-    try {
-      if (fs.existsSync(sentinelPath)) {
-        return true;
-      }
-    } catch {
-      // ignore
+    if (fs.existsSync(sentinelPath)) {
+      return true;
     }
   }
 
@@ -92,12 +86,9 @@ function resolveSystemMdnsHostname(): string | null {
   } catch {
     return null;
   }
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    return null;
-  }
   const firstLabel =
-    trimmed
+    raw
+      .trim()
       .replace(/\.local$/i, "")
       .split(".")[0]
       ?.trim() ?? "";
@@ -129,32 +120,26 @@ function serviceSummary(label: string, svc: CiaoService): string {
   return `${label} fqdn=${svc.getFQDN()} host=${svc.getHostname()} port=${svc.getPort()} state=${svc.serviceState}`;
 }
 
-function shouldSuppressCiaoConsoleLog(args: unknown[]): boolean {
-  return args.some(
-    (arg) => typeof arg === "string" && arg.includes(CIAO_SELF_PROBE_RETRY_FRAGMENT),
-  );
-}
-
-function shouldSuppressCiaoConsoleWarn(args: unknown[]): boolean {
-  return args.some(
-    (arg) =>
-      typeof arg === "string" &&
-      arg.includes(CIAO_MDNS_SOCKET_ERROR_FRAGMENT) &&
-      arg.includes(CIAO_ENODEV_SOCKET_ERROR_FRAGMENT),
-  );
-}
-
 function installCiaoConsoleNoiseFilter(): () => void {
   const previousConsoleLog = console.log;
   const previousConsoleWarn = console.warn;
   const logWrapper = (...args: unknown[]) => {
-    if (shouldSuppressCiaoConsoleLog(args)) {
+    if (
+      args.some((arg) => typeof arg === "string" && arg.includes(CIAO_SELF_PROBE_RETRY_FRAGMENT))
+    ) {
       return;
     }
     previousConsoleLog(...args);
   };
   const warnWrapper = (...args: unknown[]) => {
-    if (shouldSuppressCiaoConsoleWarn(args)) {
+    if (
+      args.some(
+        (arg) =>
+          typeof arg === "string" &&
+          arg.includes(CIAO_MDNS_SOCKET_ERROR_FRAGMENT) &&
+          arg.includes(CIAO_ENODEV_SOCKET_ERROR_FRAGMENT),
+      )
+    ) {
       return;
     }
     previousConsoleWarn(...args);
@@ -171,7 +156,6 @@ function installCiaoConsoleNoiseFilter(): () => void {
   };
 }
 
-/** Start Bonjour advertisements for the local gateway services. */
 export async function startGatewayBonjourAdvertiser(
   opts: GatewayBonjourAdvertiseOpts,
   deps: BonjourAdvertiserDeps,
@@ -188,13 +172,8 @@ export async function startGatewayBonjourAdvertiser(
   let restoreConsoleLog: () => void = () => {};
   let cleanupUnhandledRejection: (() => void) | undefined;
   let cleanupUncaughtException: (() => void) | undefined;
-  let processHandlersCleaned = false;
 
   function cleanupProcessHandlers() {
-    if (processHandlersCleaned) {
-      return;
-    }
-    processHandlersCleaned = true;
     cleanupUncaughtException?.();
     cleanupUnhandledRejection?.();
   }
@@ -303,18 +282,14 @@ export async function startGatewayBonjourAdvertiser(
       hostname,
       txt: gatewayTxt,
     });
-    try {
-      gateway.on("name-change", (name) => {
-        logger.warn(`bonjour: gateway name conflict resolved; newName=${JSON.stringify(name)}`);
-      });
-      gateway.on("hostname-change", (nextHostname) => {
-        logger.warn(
-          `bonjour: gateway hostname conflict resolved; newHostname=${JSON.stringify(nextHostname)}`,
-        );
-      });
-    } catch (err) {
-      logger.debug(`bonjour: failed to attach listeners for gateway: ${String(err)}`);
-    }
+    gateway.on("name-change", (name) => {
+      logger.warn(`bonjour: gateway name conflict resolved; newName=${JSON.stringify(name)}`);
+    });
+    gateway.on("hostname-change", (nextHostname) => {
+      logger.warn(
+        `bonjour: gateway hostname conflict resolved; newHostname=${JSON.stringify(nextHostname)}`,
+      );
+    });
     try {
       void gateway
         .advertise()

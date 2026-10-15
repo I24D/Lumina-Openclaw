@@ -1,15 +1,5 @@
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { resolveEmbedSandbox } from "../../lib/chat/tool-display.ts";
-import type { renderLogbook } from "./logbook-view.ts";
-
-/**
- * Views shipped with the Control UI use this adapter. Native plugin entries
- * mount through the contribution runtime; descriptor paths use sandboxed frames.
- */
-export type BundledPluginTabView = {
-  render: (props: Parameters<typeof renderLogbook>[0]) => unknown;
-  stop: (host: object) => void;
-};
 
 const TRUSTED_SAME_ORIGIN_TABS = new Set(["lumina-open-design/design"]);
 
@@ -86,21 +76,3 @@ export function resolvePluginTabSandbox(
   }
   return resolveEmbedSandbox(mode);
 }
-
-// Keyed by pluginId/tabId: tab ids are only unique within their plugin.
-export const BUNDLED_TAB_VIEWS: Record<string, () => Promise<BundledPluginTabView>> = {
-  "logbook/logbook": async () => {
-    const [{ renderLogbook }, { stopLogbookPolling }] = await Promise.all([
-      import("./logbook-view.ts"),
-      import("./logbook-controller.ts"),
-    ]);
-    return { render: renderLogbook, stop: stopLogbookPolling };
-  },
-  "lumina-cognitive-os/core": async () => {
-    const [{ renderLuminaCore }, { stopLuminaCorePolling }] = await Promise.all([
-      import("./lumina-core-view.ts"),
-      import("./lumina-core-controller.ts"),
-    ]);
-    return { render: renderLuminaCore, stop: stopLuminaCorePolling };
-  },
-};

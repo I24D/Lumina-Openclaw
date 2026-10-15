@@ -1,25 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { preparePluginWindowShellClass } from "./app-shell-plugin-window.ts";
+import { isPluginWindowShell } from "./app-shell-plugin-window.ts";
 
-describe("preparePluginWindowShellClass", () => {
+describe("isPluginWindowShell", () => {
   it("activates only for detached plugin routes", () => {
     expect(
-      preparePluginWindowShellClass({
+      isPluginWindowShell({
         routeId: "plugin",
         location: { pathname: "/plugin", search: "?pluginWindow=1", hash: "" },
       }),
-    ).toBe(" shell--plugin-window");
+    ).toBe(true);
     expect(
-      preparePluginWindowShellClass({
+      isPluginWindowShell({
         routeId: "plugin",
         location: { pathname: "/plugin", search: "", hash: "" },
       }),
-    ).toBe("");
+    ).toBe(false);
     expect(
-      preparePluginWindowShellClass({
+      isPluginWindowShell({
         routeId: "chat",
         location: { pathname: "/chat", search: "?pluginWindow=1", hash: "" },
       }),
-    ).toBe("");
+    ).toBe(false);
   });
 });

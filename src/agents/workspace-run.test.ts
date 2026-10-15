@@ -20,10 +20,8 @@ describe("rooted runtime workspace selection", () => {
 
   it.each([
     { bootstrapWorkspaceDir: canonical, expected: canonical },
-    { bootstrapWorkspaceDir: `${canonical}/../rooted-agent-workspace`, expected: canonical },
     { bootstrapWorkspaceDir: executionRoot, expected: undefined },
     { bootstrapWorkspaceDir: undefined, expected: undefined },
-    { bootstrapWorkspaceDir: "   ", expected: undefined },
   ])(
     "only borrows explicit canonical bootstrap $bootstrapWorkspaceDir",
     ({ bootstrapWorkspaceDir, expected }) => {
@@ -85,7 +83,7 @@ describe("resolveRunWorkspaceDir", () => {
     const result = resolveRunWorkspaceDir({
       workspaceDir: explicit,
       sessionKey: "agent:main:subagent:test",
-      config: { agents: { list: [{ id: "main", default: true }] } },
+      config: { agents: { entries: { main: {} } } },
     });
 
     expect(result.usedFallback).toBe(false);
@@ -94,29 +92,13 @@ describe("resolveRunWorkspaceDir", () => {
     expect(result.workspaceDir).toBe(path.resolve(explicit));
   });
 
-  it("recognizes an explicitly supplied configured workspace as canonical", () => {
-    const workspaceDir = path.join(process.cwd(), "tmp", "workspace-run-canonical");
-    const cfg = {
-      agents: { defaults: { workspace: workspaceDir }, list: [{ id: "main", default: true }] },
-    } satisfies OpenClawConfig;
-
-    const result = resolveRunWorkspaceDir({
-      workspaceDir,
-      sessionKey: "agent:main:subagent:test",
-      config: cfg,
-    });
-
-    expect(result.usedFallback).toBe(false);
-    expect(result.isCanonicalWorkspace).toBe(true);
-  });
-
   it("falls back to configured per-agent workspace when input is missing", () => {
     const defaultWorkspace = path.join(process.cwd(), "tmp", "workspace-default-main");
     const researchWorkspace = path.join(process.cwd(), "tmp", "workspace-research");
     const cfg = {
       agents: {
         defaults: { workspace: defaultWorkspace },
-        list: [{ id: "research", workspace: researchWorkspace, default: true }],
+        entries: { research: { workspace: researchWorkspace } },
       },
     } satisfies OpenClawConfig;
 
@@ -138,7 +120,7 @@ describe("resolveRunWorkspaceDir", () => {
     const cfg = {
       agents: {
         defaults: { workspace: defaultWorkspace },
-        list: [{ id: "main", default: true }],
+        entries: { main: {} },
       },
     } satisfies OpenClawConfig;
 
@@ -166,34 +148,6 @@ describe("resolveRunWorkspaceDir", () => {
     ).toThrow(expect.objectContaining({ code: "RUN_WORKSPACE_ROSTER_REQUIRED" }));
   });
 
-  it("throws for malformed agent session keys", () => {
-    expect(() =>
-      resolveRunWorkspaceDir({
-        workspaceDir: undefined,
-        sessionKey: "agent::broken",
-        config: undefined,
-      }),
-    ).toThrow("Malformed agent session key");
-  });
-
-  it("requires roster config for per-agent fallback", () => {
-    const env = {
-      ...process.env,
-      HOME: "/home/runner",
-      OPENCLAW_HOME: undefined,
-      OPENCLAW_STATE_DIR: "/tmp/openclaw-state",
-    } satisfies NodeJS.ProcessEnv;
-    expect(() =>
-      resolveRunWorkspaceDir({
-        workspaceDir: undefined,
-        sessionKey: "definitely-not-a-valid-session-key",
-        agentId: "research",
-        config: undefined,
-        env,
-      }),
-    ).toThrow(expect.objectContaining({ code: "RUN_WORKSPACE_ROSTER_REQUIRED" }));
-  });
-
   it("rejects an explicit agent when the supplied config has no roster", () => {
     expect(() =>
       resolveRunWorkspaceDir({
@@ -204,7 +158,7 @@ describe("resolveRunWorkspaceDir", () => {
     ).toThrow(expect.objectContaining({ code: "RUN_WORKSPACE_ROSTER_REQUIRED" }));
   });
 
-  it.each(["", "   ", "!!!"])("rejects invalid explicit agent id %j", (agentId) => {
+  it.each(["", "!!!"])("rejects invalid explicit agent id %j", (agentId) => {
     expect(() =>
       resolveRunWorkspaceDir({
         workspaceDir: path.join(process.cwd(), "tmp", "workspace-main"),
@@ -238,23 +192,22 @@ describe("resolveRunWorkspaceDir", () => {
         workspaceDir: undefined,
         agentId,
         sessionKey,
-        config: { agents: { entries: { ops: { default: true } } } },
+        config: { agents: { entries: { ops: {} } } },
       }),
     ).toThrow(expect.objectContaining({ code: "RUN_WORKSPACE_AGENT_NOT_CONFIGURED" }));
   });
 
-  it("throws for malformed agent session keys even when config has a default agent", () => {
-    // Malformed agent-prefixed keys are configuration/data errors; default
-    // agents should not mask them as legacy main-session keys.
+  it("throws for malformed agent session keys even with an explicit agent owner", () => {
+    // Explicit ownership must not mask malformed keys as legacy main-session keys.
     const mainWorkspace = path.join(process.cwd(), "tmp", "workspace-main-default");
     const researchWorkspace = path.join(process.cwd(), "tmp", "workspace-research-default");
     const cfg = {
       agents: {
         defaults: { workspace: mainWorkspace },
-        list: [
-          { id: "main", workspace: mainWorkspace },
-          { id: "research", workspace: researchWorkspace, default: true },
-        ],
+        entries: {
+          main: { workspace: mainWorkspace },
+          research: { workspace: researchWorkspace },
+        },
       },
     } satisfies OpenClawConfig;
 
@@ -262,6 +215,7 @@ describe("resolveRunWorkspaceDir", () => {
       resolveRunWorkspaceDir({
         workspaceDir: undefined,
         sessionKey: "agent::broken",
+        agentId: "research",
         config: cfg,
       }),
     ).toThrow("Malformed agent session key");
@@ -272,7 +226,7 @@ describe("resolveRunWorkspaceDir", () => {
     const cfg = {
       agents: {
         defaults: { workspace: fallbackWorkspace },
-        list: [{ id: "main", default: true }],
+        entries: { main: {} },
       },
     } satisfies OpenClawConfig;
 

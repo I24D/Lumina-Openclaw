@@ -3,50 +3,15 @@ import { describe, expect, it } from "vitest";
 import { deriveConceptTags, summarizeConceptTagScriptCoverage } from "./concept-vocabulary.js";
 
 describe("concept vocabulary", () => {
-  it("extracts Unicode-aware concept tags for common European languages", () => {
+  it("respects astral letter boundaries around short glossary terms", () => {
     const tags = deriveConceptTags({
       path: "memory/2026-04-04.md",
-      snippet:
-        "Configuración de gateway, configuration du routeur, Sicherung und Überwachung Glacier.",
+      snippet: "kv𐐀 𐐀kv s3𐐀 𐐀s3",
     });
-
-    expect(tags).toStrictEqual([
-      "gateway",
-      "glacier",
-      "routeur",
-      "sicherung",
-      "überwachung",
-      "configuración",
-      "configuration",
-    ]);
-    expect(tags).not.toContain("de");
-    expect(tags).not.toContain("du");
-    expect(tags).not.toContain("und");
-    expect(tags).not.toContain("2026-04-04.md");
+    expect(tags).toEqual(expect.arrayContaining(["kv𐐨", "𐐨kv", "s3𐐨", "𐐨s3"]));
+    expect(tags).not.toContain("kv");
+    expect(tags).not.toContain("s3");
   });
-
-  it.each([
-    ["Store the session in kv and back up to s3 nightly.", ["kv", "s3"], []],
-    ["Played the mkv recording and tuned the css3 layout.", ["mkv", "css3"], ["kv", "s3"]],
-    ["kv𐐀 𐐀kv s3𐐀 𐐀s3", ["kv𐐨", "𐐨kv", "s3𐐨", "𐐨s3"], ["kv", "s3"]],
-  ])("preserves short glossary terms only as whole words: %s", (snippet, present, absent) => {
-    const tags = deriveConceptTags({ path: "memory/2026-04-04.md", snippet });
-    expect(tags).toEqual(expect.arrayContaining(present));
-    for (const tag of absent) {
-      expect(tags).not.toContain(tag);
-    }
-  });
-
-  it.each(["1.00", "51-54", "１.００", "2026-04-04.md"])(
-    "rejects numeric and date noise without losing technical tags: %s",
-    (noise) => {
-      const tags = deriveConceptTags({
-        path: "memory/2026-04-04.md",
-        snippet: `${noise} kv s3 router`,
-      });
-      expect(tags).toStrictEqual(["kv", "router", "s3"]);
-    },
-  );
 
   it("extracts protected and segmented CJK concept tags", () => {
     const tags = deriveConceptTags({

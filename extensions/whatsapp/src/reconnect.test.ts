@@ -1,5 +1,4 @@
 // Whatsapp tests cover reconnect plugin behavior.
-import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { describe, expect, it } from "vitest";
 import {
   computeSlowRetryDelay,
@@ -9,10 +8,8 @@ import {
 } from "./reconnect.js";
 
 describe("web reconnect helpers", () => {
-  const cfg: OpenClawConfig = {};
-
   it("resolves sane reconnect defaults with clamps", () => {
-    const policy = resolveReconnectPolicy(cfg, {
+    const policy = resolveReconnectPolicy({
       initialMs: 100,
       maxMs: 5,
       factor: 20,
@@ -28,17 +25,17 @@ describe("web reconnect helpers", () => {
   });
 
   it("returns heartbeat default when unset", () => {
-    expect(resolveHeartbeatSeconds(cfg)).toBe(60);
-    expect(resolveHeartbeatSeconds(cfg, 5)).toBe(5);
+    expect(resolveHeartbeatSeconds()).toBe(60);
+    expect(resolveHeartbeatSeconds(5)).toBe(5);
   });
 
   it("normalizes the Lumina slow retry interval and leaves it unset by default", () => {
-    expect(resolveReconnectPolicy(cfg).slowRetryMs).toBeUndefined();
-    expect(resolveReconnectPolicy(cfg, { slowRetryMs: -5 }).slowRetryMs).toBe(0);
-    expect(resolveReconnectPolicy(cfg, { slowRetryMs: 1_000 }).slowRetryMs).toBe(
+    expect(resolveReconnectPolicy().slowRetryMs).toBeUndefined();
+    expect(resolveReconnectPolicy({ slowRetryMs: -5 }).slowRetryMs).toBe(0);
+    expect(resolveReconnectPolicy({ slowRetryMs: 1_000 }).slowRetryMs).toBe(
       DEFAULT_RECONNECT_POLICY.maxMs,
     );
-    expect(resolveReconnectPolicy(cfg, { slowRetryMs: 300_000.7 }).slowRetryMs).toBe(300_000);
+    expect(resolveReconnectPolicy({ slowRetryMs: 300_000.7 }).slowRetryMs).toBe(300_000);
   });
 
   it("spreads slow retries by the policy jitter", () => {

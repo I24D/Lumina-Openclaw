@@ -1,5 +1,6 @@
 import fsNode from "node:fs";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { replaceFileAtomic } from "@openclaw/fs-safe/atomic";
 import { ALLOW_OLDER_BINARY_DESTRUCTIVE_ACTIONS_ENV } from "../../config/future-version-guard.js";
@@ -22,6 +23,7 @@ import { withGatewayServiceOperationLock } from "../../daemon/service-operation-
 import { resolveGatewayService } from "../../daemon/service.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import type { PackageUpdateTransaction } from "../../infra/package-update-swap-contract.js";
+import { readExistingStateRootMode } from "../../infra/private-dir-mode.js";
 import {
   readUpdateStateSchemaVersions,
   resolveUpdateStateContentVersion,
@@ -43,7 +45,8 @@ import {
   type UpdateConfigSnapshot,
 } from "./update-command-config-snapshot.js";
 import { restoreFailedUpdateDatabases } from "./update-command-database-backup.js";
-import { readPackageUpdateIdentity } from "./update-command-package.js";
+import { createUpdateCommandExecutionGuards } from "./update-command-execution-guards.js";
+import { readPackageUpdateIdentity } from "./update-command-package-identity.js";
 import { UpdateCommandPendingRecoveryFailure } from "./update-command-result.js";
 import type {
   UpdateServiceDefinitionRecovery,
@@ -102,6 +105,10 @@ export async function rollbackFailedUpdate(params: {
     }
     executor?.assertCurrent();
   };
+  const { recordPhase } = createUpdateCommandExecutionGuards(opts, params.previousRoot, {
+    kind: "package-compensation",
+    assertCurrent,
+  });
   const env = before?.serviceEnv ?? opts.run?.env ?? process.env;
   const pendingRecovery = (result: UpdateRunResult, pendingRecoveryReason: string) => ({
     result: {
@@ -292,7 +299,9 @@ export async function rollbackFailedUpdate(params: {
     // This existing recovery allowance belongs only to this guarded stop invocation.
     const stopped = await withOwnedManagedUpdateEnv(recoveryEnv, () =>
       maybeStopManagedServiceBeforeMutableUpdate({
-        updateRun: opts.run,
+        updateRun: run,
+        recordPhase,
+        assertCurrent,
         updateInstallKind: "package",
         root: result.root ?? params.previousRoot,
         shouldRestart: true,
@@ -345,6 +354,7 @@ export async function rollbackFailedUpdate(params: {
           runId: run.runId,
           env,
           assertCurrent,
+          assertRollbackSafe: packageTransaction.assertRollbackSafe,
         });
       } catch (cause) {
         // A partial restore must not reopen the ledger through ordinary failure reporting.
@@ -455,6 +465,7 @@ export async function rollbackFailedUpdate(params: {
               filePath: targetPath,
               content: file.raw,
               mode: 0o600,
+              dirMode: readExistingStateRootMode(path.dirname(targetPath), resolveStateDir(env)),
               preserveExistingMode: false,
               beforeRename: async () => {
                 await assertConfigUnchanged();
