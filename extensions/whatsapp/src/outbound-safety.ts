@@ -31,6 +31,31 @@ const RESPONSE_PLANNING_PATTERNS = [
   /\b(?:responder|contestar) (?:naturalmente|brevemente|de forma (?:casual|c[a\u00e1]lida|amigable|natural))\b/i,
 ];
 
+// Operator-facing narration: the agent reporting its own tools, bridges, files or
+// bookkeeping (or talking about the contact and Dal in the third person). A
+// contact never needs any of it, so one hit marks the paragraph as internal.
+const OPERATOR_NARRATION_PATTERNS = [
+  /\b(?:AGENTS|SOUL|MEMORY|TOOLS|USER|IDENTITY)\.md\b/,
+  /\b(?:toolset|tool call|tool_search|dispatch_action|system prompt|NO_REPLY)\b/i,
+  /\b(?:this|the) agent(?:'s)?\b/i,
+  /\bPhone Link\b/i,
+  /\bbridges?\b[^.\n]{0,40}\b(?:available|unavailable|down|offline|failed)\b/i,
+  /\b(?:the|a|this|new|unknown) (?:contact|sender|user)\b[^.\n]{0,30}\b(?:sent|wrote|said|asked|is|has|just)\b/i,
+  /\b(?:new|unknown) contact\b/i,
+  /\bI(?:'ve| have)? (?:archived|logged|saved|stored|created|recorded) (?:the|a|their|this) (?:message|profile|contact|conversation)\b/i,
+  /\bI (?:cannot|can't|can not|couldn't|could not|am unable to|was unable to) (?:send|deliver|reach|contact|notify)\b/i,
+  /\b(?:reach|notify|tell|alert|inform|message) Dal\b/i,
+  /\bI should (?:note|log|record|flag|mention|escalate)\b/i,
+  /\b(?:el|un|este|nuevo) contacto (?:envi[oó]|escribi[oó]|dijo|pregunt[oó]|desconocido|nuevo)\b/i,
+  /\b(?:archiv[eé]|guard[eé]|registr[eé]|cre[eé]) (?:el|un|su) (?:mensaje|perfil)\b/i,
+  /\bno (?:puedo|pude) (?:enviar|entregar|mandar) (?:la|el|esta|este) (?:respuesta|mensaje)\b/i,
+  /\b(?:avisar|notificar|informar|contactar) a Dal\b/i,
+];
+
+function isOperatorNarration(text: string): boolean {
+  return matchesAny(text, OPERATOR_NARRATION_PATTERNS);
+}
+
 // Lumina fork: the last net under the core contact-channel guard
 // (src/lumina/contact-channels.ts). OpenClaw's runtime notices are English copy
 // led by a warning or fallback emoji; when WhatsApp reaches third-party
@@ -61,6 +86,9 @@ function matchesAny(text: string, patterns: readonly RegExp[]): boolean {
 }
 
 function isLikelyInternalReasoning(text: string): boolean {
+  if (isOperatorNarration(text)) {
+    return true;
+  }
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())

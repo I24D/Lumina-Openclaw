@@ -44,6 +44,45 @@ describe("sanitizeWhatsAppOutboundText", () => {
     });
   });
 
+  it("drops operator-facing narration about tools, bridges and the contact", () => {
+    const result = sanitizeWhatsAppOutboundText(
+      "Neither WhatsApp nor Phone Link bridges are available right now. I cannot send the " +
+        'reply. The contact sent just "?" — a new unknown contact. I\'ve archived the ' +
+        "message and created a profile. Since I can't reach Dal via Telegram from this agent " +
+        "either, and the bridges are down, I should note this situation.\n\n" +
+        "Hola, ¿en qué puedo ayudarte? \u{1F60A}",
+    );
+
+    expect(result).toEqual({
+      action: "send",
+      text: "Hola, ¿en qué puedo ayudarte? \u{1F60A}",
+      filtered: true,
+    });
+  });
+
+  it("suppresses operator narration that has no reply for the contact", () => {
+    expect(
+      sanitizeWhatsAppOutboundText(
+        "I don't have a direct Telegram send tool in this agent's toolset. The AGENTS.md says to notify Dal.",
+      ),
+    ).toEqual({ action: "suppress" });
+    expect(
+      sanitizeWhatsAppOutboundText(
+        "El contacto envió un mensaje corto. Archivé el mensaje y no puedo enviar la respuesta.",
+      ),
+    ).toEqual({ action: "suppress" });
+  });
+
+  it("keeps ordinary replies that mention people or plans", () => {
+    for (const text of [
+      "Claro, mañana le digo a Dal que te llame.",
+      "Hola! Si, el contacto de la tienda es el mismo de siempre.",
+      "I can send you the photos tomorrow.",
+    ]) {
+      expect(sanitizeWhatsAppOutboundText(text)).toEqual({ action: "send", text, filtered: false });
+    }
+  });
+
   it("suppresses recognized internal reasoning without a separable answer", () => {
     expect(
       sanitizeWhatsAppOutboundText(
