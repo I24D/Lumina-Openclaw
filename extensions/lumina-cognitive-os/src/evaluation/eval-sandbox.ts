@@ -84,5 +84,7 @@ export function sandbox(
     ownerName: SANDBOX_OWNER,
     ...extra,
   });
+  // Sensors start every session off; the evaluator is the owner who turns them on.
+  runtime.privacy.set({ microphone: true, camera: true }, OWNER);
   return { runtime, dir };
 }

@@ -94,7 +94,7 @@ describe("coreState", () => {
     expect(s.people.map((p) => p.name)).toEqual(["Dal"]);
     expect(s.world[0]).toMatchObject({ label: "cocina", children: [{ label: "taza" }] });
     expect(s.safety.invariants.length).toBeGreaterThan(10);
-    expect(s.privacy.camera).toBe(true);
+    expect(s.privacy.camera).toBe(false);
   });
 });
 

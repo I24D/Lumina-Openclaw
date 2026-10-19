@@ -152,6 +152,7 @@ describe("safety and explanations through the runtime", () => {
     const notify = vi.fn();
     const runtime = start({ notify });
     await runtime.ready;
+    runtime.privacy.set({ camera: true }, { channel: "owner", actor: "Dal" });
     runtime.router.ingest(
       coreEvent("vision", "danger.detected", {
         hazard: "humo en la cocina",

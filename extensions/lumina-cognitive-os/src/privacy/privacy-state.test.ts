@@ -24,7 +24,7 @@ describe("PrivacyControls", () => {
 
   it("drops sensor events at the source when a sensor is off", () => {
     const privacy = new PrivacyControls({ now: () => NOW });
-    privacy.set({ microphone: false }, { channel: "agent", actor: "agent" });
+    privacy.set({ camera: true }, { channel: "owner", actor: "Dal" });
 
     expect(privacy.admits(ev("microphone"))).toBe(false);
     expect(privacy.admits(ev("camera"))).toBe(true);
@@ -33,6 +33,7 @@ describe("PrivacyControls", () => {
 
   it("stops remembering in private mode without touching the sensors", () => {
     const privacy = new PrivacyControls({ now: () => NOW });
+    privacy.set({ camera: true }, { channel: "owner", actor: "Dal" });
     privacy.set({ privateMode: true }, { channel: "agent", actor: "agent" });
 
     expect(privacy.remembering()).toBe(false);
@@ -40,25 +41,33 @@ describe("PrivacyControls", () => {
     expect(privacy.admits(ev("vision", "person.detected"))).toBe(true);
   });
 
-  it("keeps sensors off until a person's stored choices are known", async () => {
+  it("keeps sensors off while stored choices load, and after", async () => {
     const store = new MemoryStateStore<PrivacyState>();
     const privacy = new PrivacyControls({ store, now: () => NOW });
     expect(privacy.admits(ev("camera"))).toBe(false);
     await privacy.ready;
-    expect(privacy.admits(ev("camera"))).toBe(true);
+    expect(privacy.admits(ev("camera"))).toBe(false);
   });
 
-  it("remembers an order across a restart and reports every change", async () => {
+  it("never reopens a physical sensor across a restart and reports every change", async () => {
     const store = new MemoryStateStore<PrivacyState>();
     const first = new PrivacyControls({ store, now: () => NOW });
     await first.ready;
-    first.set({ camera: false }, { channel: "agent", actor: "agent" });
+    first.set(
+      { camera: true, microphone: true, privateMode: true },
+      { channel: "owner", actor: "Dal" },
+    );
     await first.flush();
 
     const onChange = vi.fn();
     const second = new PrivacyControls({ store, now: () => NOW, onChange });
     await second.ready;
-    expect(second.state().camera).toBe(false);
+    expect(second.state()).toMatchObject({
+      camera: false,
+      microphone: false,
+      privateMode: true,
+      updatedBy: "session-default",
+    });
     expect(onChange).toHaveBeenCalledOnce();
   });
 

@@ -19,6 +19,10 @@
  * from anyone, the agent included; becoming less private (turning a sensor
  * back on, leaving private mode) only from the owner channel. While the
  * stored state loads, sensors count as off.
+ *
+ * Camera and microphone also start every session off, stored state or not: an
+ * earlier "on" is never carried across a restart, so only the owner reopens
+ * them, once per session. Recording and private mode do persist.
  */
 import type { CognitiveEvent } from "../contracts/attention.js";
 import type { StateStorePort } from "../shared/state-store.js";
@@ -68,8 +72,9 @@ const STATE_KEY = "state";
 
 function initial(nowISO: string): PrivacyState {
   return {
-    microphone: true,
-    camera: true,
+    // Physical sensors start every session off; only the owner turns them on.
+    microphone: false,
+    camera: false,
     recording: true,
     privateMode: false,
     sessionStartISO: nowISO,
@@ -128,7 +133,19 @@ export class PrivacyControls {
     this.ready = options.store.lookup(STATE_KEY).then(
       (saved) =>
         this.settle(
-          saved ? { ...initial(nowISO), ...saved, sessionStartISO: nowISO } : initial(nowISO),
+          saved
+            ? {
+                ...initial(nowISO),
+                ...saved,
+                // Sensor permission is intentionally non-persistent across gateway sessions.
+                // A previous opt-in must never reopen camera or microphone after restart.
+                microphone: false,
+                camera: false,
+                sessionStartISO: nowISO,
+                updatedAtISO: nowISO,
+                updatedBy: "session-default",
+              }
+            : initial(nowISO),
         ),
       (error: unknown) => {
         this.onError(error);
