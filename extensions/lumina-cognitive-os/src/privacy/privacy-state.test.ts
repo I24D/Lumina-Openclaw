@@ -71,6 +71,19 @@ describe("PrivacyControls", () => {
     expect(onChange).toHaveBeenCalledOnce();
   });
 
+  it("tells a session-default off apart from a person's order", () => {
+    const privacy = new PrivacyControls({ now: () => NOW });
+    expect(privacy.offBySessionDefault("camera")).toBe(true);
+    expect(privacy.offBySessionDefault("microphone")).toBe(true);
+
+    privacy.set({ camera: false }, { channel: "agent", actor: "agent" });
+    expect(privacy.offBySessionDefault("camera")).toBe(false);
+    expect(privacy.offBySessionDefault("microphone")).toBe(true);
+
+    privacy.set({ microphone: true }, { channel: "owner", actor: "Dal" });
+    expect(privacy.offBySessionDefault("microphone")).toBe(false);
+  });
+
   it("applies the owner's order given while loading, with the owner's authority", async () => {
     const store = new MemoryStateStore<PrivacyState>();
     const seed = new PrivacyControls({ store, now: () => NOW });

@@ -81,6 +81,9 @@ describe("privacy through the runtime", () => {
     const stopCamera = vi.fn();
     const runtime = start({ sensorDaemons: { stopCamera } });
     await runtime.ready;
+    expect(runtime.selfModel().sensors.find((s) => s.kind === "camera")?.detail).toBe(
+      "off by default this session: only the owner turns it on",
+    );
 
     await call(runtime.tools, "lumina_privacy", { action: "stop_camera" });
     expect(stopCamera).toHaveBeenCalledOnce();

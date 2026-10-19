@@ -101,6 +101,8 @@ export class PrivacyControls {
   private readonly onChange: (state: PrivacyState) => void;
   private hydrated: boolean;
   private writes: Promise<void> = Promise.resolve();
+  /** Sensors someone switched on or off since this session began (not persisted). */
+  private readonly setThisSession = new Set<"microphone" | "camera">();
   private readonly queued: Array<{
     change: PrivacyChange;
     by: { readonly channel: "owner" | "agent"; readonly actor: string };
@@ -194,6 +196,11 @@ export class PrivacyControls {
         reason: "applies once stored privacy loads",
       };
     }
+    for (const sensor of ["microphone", "camera"] as const) {
+      if (change[sensor] !== undefined) {
+        this.setThisSession.add(sensor);
+      }
+    }
     this.current = {
       ...this.current,
       ...(change.microphone !== undefined ? { microphone: change.microphone } : {}),
@@ -211,6 +218,11 @@ export class PrivacyControls {
       tamper: false,
       reason: `privacy updated by ${by.actor}`,
     };
+  }
+
+  /** True when a sensor is off only because every session starts that way, not by anyone's order. */
+  offBySessionDefault(sensor: "microphone" | "camera"): boolean {
+    return !this.current[sensor] && !this.setThisSession.has(sensor);
   }
 
   /** Whether new observations may be remembered right now. */

@@ -359,6 +359,10 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
   });
   const robot = options.bodyMode === "simulated" ? new SimulatedRobot({ now }) : undefined;
 
+  const offDetail = (sensor: "microphone" | "camera") =>
+    privacy.offBySessionDefault(sensor)
+      ? "off by default this session: only the owner turns it on"
+      : "switched off by a person";
   const sensors = (): SensorStatus[] => {
     const p = privacy.state();
     const { camera: webcam, microphone } = recognition.status();
@@ -370,7 +374,7 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
         kind: "camera",
         available: p.camera && (webcam?.running === true || robot !== undefined),
         detail: !p.camera
-          ? "switched off by a person"
+          ? offDetail("camera")
           : webcam?.running
             ? "webcam: face detection and consented recognition"
             : robot
@@ -382,7 +386,7 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
         kind: "microphone",
         available: p.microphone && microphone?.running === true,
         detail: !p.microphone
-          ? "switched off by a person"
+          ? offDetail("microphone")
           : microphone?.running
             ? "microphone: voice activity and consented speaker recognition"
             : (microphone?.lastError ?? "no audio perception adapter is connected"),
@@ -475,7 +479,7 @@ export function createCognitiveRuntime(options: CognitiveRuntimeOptions): Cognit
     now,
     audit,
     onTamper: (detail) => {
-      void safety.reportTamper(detail, "agent").catch((error) => options.onError?.(error));
+      void safety.reportTamper(detail, "agent").catch((error: unknown) => options.onError?.(error));
     },
     onResult: (result) => {
       causal.recordBody(result);
