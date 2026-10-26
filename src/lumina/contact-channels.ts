@@ -13,6 +13,7 @@
  *
  * Example: `LUMINA_CONTACT_CHANNELS=whatsapp`
  */
+import { hasOutboundReplyContent } from "openclaw/plugin-sdk/reply-payload";
 
 function parseContactChannels(raw: string | undefined): ReadonlySet<string> {
   if (!raw) {
@@ -71,5 +72,27 @@ export function isRuntimeNoticePayload(payload: {
     payload.isFallbackNotice === true ||
     payload.isStatusNotice === true ||
     payload.isCompactionNotice === true
+  );
+}
+
+type RuntimeNoticeFlags = Parameters<typeof isRuntimeNoticePayload>[0];
+type QueuedFollowupChannels = { originatingChannel?: string; run: { messageProvider?: string } };
+
+/**
+ * Whether a queued follow-up delivers this payload: it needs sendable content,
+ * and a turn answering a third-party contact withholds runtime notices and
+ * failure text, as dispatch-from-config.finalize.ts does for the turn that
+ * queued it.
+ */
+export function keepFollowupPayload(
+  payload: Parameters<typeof hasOutboundReplyContent>[0] & RuntimeNoticeFlags,
+  queued: QueuedFollowupChannels,
+): boolean {
+  return (
+    hasOutboundReplyContent(payload) &&
+    !(
+      isRuntimeNoticePayload(payload) &&
+      isExternalContactChannel([queued.originatingChannel, queued.run.messageProvider])
+    )
   );
 }

@@ -1,4 +1,3 @@
-import { hasOutboundReplyContent } from "openclaw/plugin-sdk/reply-payload";
 import { hasCompletionMessageSessionSpawn } from "../../agents/accepted-session-spawn.js";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import {
@@ -20,7 +19,7 @@ import {
 import { buildAgentRuntimeDeliveryPlan } from "../../agents/runtime-plan/build.js";
 import type { SessionDeliveryGeneration } from "../../config/sessions/session-delivery-generation.types.js";
 import { logVerbose } from "../../globals.js";
-import { isExternalContactChannel, isRuntimeNoticePayload } from "../../lumina/contact-channels.js";
+import { isExternalContactChannel, keepFollowupPayload } from "../../lumina/contact-channels.js";
 import { defaultRuntime } from "../../runtime.js";
 import { sessionDeliveryChannel } from "../../utils/delivery-context.read.js";
 import { isInternalMessageChannel } from "../../utils/message-channel.js";
@@ -510,18 +509,7 @@ export async function deliverFollowupDecision(params: {
     workspaceDir: turn.queued.run.workspaceDir,
     agentDir: turn.queued.run.agentDir,
   });
-  // Lumina: a queued turn answering a third-party contact withholds runtime
-  // notices and failure text, as dispatch-from-config.finalize.ts does for the
-  // turn that queued it. See src/lumina/contact-channels.ts.
-  const deliversToExternalContact = isExternalContactChannel([
-    originatingChannel,
-    turn.queued.run.messageProvider,
-  ]);
-  payloads = payloads.filter(
-    (payload) =>
-      hasOutboundReplyContent(payload) &&
-      !(deliversToExternalContact && isRuntimeNoticePayload(payload)),
-  );
+  payloads = payloads.filter((payload) => keepFollowupPayload(payload, turn.queued));
   if (payloads.length === 0) {
     return { kind: "completed", payloads: [] };
   }

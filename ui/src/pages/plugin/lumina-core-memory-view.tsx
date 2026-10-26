@@ -13,6 +13,7 @@ import {
   card,
   chip,
   clock,
+  each,
   table,
   type Action,
   type ControllerState,
@@ -137,7 +138,7 @@ export function renderMemory(
           {pairs.length > 0 ? (
             <div class="lumina-core__actions">
               {pairs.flatMap(([keep, ...rest]) =>
-                rest.map((drop) =>
+                each(rest, (drop) =>
                   act(
                     t("luminaCore.memory.merge", { drop: drop.label, keep: keep?.label ?? "" }),
                     "lumina.core.world.merge",

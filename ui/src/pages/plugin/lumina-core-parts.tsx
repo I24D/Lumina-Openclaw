@@ -3,6 +3,7 @@
  * cards, tables, chips, times and command buttons.
  */
 import type { JSX } from "@solidjs/web";
+import { For } from "solid-js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { getCoreState, runLuminaCoreCommand } from "./lumina-core-controller.ts";
 
@@ -11,6 +12,11 @@ export type Column<T> = readonly [label: string, cell: (row: T) => JSX.Element];
 export type Variant = "primary" | "danger" | "";
 
 export const clock = (iso: string | undefined) => (iso ? iso.slice(11, 19) : "—");
+
+/** Renders a list; the views rebuild it from the controller state on every change. */
+export function each<T>(rows: ReadonlyArray<T>, render: (row: T) => JSX.Element): JSX.Element {
+  return <For each={rows}>{(row) => <>{render(row)}</>}</For>;
+}
 
 export function table<T>(rows: ReadonlyArray<T>, columns: ReadonlyArray<Column<T>>): JSX.Element {
   if (rows.length === 0) {
@@ -21,15 +27,15 @@ export function table<T>(rows: ReadonlyArray<T>, columns: ReadonlyArray<Column<T
       <table class="data-table">
         <thead>
           <tr>
-            {columns.map(([label]) => (
+            {each(columns, ([label]) => (
               <th>{label}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {each(rows, (row) => (
             <tr>
-              {columns.map(([, cell]) => (
+              {each(columns, ([, cell]) => (
                 <td>{cell(row)}</td>
               ))}
             </tr>
@@ -41,7 +47,7 @@ export function table<T>(rows: ReadonlyArray<T>, columns: ReadonlyArray<Column<T
 }
 
 export function chip(label: string, ok: boolean): JSX.Element {
-  return <span class={`chip ${ok ? "chip-ok" : "chip-warn"}`}>{label}</span>;
+  return <span class={["chip", ok ? "chip-ok" : "chip-warn"]}>{label}</span>;
 }
 
 export function card(title: string, body: JSX.Element, sub?: string): JSX.Element {
@@ -62,7 +68,7 @@ export function makeAction(state: ControllerState, client: GatewayBrowserClient 
     variant: Variant = "",
   ): JSX.Element => (
     <button
-      class={variant ? `btn btn--sm ${variant}` : "btn btn--sm"}
+      class={["btn", "btn--sm", variant]}
       type="button"
       disabled={state.pending !== null}
       onClick={() => void runLuminaCoreCommand(state, client, method, params)}
