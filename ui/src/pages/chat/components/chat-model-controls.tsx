@@ -1,7 +1,8 @@
-import { createMemo, Show, type Accessor } from "solid-js";
+import { createMemo, type Element, type Accessor } from "solid-js";
 import type { ChatAccountSelection } from "../../../../../packages/gateway-protocol/src/index.ts";
 import { resolveModelRuntimeRoute } from "../../../../../src/shared/model-runtime-route.js";
 import type {
+  CyberAccessProgram,
   ModelAuthStatusResult,
   ModelCatalogEntry,
   SessionsListResult,
@@ -12,6 +13,7 @@ import {
   resolvePreferredServerChatModelValue,
 } from "../../../lib/chat/model-ref.ts";
 import {
+  prepareChatModelSelectCatalog,
   resolveChatFastModeSelectState,
   resolveChatModelSelectState,
   type ChatFastModeSelectValue,
@@ -35,7 +37,6 @@ import {
   resolveModelRuntimeEntry,
 } from "../../../lib/model-runtime-choice.ts";
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
-import { solidContent } from "../../../lit/solid-content.tsx";
 import { ChatEffortPicker, type ChatEffortPickerParams } from "./chat-effort-picker.tsx";
 import type { ChatModelAccountSection } from "./chat-model-account-control.ts";
 import {
@@ -52,7 +53,7 @@ type ChatContextWindowTarget = Pick<
   "contextWindow" | "contextWindows" | "contextWindowDefault"
 >;
 
-type ChatModelControlsProps = {
+export type ChatModelControlsProps = {
   modelAuthStatusResult?: ModelAuthStatusResult | null;
   accountSelection?: ChatAccountSelection | null;
   renderAccountSection?: (model: string) => ChatModelAccountSection | undefined;
@@ -63,6 +64,8 @@ type ChatModelControlsProps = {
   loading: boolean;
   modelCatalog: ModelCatalogEntry[];
   modelCatalogState: ChatModelCatalogState;
+  /** Lets a lazy route wrap catalog status without adding its read to Chat boot. */
+  renderModelCatalogStatus?: (render: () => Element) => Element;
   modelOverrides?: Readonly<Record<string, string | null | undefined>>;
   modelSelectionLocked?: boolean;
   modelSelectionTarget?: SessionsListResult["defaults"]["modelSelectionTarget"];
@@ -73,6 +76,9 @@ type ChatModelControlsProps = {
   effortMutationDisabledReason?: string;
   contextWindowMutationDisabledReason?: string;
   fastModeTarget?: ChatFastModeTarget;
+  accessProgramMutationDisabledReason?: string;
+  requestedAccessProgram?: CyberAccessProgram;
+  onAccessProgramSelect?: (value: CyberAccessProgram | null, sessionKey: string) => unknown;
   sending: boolean;
   sessionKey: string;
   selectedSession: SessionsListResult["sessions"][number] | undefined;
@@ -91,7 +97,6 @@ type ChatModelControlsProps = {
   onModelSelect?: (value: string, sessionKey: string, agentRuntime?: string | null) => unknown;
   onModelPickerTargetRetry?: (groupId: string) => unknown;
   onModelPickerTargetSelect?: (groupId: string, value: string) => unknown;
-  onRequestUpdate?: () => void;
   onThinkingSelect?: (value: string, sessionKey: string) => unknown;
 };
 
@@ -225,10 +230,13 @@ function resolveCatalogTriggerStatus(
 
 function createChatModelControls(props: ChatModelControlsProps): Accessor<{
   model: ChatModelPickerParams;
-  effort?: ChatEffortPickerParams;
+  effort: ChatEffortPickerParams;
 }> {
+  const catalogEntries = createMemo(() => props.modelCatalog);
+  const catalogIndex = createMemo(() => prepareChatModelCatalog(catalogEntries()));
+  const selectCatalog = createMemo(() => prepareChatModelSelectCatalog(catalogEntries()));
   return createMemo(() => {
-    const catalog = prepareChatModelCatalog(props.modelCatalog);
+    const catalog = catalogIndex();
     const catalogState = props.modelCatalogState;
     const policy = catalogState.modelSelectionPolicy;
     const retired = catalogState.retired === true;
@@ -264,17 +272,20 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
       defaultLabel,
       modelOverrideSource,
       options: selectOptions,
-    } = resolveChatModelSelectState({
-      activeSession: props.selectedSession,
-      agentDefaultModel: props.agentDefaultModel,
-      chatModelCatalog: props.modelCatalog,
-      modelOverrides: props.modelOverrides ?? {},
-      sessionKey: props.sessionKey,
-      sessionsResult: props.sessionsResult,
-      modelSelectionPolicy: policy,
-      catalogRetired: retired,
-      catalogInitialized: catalogState.initialized,
-    });
+    } = resolveChatModelSelectState(
+      {
+        activeSession: props.selectedSession,
+        agentDefaultModel: props.agentDefaultModel,
+        chatModelCatalog: props.modelCatalog,
+        modelOverrides: props.modelOverrides ?? {},
+        sessionKey: props.sessionKey,
+        sessionsResult: props.sessionsResult,
+        modelSelectionPolicy: policy,
+        catalogRetired: retired,
+        catalogInitialized: catalogState.initialized,
+      },
+      selectCatalog(),
+    );
     const currentOverride = catalogModelValue(rawCurrentOverride);
     const thinking = resolveChatThinkingSelectState({
       catalog: props.modelCatalog,
@@ -333,6 +344,7 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
         isDefault,
         value: option.value,
         label: resolveChatModelPickerLabel(catalogEntry, option.label),
+        contextTokens: catalogEntry?.contextTokens,
         contextWindow: catalogEntry?.contextWindow,
         supportsTools: catalogEntry?.supportsTools,
         recommended: catalogEntry?.recommended,
@@ -372,6 +384,7 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
           agentRuntime: choice.agentRuntime.id,
           runtimeOverride: choice.agentRuntime.id,
           agentRuntimeId: choice.agentRuntime.id,
+          contextTokens: choice.contextTokens,
           contextWindow: choice.contextWindow,
           supportsTools: choice.supportsTools,
           disabled: choice.available === false,
@@ -414,6 +427,7 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
     ) {
       modelOptions.push({
         commitValue: currentOverride,
+        contextTokens: currentCatalogEntry?.contextTokens,
         contextWindow: currentCatalogEntry?.contextWindow,
         supportsTools: currentCatalogEntry?.supportsTools,
         disabled: currentCatalogEntry?.available === false,
@@ -517,7 +531,8 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
       catalogState.hasSnapshot &&
       (catalogState.status === "ready" ||
         catalogState.status === "error" ||
-        catalogState.status === "loading") &&
+        catalogState.status === "loading" ||
+        catalogState.status === "offline") &&
       activeModelOption?.disabled !== true &&
       modelOptions.some((option) => !option.disabled);
     const busy = props.sending || Boolean(props.activeRunId) || props.stream !== null;
@@ -542,18 +557,39 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
     const selectedContextWindow =
       contextWindowOwner?.contextWindow ?? contextWindowOwner?.contextWindowDefault ?? "";
     const defaultContextWindow = contextWindowOwner?.contextWindowDefault;
+    const accessPrograms =
+      props.connected &&
+      catalogState.hasSnapshot &&
+      catalogState.status === "ready" &&
+      !retired &&
+      !uninitialized &&
+      !props.modelSwitching
+        ? (resolveModelRuntimeEntry(catalog.entry(currentOverride || defaultModel), triggerRuntime)
+            ?.availableAccessPrograms?.cyber ?? [])
+        : [];
+    const showAccessProgram =
+      Boolean(props.onAccessProgramSelect) &&
+      accessPrograms.some((program) => program !== "standard");
+    const accessProgramDisabled =
+      commonDisabled || Boolean(props.accessProgramMutationDisabledReason);
     const effortDisabled =
       commonDisabled ||
-      effortMutationDisabled ||
-      (thinking.options.length === 0 && fastMode.disabled);
-    // Floating UI deliberately tracks a live anchor. Keep the eventual effort
-    // control in layout while catalog state is transient (and until an open model
-    // menu closes), so a sibling appearing cannot move that anchor mid-interaction.
-    const reserveEffortPicker =
-      !hasResolvableModel && (catalogLoadingWithoutSnapshot || props.modelPickerOpen === true);
-    const showEffortPicker = hasResolvableModel || reserveEffortPicker;
+      !hasResolvableModel ||
+      ((effortMutationDisabled || (thinking.options.length === 0 && fastMode.disabled)) &&
+        (!showAccessProgram || accessProgramDisabled));
+    // Keep the effort control mounted but hidden until its catalog resolves.
+    const reserveEffortPicker = !hasResolvableModel;
     return {
       model: {
+        accessProgramRecovery:
+          props.requestedAccessProgram !== undefined &&
+          !showAccessProgram &&
+          props.onAccessProgramSelect
+            ? {
+                disabled: accessProgramDisabled,
+                onClear: (sessionKey) => props.onAccessProgramSelect?.(null, sessionKey),
+              }
+            : undefined,
         providerAuth: props.modelAuthStatusResult ? providerAuth : undefined,
         accountSection: props.renderAccountSection?.(currentOverride || defaultModel),
         contextWindow:
@@ -572,6 +608,7 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
         disabled: modelDisabled,
         disabledReason: props.modelMutationDisabledReason,
         modelCatalogState: catalogState,
+        renderModelCatalogStatus: props.renderModelCatalogStatus,
         open: props.modelPickerOpen,
         modelSelectionLocked: props.modelSelectionLocked === true,
         selectionScopeDescription: policy?.restricted
@@ -600,27 +637,33 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
           props.onModelSelect?.(next, targetSessionKey, agentRuntime),
         onTargetRetry: props.onModelPickerTargetRetry,
         onTargetSelect: props.onModelPickerTargetSelect,
-        onRequestUpdate: props.onRequestUpdate,
       },
-      effort: showEffortPicker
-        ? {
-            disabled: effortDisabled,
-            disabledReason: props.effortMutationDisabledReason,
-            fastMode: {
-              ...fastMode,
-              disabled: fastMode.disabled || commonDisabled || effortMutationDisabled,
-            },
-            sessionKey: props.sessionKey,
-            thinkingDisabled,
-            thinking,
-            onFastModeSelect: async (next, targetSessionKey) =>
-              props.onFastModeSelect?.(next, targetSessionKey),
-            onRequestUpdate: props.onRequestUpdate,
-            onThinkingSelect: async (next, targetSessionKey) =>
-              props.onThinkingSelect?.(next, targetSessionKey),
-            reserved: reserveEffortPicker,
-          }
-        : undefined,
+      effort: {
+        accessProgram:
+          showAccessProgram && props.onAccessProgramSelect
+            ? {
+                requested: props.requestedAccessProgram,
+                programs: accessPrograms,
+                disabled: accessProgramDisabled,
+                sessionKey: props.sessionKey,
+                onSelect: props.onAccessProgramSelect,
+              }
+            : undefined,
+        disabled: effortDisabled,
+        disabledReason: props.effortMutationDisabledReason,
+        fastMode: {
+          ...fastMode,
+          disabled: fastMode.disabled || commonDisabled || effortMutationDisabled,
+        },
+        sessionKey: props.sessionKey,
+        thinkingDisabled,
+        thinking,
+        onFastModeSelect: async (next, targetSessionKey) =>
+          props.onFastModeSelect?.(next, targetSessionKey),
+        onThinkingSelect: async (next, targetSessionKey) =>
+          props.onThinkingSelect?.(next, targetSessionKey),
+        reserved: reserveEffortPicker,
+      },
     };
   });
 }
@@ -630,11 +673,7 @@ export function ChatModelControls(props: ChatModelControlsProps) {
   return (
     <div class="chat-controls__session chat-controls__model chat-controls__model-settings">
       <ChatModelPicker {...controls().model} />
-      <Show when={controls().effort}>{(effort) => <ChatEffortPicker {...effort()} />}</Show>
+      <ChatEffortPicker {...controls().effort} />
     </div>
   );
-}
-
-export function renderChatModelControls(props: ChatModelControlsProps) {
-  return solidContent(ChatModelControls, props);
 }

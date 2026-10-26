@@ -1,0 +1,8 @@
+{
+  "pluginId": "cline",
+  "plugin": "Cline",
+  "icon": "cline",
+  "key": "sessionCatalog",
+  "labelKey": "configView.sessionSources.cline",
+  "order": 25
+}

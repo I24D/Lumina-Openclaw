@@ -4,7 +4,7 @@
 // from jsdom's fixed "en-US" — so on a non-English machine every assertion on
 // a translated string fails. Pin the navigator language before any module
 // reads it so the suite is independent of the developer's system locale.
-import { DEFAULT_LOCALE } from "../i18n/lib/registry.ts";
+import { DEFAULT_LOCALE } from "../../../src/shared/control-ui-locale.ts";
 
 const pinned = DEFAULT_LOCALE;
 

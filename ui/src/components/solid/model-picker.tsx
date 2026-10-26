@@ -1,22 +1,35 @@
 import { createMemo } from "solid-js";
 import { modelPickerOptions, type ModelPickerParams } from "../model-picker-options.ts";
-import { providerDisplayLabel, renderProviderBrandIcon } from "../provider-icon.ts";
+import { providerDisplayLabel } from "../provider-icon-data.ts";
 import { Picker, type PickerParams } from "../select-picker.ts";
+import { ProviderBrandIcon } from "./provider-icon.tsx";
 
 export type { ModelPickerOption, ModelPickerParams } from "../model-picker-options.ts";
 
 type ModelSelectOption = ReturnType<typeof modelPickerOptions>["options"][number];
 
 export function ModelPicker(props: ModelPickerParams) {
-  const choices = createMemo(() => modelPickerOptions(props));
+  const options = createMemo(() => props.options);
+  const selectedValue = createMemo(() => props.value);
+  const customLabel = createMemo(() => props.custom?.label);
+  const choices = createMemo(() => {
+    const label = customLabel();
+    return modelPickerOptions({
+      options: options(),
+      value: selectedValue(),
+      custom: label === undefined ? undefined : { label },
+    });
+  });
+  let customInput: HTMLInputElement;
   const commitCustom = (event: Event) => {
     if ((event.type === "change") === (props.custom?.commit === "change")) {
       // SAFETY: Both handlers are attached to the custom-model input below.
       props.onChange((event.currentTarget as HTMLInputElement).value);
     }
   };
-  const providerIcon = (provider: string) =>
-    renderProviderBrandIcon(provider, { className: "model-picker__provider-icon" });
+  const providerIcon = (provider: string) => (
+    <ProviderBrandIcon provider={provider} class="model-picker__provider-icon" />
+  );
   const pickerParams = createMemo<PickerParams<ModelSelectOption>>(() => ({
     id: props.id,
     label: props.label,
@@ -33,7 +46,9 @@ export function ModelPicker(props: ModelPickerParams) {
             ? {
                 id: option.provider,
                 label: providerDisplayLabel(option.provider),
-                leading: providerIcon(option.provider),
+                get leading() {
+                  return providerIcon(this.id);
+                },
               }
             : undefined
       : undefined,
@@ -43,17 +58,14 @@ export function ModelPicker(props: ModelPickerParams) {
     onOpen: () => props.onOpen?.(),
     renderLeading: (option) => (option.provider ? providerIcon(option.provider) : undefined),
     onChange: (value) => props.onChange(value),
-    onChangeTarget: (value, select) => {
-      const input = select
-        .closest(".model-picker")
-        ?.querySelector<HTMLInputElement>(".model-picker__custom");
-      if (value === choices().customValue && input) {
-        input.hidden = false;
-        queueMicrotask(() => input.focus());
-        return;
-      }
+    onChangeTarget: (value) => {
+      const input = props.custom ? customInput : undefined;
       if (input) {
-        input.hidden = true;
+        input.hidden = value !== choices().customValue;
+        if (!input.hidden) {
+          queueMicrotask(() => input.focus());
+          return;
+        }
       }
       props.onChange(value);
     },
@@ -63,6 +75,7 @@ export function ModelPicker(props: ModelPickerParams) {
       <Picker params={pickerParams()} />
       {props.custom ? (
         <input
+          ref={(input) => (customInput = input)}
           id={props.custom.id}
           class="settings-input model-picker__custom"
           aria-label={props.custom.label}

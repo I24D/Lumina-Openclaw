@@ -158,6 +158,11 @@ for check behavior and enforcement setup.
 
 ## Local commit hook
 
+`pnpm format` and the formatting hook share the [local development tool selector](https://docs.openclaw.ai/reference/test/local#openclaw-bun-fork).
+Use `OPENCLAW_FORMAT_TOOL=oxfmt pnpm format` to force oxfmt. The linked reference
+covers the pinned fork, supported platforms, overrides, fallbacks, and CI parity.
+Dedicated artifact formatters are listed in the [formatter caller inventory](scripts/README.md#formatting-and-lint-selection).
+
 The normal `pnpm install` setup enables the repository's pre-commit formatting hook
 when `core.hooksPath` is unset. Existing hook selections, including an explicitly
 empty value, are preserved. Git scopes initialization to the current checkout.

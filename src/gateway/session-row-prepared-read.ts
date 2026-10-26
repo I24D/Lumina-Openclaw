@@ -1,6 +1,7 @@
 import { isPromiseLike } from "@openclaw/normalization-core/promise-like";
 import type { CapturedSessionEntryReadSource } from "../config/sessions/session-entry-read-source.types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { prepareProjectedAgentRunProgressState } from "../infra/agent-run-registry.js";
 import { isIncognitoSessionKey } from "../routing/session-key.js";
 import { getAsyncWorkSignal } from "../shared/async-work-scope.js";
 import type { PreparedRepositoryWorkspace } from "../state/session-repository-workspaces.js";
@@ -8,6 +9,42 @@ import type { SessionRepositoryWorkspaceRecord } from "../state/session-reposito
 import * as records from "./session-row-projection-record.js";
 import { resolveStoredSessionKeyForAgentStore } from "./session-store-key.js";
 import type { SessionListRowContext } from "./session-utils-contracts.js";
+import { projectGatewaySessionRunState } from "./session-utils-display.js";
+
+type SessionRunSource = Pick<
+  records.MaterializedRow["materialized"]["source"],
+  "entry" | "parsedKey"
+>;
+const preparedRunProgress = new WeakMap<
+  SessionRunSource,
+  ReturnType<typeof prepareProjectedAgentRunProgressState>
+>();
+
+/** Each immutable materialized source belongs to one key; replacement retires its query. */
+export function projectPreparedSessionRunState(
+  key: string,
+  source: SessionRunSource,
+  now: number,
+  rowContext: Parameters<typeof projectGatewaySessionRunState>[0]["rowContext"],
+) {
+  let projectRunProgress = preparedRunProgress.get(source);
+  if (!projectRunProgress) {
+    projectRunProgress = prepareProjectedAgentRunProgressState({
+      sessionKeys: [key],
+      sessionId: source.entry?.sessionId,
+      agentId: source.parsedKey?.agentId ?? "",
+    });
+    preparedRunProgress.set(source, projectRunProgress);
+  }
+  return projectGatewaySessionRunState({
+    key,
+    entry: source.entry,
+    parsedKey: source.parsedKey,
+    now,
+    rowContext,
+    projectRunProgress,
+  });
+}
 
 export type SessionRowSelectionPreparationOptions = {
   metadataOnly?: boolean;
@@ -39,6 +76,7 @@ export type SessionRowReadView = {
     options?: records.SnapshotOptions,
   ): ReturnType<typeof records.present>;
   selectEntries(query: { key: string }): records.EntryRow[];
+  readonly physicalPaths: (locator: string, agentId?: string) => readonly string[];
   readonly state: {
     cfg: OpenClawConfig;
     policyConfig: OpenClawConfig;
@@ -116,13 +154,13 @@ export function readPreparedSessionRows<T>(
         }
       }
     }
-    // Native custody and deletion admission remain authoritative until the memory owner moves.
     if (row && !owner.isCurrent(row)) {
       throw new Error("Session changed while preparing its description; retry the request");
     }
   }
   // Targeted materialization may refresh the owner's metadata context. Capture its final facts.
   const preparedState = owner.state;
+  const physicalPaths = owner.physicalPaths;
   state = {
     cfg: preparedState.cfg,
     policyConfig: preparedState.policyConfig,
@@ -176,6 +214,10 @@ export function readPreparedSessionRows<T>(
         return rows;
       }
       return owner.selectEntries(query);
+    },
+    get physicalPaths() {
+      assertActive();
+      return physicalPaths;
     },
     get state() {
       assertActive();

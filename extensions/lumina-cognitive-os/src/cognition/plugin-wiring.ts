@@ -250,26 +250,26 @@ export function hostDeps(
     initiative: ({ key, text }) => {
       try {
         const raw = (api.pluginConfig ?? {}) as Readonly<Record<string, unknown>>;
+        const agentId =
+          typeof raw.ownerAgentId === "string" && raw.ownerAgentId.trim()
+            ? raw.ownerAgentId.trim()
+            : "main";
         const sessionKey = buildAgentMainSessionKey({
-          agentId:
-            typeof raw.ownerAgentId === "string" && raw.ownerAgentId.trim()
-              ? raw.ownerAgentId.trim()
-              : "main",
+          agentId,
           mainKey: (api.runtime.config?.current?.() ?? api.config)?.session?.mainKey,
         });
-        const queued = api.runtime.system.enqueueSystemEvent(`[Lumina core] ${text}`, {
+        // A session event wakes the owner's session through its normal queue;
+        // upstream retired the separate heartbeat request in 2026.10.
+        const receipt = api.runtime.system.enqueueSessionEvent(`[Lumina core] ${text}`, {
+          agentId,
           sessionKey,
           contextKey: `lumina-core:${key}`,
-          replace: true,
         });
-        if (queued) {
-          api.runtime.system.requestHeartbeat({
-            source: "other",
-            intent: "immediate",
-            reason: "lumina-core-initiative",
-            sessionKey,
-          });
-        }
+        void receipt.accepted.then((result) => {
+          if (!result.ok) {
+            api.logger.warn(`[lumina-cognitive-os] initiative not delivered: ${result.error}`);
+          }
+        });
       } catch (error) {
         api.logger.warn(`[lumina-cognitive-os] initiative not delivered: ${String(error)}`);
       }

@@ -1,5 +1,5 @@
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
-import { resolveEmbedSandbox } from "../../lib/chat/tool-display.ts";
+import { resolveEmbedSandbox } from "../../lib/chat/canvas-embed-policy.ts";
 
 const TRUSTED_SAME_ORIGIN_TABS = new Set(["lumina-open-design/design"]);
 

@@ -179,7 +179,7 @@ merge_outcome_load_local() {
             $record.route == "admin" and $record.priorCiAdmin.dispatchTransport == "rest"
            else true end) and
           (if has("staleHeadRetirement") then (.staleHeadRetirement | type == "object") and
-            has("replacementHead") and $record.route == "auto" and
+            has("replacementHead") and ($record.route | IN("auto", "immediate")) and
             ($record | has("priorCiAdmin") | not)
            else true end) and
           (if has("asyncFailure") then $record.route == "immediate" and
@@ -194,6 +194,9 @@ merge_outcome_load_local() {
         (.prId | type == "string" and length > 0) and (.head | oid) and (.main | oid) and
         (if has("localHead") then (.localHead | oid) else true end) and
         (.attempt | attempt) and recovery and
+        (if has("workflowRecovery") then has("recovery") and
+          (.workflowRecovery | keys == ["binding","from","to"] and all(.[]; oid))
+         else true end) and
         (if has("cancellation") then . as $record | .route == "auto" and
           (.cancellation |
             (if has("observedHead") then keys == ["actor","observedHead","outcome","state"] and
@@ -242,10 +245,21 @@ merge_outcome_load_local() {
       merge_outcome_stop "invalid retained repository identity"; return 1;
     }
     parents=$(GIT_NO_LAZY_FETCH=1 pr_git cat-file commit "$MERGE_OUTCOME_OID" | awk 'NF == 0 {exit} $1 == "parent" {printf "%s ", $2}') || return 1
-    for retained in $(printf '%s\n' "$MERGE_OUTCOME_RECORD" | jq -r '[.head,.main,.landed,.localHead,.legacyRefusal.head,.legacyRefusal.preparedBase,.priorCiAdmin.priorHead,.priorCiAdmin.testedMerge,.headDrift.mergedHead,.cancellation.observedHead] | .[] | select(. != null)'); do
+    for retained in $(printf '%s\n' "$MERGE_OUTCOME_RECORD" | jq -r '[.head,.main,.landed,.localHead,.legacyRefusal.head,.legacyRefusal.preparedBase,.priorCiAdmin.priorHead,.priorCiAdmin.testedMerge,.headDrift.mergedHead,.cancellation.observedHead,.workflowRecovery.binding,.workflowRecovery.from,.workflowRecovery.to] | .[] | select(. != null)'); do
       case " $parents " in *" $retained "*) ;; *) merge_outcome_stop "record does not retain required commit $retained"; return 1 ;; esac
       GIT_NO_LAZY_FETCH=1 pr_git cat-file -e "$retained^{commit}" || { merge_outcome_stop "required historical commit $retained is unavailable"; return 1; }
     done
+    if printf '%s\n' "$MERGE_OUTCOME_RECORD" | jq -e 'has("workflowRecovery")' >/dev/null; then
+      local workflow_binding workflow_from workflow_to workflow_record
+      IFS=$'\t' read -r workflow_binding workflow_from workflow_to < <(printf '%s\n' "$MERGE_OUTCOME_RECORD" | jq -r '.workflowRecovery | [.binding,.from,.to] | @tsv')
+      workflow_record=$(GIT_NO_LAZY_FETCH=1 pr_git show "$workflow_binding:binding.json") || return 1
+      printf '%s\n' "$workflow_record" | jq -e --arg from "$workflow_from" --arg pr "$pr" \
+        '.version == 1 and .source == $from and .pr == $pr' >/dev/null &&
+        [ "$(GIT_NO_LAZY_FETCH=1 pr_git rev-parse "$workflow_binding^@")" = "$workflow_from" ] &&
+        GIT_NO_LAZY_FETCH=1 pr_git merge-base --is-ancestor "$workflow_from" "$workflow_to" || {
+        merge_outcome_stop "invalid retained workflow recovery provenance"; return 1;
+      }
+    fi
     if printf '%s\n' "$MERGE_OUTCOME_RECORD" | jq -e 'has("legacyRefusal")' >/dev/null; then
       local name expected actual
       while IFS=$'\t' read -r name expected; do
@@ -276,7 +290,7 @@ merge_outcome_load_local() {
              .accepted == true and .route == "immediate" and .transport == "rest" and
              .head == $next.head and .asyncMerge == $next.recovery.asyncFailure
            elif $next.recovery.staleHeadRetirement != null then
-             .accepted == false and .route == "admin" and $next.route == "auto" and
+             .accepted == false and .route == "admin" and ($next.route | IN("auto", "immediate")) and
              .priorCiAdmin.dispatchTransport == "rest" and
              $next.recovery.replacementHead == $next.head and .head != $next.head
            elif $next.route == "admin" then
@@ -300,7 +314,7 @@ merge_outcome_load_local() {
       local provider_rejection original
       retained=$(printf '%s\n' "$MERGE_OUTCOME_RECORD" | jq -r .recovery.outcome)
       original=$(GIT_NO_LAZY_FETCH=1 pr_git show "$retained:outcome.json") || return 1
-      provider_rejection=$(printf '%s\n' "$original" | node "${BASH_SOURCE[0]%/*}/merge-prior-ci.mjs" provider-rejection "git:$MERGE_OUTCOME_OID") || return 1
+      provider_rejection=$(printf '%s\n' "$original" | node "${BASH_SOURCE[0]%/*}/merge-prior-ci.mjs" provider-rejection "$retained" "git:$MERGE_OUTCOME_OID") || return 1
       [ "$provider_rejection" = "$(printf '%s\n' "$MERGE_OUTCOME_RECORD" | jq -c '.recovery.providerRejection')" ] || {
         merge_outcome_stop "invalid retained provider rejection qualification"; return 1;
       }
@@ -369,7 +383,7 @@ merge_outcome_write() {
   shift
   mark_pr_operation_side_effects_started || return 1
   local parents=()
-  for parent in $(printf '%s\n' "$record" | jq -r '[.head,.main,.landed,.localHead,.legacyRefusal.head,.legacyRefusal.preparedBase,.priorCiAdmin.priorHead,.priorCiAdmin.testedMerge,.headDrift.mergedHead,.cancellation.observedHead] | unique | .[] | select(. != null)'); do
+  for parent in $(printf '%s\n' "$record" | jq -r '[.head,.main,.landed,.localHead,.legacyRefusal.head,.legacyRefusal.preparedBase,.priorCiAdmin.priorHead,.priorCiAdmin.testedMerge,.headDrift.mergedHead,.cancellation.observedHead,.workflowRecovery.binding,.workflowRecovery.from,.workflowRecovery.to] | unique | .[] | select(. != null)'); do
     parents+=(-p "$parent")
   done
   [ -z "$MERGE_OUTCOME_OID" ] || parents+=(-p "$MERGE_OUTCOME_OID")
@@ -613,6 +627,9 @@ merge_outcome_dispatch_prior_ci_squash() (
 
 merge_read() {
   local mode="$1" pr="$2" repo="${3:-${MERGE_REPO_URL:-}}" first="${MERGE_TRANSPORT:-rest}" second response status query checks_err checks_error
+  if [ "$mode" = projection ] && [ "${MERGE_PRIOR_CI_REST_OBSERVATION:-false}" = true ]; then
+    first=rest
+  fi
   if [ "$mode" = observe ] && [ "${MERGE_PRIOR_CI_REST_OBSERVATION:-false}" = true ] &&
     [ "${MERGE_USE_PRIOR_CI_ADMIN:-false}" = true ]; then
     # This complete read reports policy/check facts; prior-CI admission still owns their verdict.
@@ -657,7 +674,7 @@ merge_read() {
           fi
           [ -z "$checks_error" ] || printf '%s\n' "$checks_error" >&2
           ;;
-        observe)
+        observe|projection)
           query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){id databaseId url nameWithOwner ref(qualifiedName:"refs/heads/main"){target{oid}} pullRequest(number:$number){id number url state headRefOid baseRefName isDraft mergeCommit{oid} autoMergeRequest{mergeMethod} isInMergeQueue isMergeQueueEnabled mergeable mergeStateStatus}}}'
           ;;
         preview)
@@ -678,6 +695,45 @@ merge_read() {
   done
   echo "Neither GitHub transport can provide $mode evidence; preserve any retained request for reconciliation." >&2
   return 1
+}
+
+merge_wait_for_projection() {
+  local pr="$1" deadline="$2" delay="$3" label="${4:-mergeability}" response projection
+  while true; do
+    if ! pr_merge_pause "$deadline" "$delay"; then
+      merge_outcome_stop "$label remained UNKNOWN through the 60s settle limit; stopped before intent/dispatch"
+      return 1
+    fi
+    [ "$delay" -ge 8 ] || delay=$((delay * 2))
+    # GraphQL's complete observation is already one request; only REST needs a cheap hint.
+    if [ "${MERGE_TRANSPORT:-rest}" != rest ] && [ "${MERGE_PRIOR_CI_REST_OBSERVATION:-false}" != true ]; then
+      MERGE_PROJECTION_DELAY="$delay"
+      return 0
+    fi
+    response=$(merge_read projection "$pr") || {
+      merge_outcome_stop "mergeability hint is unavailable; stopped before intent/dispatch"
+      return 1
+    }
+    projection=$(printf '%s\n' "$response" | jq -ce '
+      select(.payload.errors == null) | .payload.data.repository.pullRequest |
+      {mergeable,mergeStateStatus} |
+      select((.mergeable | IN("MERGEABLE", "CONFLICTING", "UNKNOWN")) and
+        (.mergeStateStatus | type == "string" and length > 0))
+    ') || {
+      merge_outcome_stop "mergeability hint is invalid; stopped before intent/dispatch"
+      return 1
+    }
+    if printf '%s\n' "$projection" | jq -e '.mergeable == "UNKNOWN" or .mergeStateStatus == "UNKNOWN"' >/dev/null; then
+      continue
+    fi
+    if [ "$(pr_merge_now)" -ge "$deadline" ]; then
+      merge_outcome_stop "$label exceeded the 60s settle limit; stopped before intent/dispatch"
+      return 1
+    fi
+    # A hint only wakes the caller's complete snapshot and authority checks.
+    MERGE_PROJECTION_DELAY="$delay"
+    return 0
+  done
 }
 
 merge_outcome_normalize() {
@@ -867,7 +923,8 @@ merge_outcome_stable() {
     settle_delay="${MERGE_PRIOR_CI_UNKNOWN_DELAY:-2}"
   fi
   while true; do
-    if { [ "$prior_ci_round" = true ] && [ -n "${MERGE_PRIOR_CI_UNKNOWN_START:-}" ] &&
+    # Consume this round's fresh projection before applying a carried deadline.
+    if { [ "$prior_ci_round" = true ] && [ "$observation_attempt" -gt 0 ] && [ -n "${MERGE_PRIOR_CI_UNKNOWN_START:-}" ] &&
       [ "$(pr_merge_now)" -ge "$((MERGE_PRIOR_CI_UNKNOWN_START + 60))" ]; } ||
       { [ "$prior_ci_round" = false ] && [ "$settling" = true ] && [ "$(pr_merge_now)" -ge "$settle_deadline" ]; }; then
       merge_outcome_diagnose "$1" "$reread" "$MERGE_OBSERVATION"
@@ -971,17 +1028,13 @@ merge_outcome_stable() {
           # The in-process snapshot already ended with live authority. Any wait
           # discards it; the caller must collect a fresh snapshot on the next round.
           [ -z "$supplied" ] || return 76
-          if ! pr_merge_pause "$settle_deadline" "$settle_delay"; then
-            merge_outcome_diagnose "$1" "$reread" "$MERGE_OBSERVATION"
-            merge_outcome_stop "mergeability recalculation remained UNKNOWN after $observation_attempt observations in $(( $(pr_merge_now) - settle_start ))s (60s limit); stopped before intent/dispatch"
-            return 1
-          fi
           [ "$observation_attempt" -ne 1 ] || echo "Waiting for mergeability recalculation (60s limit; 2s, 4s, then 8s backoff)."
-          [ "$settle_delay" -ge 8 ] || settle_delay=$((settle_delay * 2))
+          merge_wait_for_projection "$1" "$settle_deadline" "$settle_delay" "mergeability recalculation" || return 1
+          settle_delay="$MERGE_PROJECTION_DELAY"
           [ "$prior_ci_round" = false ] || MERGE_PRIOR_CI_UNKNOWN_DELAY="$settle_delay"
           continue
         fi
-        verify_merge_route_projection "$1" "$reread" "$route" "${qualified_refusal:-false}" || return 1
+        verify_merge_route_projection "$1" "$reread" "$route" "${strict_immediate_recovery:-false}" || return 1
         if ! printf '%s\n' "$reread" | jq -e --argjson observed "$MERGE_OBSERVATION" '
           .pr.mergeable == $observed.pr.mergeable and .pr.mergeStateStatus == $observed.pr.mergeStateStatus
         ' >/dev/null; then
@@ -1418,6 +1471,13 @@ merge_outcome_require_cleanup_absent() {
   [ "$ref_status" -eq 2 ] || { echo "Completion requires authoritative remote branch absence; no deletion attempted." >&2; return 1; }
 }
 
+retire_pr_workflow_binding() {
+  [ -n "${PR_WORKFLOW_BINDING_OID:-}" ] || return 0
+  [ "$PR_WORKFLOW_PR" = "$1" ] || return 1
+  pr_batch_wrapper_git workflow-retire "$canonical_repo_root" "$1" "$PR_WORKFLOW_BINDING_OID" "${PR_WORKFLOW_TRUST_ANCHOR:-refs/remotes/origin/main}" || return 1
+  PR_WORKFLOW_BINDING_OID=""
+}
+
 merge_complete() {
   local pr="$1" expected_oid="$2" phase body="" audit
   local MERGE_OUTCOME_REF MERGE_OUTCOME_OID MERGE_OUTCOME_RECORD MERGE_REPO
@@ -1432,6 +1492,7 @@ merge_complete() {
   merge_outcome_reconcile "$pr" || return 1
   phase=$(printf '%s\n' "$MERGE_OUTCOME_RECORD" | jq -r .phase) || return 1
   if [ "$phase" = complete ]; then
+    retire_pr_workflow_binding "$pr" || return 1
     echo "merge-complete already complete for PR #$pr; no side effects."
     return 0
   fi
@@ -1466,6 +1527,7 @@ merge_complete() {
   merge_outcome_require_cleanup_absent "$pr" || return 1
   merge_outcome_stable "$pr" || return 1
   merge_outcome_write "$(printf '%s\n' "$MERGE_OUTCOME_RECORD" | jq -c '.phase="complete"')" || return 1
+  retire_pr_workflow_binding "$pr" || return 1
   echo "merge-complete complete for PR #$pr"
   echo "completion comment: $MERGE_COMPLETION_COMMENT_URL"
 }
@@ -1484,6 +1546,7 @@ merge_outcome_resume() {
   fi
   if [ "$phase" = complete ]; then
     echo "merge-run already complete for PR #$pr; no side effects."
+    retire_pr_workflow_binding "$pr" || return 1
   else
     echo "Merge confirmed; completion pending. Recovery does not repeat comment POST or cleanup. Inspect the completion marker in PR comments and any remaining .worktrees/pr-$pr/local branches; verify their ownership before manual cleanup."
     echo "After cleanup, explicitly finalize: scripts/pr merge-complete $pr $MERGE_OUTCOME_OID --confirmed-operator-completion"

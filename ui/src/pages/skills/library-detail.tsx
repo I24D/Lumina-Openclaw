@@ -1,9 +1,11 @@
+import "../../styles/skill-reader-dialog.css";
 import { createMemo, For, Show } from "solid-js";
 import type { SkillsLibraryReadResult } from "../../../../packages/gateway-protocol/src/index.ts";
-import "../../components/modal-dialog.ts";
 import { Icon } from "../../components/solid/icon.tsx";
+import "../../components/modal-dialog.tsx";
+import { registerSessionSkillLibraryEnglish } from "../../i18n/locales/en-session-skill-library.ts";
 import { t } from "../../lib/reactive/i18n.ts";
-import { libraryFileText } from "./library-files.ts";
+import { libraryFileText } from "./library-file-text.ts";
 
 type LibraryPinReadProps = {
   read: SkillsLibraryReadResult;
@@ -101,3 +103,5 @@ export function LibraryPinRead(props: LibraryPinReadProps) {
     </openclaw-modal-dialog>
   );
 }
+
+registerSessionSkillLibraryEnglish();

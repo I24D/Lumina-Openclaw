@@ -1,4 +1,5 @@
-import { z } from "zod";
+// The exported z alias retains unused APIs and locales; the direct namespace tree-shakes.
+import * as z from "zod";
 import { definedFields } from "../../../record-fields.js";
 import {
   WORKBOARD_ATTEMPT_STATUSES,
@@ -11,6 +12,8 @@ import {
   WORKBOARD_NOTIFICATION_KINDS,
   WORKBOARD_PROOF_STATUSES,
   WORKBOARD_STATUSES,
+  WORKBOARD_WORKER_STATES,
+  WORKBOARD_DIAGNOSTIC_ACTION_KINDS,
   WORKBOARD_TEMPLATE_IDS,
   type WorkboardEvent,
   type WorkboardExecution,
@@ -86,7 +89,7 @@ const automationSchema = sparseObject({
   .catch(undefined);
 
 const diagnosticActionSchema = z.object({
-  kind: z.enum(["claim", "unblock", "promote", "reclaim", "reassign", "add_proof", "open_session"]),
+  kind: z.enum(WORKBOARD_DIAGNOSTIC_ACTION_KINDS),
   label: z.string(),
 });
 
@@ -190,7 +193,7 @@ const workerLogSchema = sparseObject({
   runId: optionalStringSchema,
 });
 const workerProtocolSchema = sparseObject({
-  state: z.enum(["idle", "running", "completed", "blocked", "violated"]),
+  state: z.enum(WORKBOARD_WORKER_STATES),
   updatedAt: z.number().catch(() => Date.now()),
   detail: optionalStringSchema,
 })

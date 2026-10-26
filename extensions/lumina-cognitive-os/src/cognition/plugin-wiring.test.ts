@@ -163,8 +163,12 @@ describe("hostDeps", () => {
     const registerGatewayMethod = vi.fn();
     const registerControlUiDescriptor = vi.fn();
     const on = vi.fn();
-    const enqueueSystemEvent = vi.fn(() => true);
-    const requestHeartbeat = vi.fn();
+    const enqueueSessionEvent = vi.fn(() => ({
+      id: "event-1",
+      cancel: () => false,
+      accepted: Promise.resolve({ ok: true as const }),
+      settled: new Promise(() => {}),
+    }));
     const services: Array<{ id: string; start: () => void }> = [];
     return {
       api: {
@@ -173,7 +177,7 @@ describe("hostDeps", () => {
         config: {},
         runtime: {
           state: { openKeyedStore },
-          system: { enqueueSystemEvent, requestHeartbeat },
+          system: { enqueueSessionEvent },
         },
         logger: { info: vi.fn(), warn: vi.fn() },
         registerHttpRoute,
@@ -187,8 +191,7 @@ describe("hostDeps", () => {
       registerGatewayMethod,
       registerControlUiDescriptor,
       on,
-      enqueueSystemEvent,
-      requestHeartbeat,
+      enqueueSessionEvent,
       services,
     };
   };
@@ -229,14 +232,11 @@ describe("hostDeps", () => {
   it("wakes the owner's agent by its full session key, never the ambiguous bare main", () => {
     const live = api("full");
     hostDeps(live.api).initiative?.({ key: "greet-owner", text: "Dal just arrived." });
-    expect(live.enqueueSystemEvent).toHaveBeenCalledWith("[Lumina core] Dal just arrived.", {
+    expect(live.enqueueSessionEvent).toHaveBeenCalledWith("[Lumina core] Dal just arrived.", {
+      agentId: "main",
       sessionKey: "agent:main:main",
       contextKey: "lumina-core:greet-owner",
-      replace: true,
     });
-    expect(live.requestHeartbeat).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionKey: "agent:main:main", intent: "immediate" }),
-    );
   });
 
   it("keeps discovery loads session-only, so two processes never share a log", () => {
