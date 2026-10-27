@@ -13,6 +13,7 @@ import {
   isDocsMarkdownLintPath,
 } from "../changed-lanes.mts";
 import { hasProtocolGenerationInput } from "../lib/ci-check-family-scope.mts";
+import { resolvePnpmRunner } from "../pnpm-runner.mts";
 
 type FreshnessCheck = {
   name: string;
@@ -110,19 +111,29 @@ function replayingCommits() {
 }
 
 // pnpm startup dominates these checks, so plain `node ...` package scripts run directly.
-function resolveCommand(check: FreshnessCheck): [string, string[]] {
+function resolveCommand(check: FreshnessCheck): ReturnType<typeof resolvePnpmRunner> {
   const script = JSON.parse(readFileSync("package.json", "utf8")).scripts?.[check.script];
   if (typeof script === "string" && /^node(?: [\w./:=@-]+)+$/u.test(script)) {
-    return [process.execPath, [...script.split(" ").slice(1), ...check.args]];
+    return {
+      command: process.execPath,
+      args: [...script.split(" ").slice(1), ...check.args],
+      shell: false,
+    };
   }
-  return ["pnpm", ["run", check.script, ...check.args]];
+  // Lumina fork: a bare spawn("pnpm") is ENOENT on Windows, where pnpm is a
+  // .cmd shim, so every staged docs page failed the hook there.
+  return resolvePnpmRunner({ pnpmArgs: ["run", check.script, ...check.args] });
 }
 
 // Independent read-only checks run together so the hook costs the slowest one.
 async function run(check: FreshnessCheck) {
-  const [command, args] = resolveCommand(check);
+  const { command, args, shell, windowsVerbatimArguments } = resolveCommand(check);
   return await new Promise<{ check: FreshnessCheck; status: number; output: string }>((resolve) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      shell,
+      windowsVerbatimArguments,
+    });
     let output = "";
     child.stdout.on("data", (chunk) => (output += chunk));
     child.stderr.on("data", (chunk) => (output += chunk));

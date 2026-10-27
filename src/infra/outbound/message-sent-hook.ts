@@ -7,6 +7,7 @@ import {
   toPluginMessageSentEvent,
 } from "../../hooks/message-hook-mappers.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { publishLuminaMessageSent } from "../../lumina/cognitive-bus.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import type { DeliveryMirror } from "./mirror.js";
 import type { PreparedOutboundBatch } from "./prepared-batch.js";
@@ -37,6 +38,7 @@ export function createMessageSentEmitter(params: {
   const canEmitInternalHook = Boolean(params.sessionKeyForInternalHooks);
   const warn = (message: string) => log.warn(message);
   const emitMessageSent = (event: MessageSentEvent) => {
+    publishLuminaMessageSent(params.channel, event);
     if (!hasMessageSentHooks && !canEmitInternalHook) {
       return;
     }

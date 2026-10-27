@@ -6,6 +6,7 @@ import { resolveInternalHookSelection } from "../hooks/configured.js";
 import { captureDeliveryQueueStateContext } from "../infra/delivery-queue-state-context.js";
 import type { GatewayActiveWorkInspectors } from "../infra/gateway-active-work.js";
 import type { GatewayScheduler } from "../infra/gateway-scheduler.js";
+import { publishLuminaGatewayStarted } from "../lumina/cognitive-bus.js";
 import type { PluginHookGatewayCronService } from "../plugins/hook-gateway.types.js";
 import type { PluginManifestRecord } from "../plugins/manifest-registry.js";
 import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.types.js";
@@ -336,6 +337,7 @@ export async function startGatewayPostAttachRuntime(params: {
             return pluginRegistry;
           }
           params.log.info("starting channels and sidecars...");
+          publishLuminaGatewayStarted();
           const loaderStatsBefore = getPluginModuleLoaderStats();
           const postReadySidecarCount = await (async () => {
             try {

@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { windowsTailscaleBinaryCandidates } from "../infra/tailscale.js";
 import { safeParseJsonWithSchema } from "../utils/zod-parse.js";
+import { windowsTailscaleBinaryCandidates } from "./tailscale-windows-binary.js";
 
 export type TailscaleStatusCommandResult = {
   code: number | null;

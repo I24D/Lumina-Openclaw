@@ -17,6 +17,7 @@ import { signalProcessTree } from "../process/kill-tree.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { settlesWithin } from "../shared/settle-within.js";
 import { extractTailscaleServeGatewayUrls } from "../shared/tailscale-status.js";
+import { windowsTailscaleBinaryCandidates } from "../shared/tailscale-windows-binary.js";
 import { assertChildRuntimeAvailable, observeChildRuntime } from "./child-runtime-viability.js";
 import { isVitestRuntimeEnv } from "./env.js";
 import { toErrorObject } from "./errors.js";
@@ -60,29 +61,6 @@ function tailnetHostnameFromStatus(parsed: Record<string, unknown>): string {
     return firstIp;
   }
   throw new Error("Could not determine Tailscale DNS or IP");
-}
-
-/**
- * Windows install roots for tailscale.exe, derived from the environment rather
- * than hardcoded so localized or relocated Program Files still resolve.
- *
- * Windows does not put tailscale.exe on PATH by default, and a PATH edit never
- * reaches already-running processes: a gateway started by Task Scheduler keeps
- * the environment captured at service boot, so it never sees a later install.
- */
-export function windowsTailscaleBinaryCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
-  if (process.platform !== "win32") {
-    return [];
-  }
-  const roots = [env.ProgramFiles, env["ProgramFiles(x86)"], "C:\\Program Files"];
-  const candidates = new Set<string>();
-  for (const root of roots) {
-    if (!root?.trim()) {
-      continue;
-    }
-    candidates.add(`${root.replace(/[\\/]+$/, "")}\\Tailscale\\tailscale.exe`);
-  }
-  return [...candidates];
 }
 
 export async function findTailscaleBinary(): Promise<string | null> {
@@ -155,7 +133,7 @@ export async function getTailnetHostname(exec: typeof runExec = runExec, detecte
     // Skip absolute candidates that are not installed. Windows paths are
     // absolute too ("C:\..."), so match those as well as POSIX ones; a bare
     // command name stays eligible for PATH resolution.
-    const isAbsoluteCandidate = candidate.startsWith("/") || /^[a-zA-Z]:[\/]/.test(candidate);
+    const isAbsoluteCandidate = candidate.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(candidate);
     if (isAbsoluteCandidate && !existsSync(candidate)) {
       continue;
     }

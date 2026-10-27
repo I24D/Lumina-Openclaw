@@ -29,6 +29,7 @@ import { formatZonedTimestamp } from "../infra/format-time/format-datetime.js";
 import { withTimeout } from "../infra/fs-safe.js";
 import { fetchWithSsrFGuard } from "../infra/net/fetch-guard.js";
 import { SsrFBlockedError, type SsrFPolicy } from "../infra/net/ssrf.js";
+import { publishLuminaAutomationEvent } from "../lumina/cognitive-bus.js";
 import {
   runWithGatewayDetachedWorkContinuation,
   runWithGatewayIndependentRootWorkContinuation,
@@ -556,6 +557,7 @@ export function dispatchGatewayCronFinishedNotifications(params: {
   webhookToken?: unknown;
   ssrfPolicy?: SsrFPolicy;
 }): void {
+  publishLuminaAutomationEvent(params.evt);
   const webhookToken = normalizeOptionalString(params.webhookToken);
   const redactedWebhookEvent = redactCommandCronEventForExternalDelivery(params.evt, params.job);
   const completionSummary =

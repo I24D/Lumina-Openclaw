@@ -24,7 +24,6 @@ vi.mock("../infra/tailscale.js", () => ({
   getTailnetHostname: mocks.getTailnetHostname,
   getTailnetHostnameAfterServe: mocks.getTailnetHostnameAfterServe,
   hasTailscaleFunnelRouteForPort: mocks.hasTailscaleFunnelRouteForPort,
-  windowsTailscaleBinaryCandidates: () => [],
 }));
 
 import { createDeferred } from "../../test/helpers/promise.js";
