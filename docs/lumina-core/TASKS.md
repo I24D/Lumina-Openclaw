@@ -31,6 +31,9 @@ boot and a robot network (BLOCKED), and the physical milestones v0.5 and v1.0.
 | Task                                                                                                                                                        | Owner                      | Commit           |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ---------------- |
 | Cognitive Mesh v1: envelope, durable outbox, idempotent inbox, dispatcher, authority zones, ICCV, Supabase transport, fenced task adapter (ADR 0011)        | claude                     | `d39b90eedee`    |
+| Upstream 2026.10.9 merged into the fork; six conflicts resolved, no customization lost                                                                      | claude                     | `df63d26bd46`    |
+| TEST M2 on a real PostgreSQL: two fencing defects measured, both fixes proven                                                                               | claude                     | `295d26681ee`    |
+| Phase E: shared-memory dedup and supersession, event digests, ChatGPT adapter                                                                               | claude                     | `6799d67541e`    |
 | Cognitive core: router, attention, loop, workspace, self model, world model, body behind supervisor                                                         | claude                     | `280ea3593e4`    |
 | Controller hardening, honest run-less actions, payload validation                                                                                           | codex                      | in `c4ead4d465e` |
 | Safety kernel, SQLite persistence, privacy, brainstem, social layer, behaviors, HAL, dashboard                                                              | claude                     | `c4ead4d465e`    |
