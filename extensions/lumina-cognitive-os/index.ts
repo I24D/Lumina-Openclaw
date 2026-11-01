@@ -376,7 +376,16 @@ export default definePluginEntry({
       perceptionFps: raw.perceptionFps ?? 3,
       recipesDir: raw.recipesDir ?? "",
       bridgeUrl: raw.bridgeUrl ?? process.env.LUMINA_BRIDGE_URL ?? "http://127.0.0.1:8765",
-      skillsDir: raw.skillsDir ?? process.env.LUMINA_SKILLS_DIR ?? "c:/I24D_WhatsApp/skills",
+      // The fallback pointed at c:/I24D_WhatsApp/skills, which does not exist:
+      // the 52 skills live inside the checkout. The gateway logged
+      // "Agent Skills: 0 loaded, 0 errors" every start because of it. A path
+      // derived from this file would be better, but the extension is bundled
+      // into dist/, where import.meta.dirname no longer sits beside the
+      // checkout, and absolute machine paths are this block's convention
+      // anyway (see codeActWorkspaceRoot below). Config and
+      // LUMINA_SKILLS_DIR still override.
+      skillsDir:
+        raw.skillsDir ?? process.env.LUMINA_SKILLS_DIR ?? "c:/I24D_WhatsApp/openclaw-main/skills",
       operativeEnabled: raw.operativeEnabled ?? true,
       operativeRulesPath: raw.operativeRulesPath ?? process.env.LUMINA_OPERATIVE_RULES ?? "",
       codeActWorkspaceRoot:
