@@ -117,11 +117,16 @@ export function resolveCognitiveConfig(
     perceptionFps: raw.perceptionFps ?? 3,
     recipesDir: raw.recipesDir ?? "",
     bridgeUrl: raw.bridgeUrl ?? process.env.LUMINA_BRIDGE_URL ?? "http://127.0.0.1:8765",
-    // The old fallback pointed at c:/I24D_WhatsApp/skills, which does not
-    // exist: the skills live inside the checkout, and the gateway logged
-    // "Agent Skills: 0 loaded, 0 errors" every start because of it.
+    // Env ahead of `raw`, and the reason is worth knowing. `openclaw.plugin.json`
+    // declares a JSON-schema `default` for this key, and the host applies it, so
+    // `raw.skillsDir` is ALWAYS set — which made the `??` fallback below dead
+    // code and made the manifest's own "LUMINA_SKILLS_DIR overrides" false.
+    // That is why the gateway logged "Agent Skills: 0 loaded, 0 errors
+    // (dir=c:/I24D_WhatsApp/skills)" at every start even after the fallback was
+    // corrected: nothing downstream of the manifest could win. The manifest
+    // default is fixed too; this ordering is what makes the override real.
     skillsDir:
-      raw.skillsDir ?? process.env.LUMINA_SKILLS_DIR ?? "c:/I24D_WhatsApp/openclaw-main/skills",
+      process.env.LUMINA_SKILLS_DIR ?? raw.skillsDir ?? "c:/I24D_WhatsApp/openclaw-main/skills",
     operativeEnabled: raw.operativeEnabled ?? true,
     // Env first here: the mesh is on by default because Dal asked for it
     // connected in production, so the one-line way to take it back out has to

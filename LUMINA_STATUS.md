@@ -124,6 +124,11 @@ the live instance, not in a harness:
   `applied: 1, suppressedDuplicates: 1`. The effect ran once, which is the at-least-once contract
   holding in production.
 - The inbound cursor persisted across a full gateway restart, so the first event was not replayed.
+- Three restarts later the ledger still reads `applied: 1, suppressedDuplicates: 1`: the cursor is
+  durable, not merely written once.
+- `Agent Skills: 51 loaded, 0 errors (dir=c:/I24D_WhatsApp/openclaw-main/skills)` since `8eb040d22ce`.
+  It had read `0 loaded` from the wrong directory for weeks: the manifest's JSON-schema default
+  shadowed both the code fallback and `LUMINA_SKILLS_DIR`, so the earlier fix could not take effect.
 
 It needed no process of its own, which corrects the design note in `outbox.ts`: the host's retained
 keyed store reaches SQLite through `observePluginStateInWorker`, so runtime SQL is already off the

@@ -196,8 +196,8 @@
       },
       "skillsDir": {
         "type": "string",
-        "default": "c:/I24D_WhatsApp/skills",
-        "description": "Directory of agentskills.io skills Lumina can list/describe/run. Defaults to c:/I24D_WhatsApp/skills; LUMINA_SKILLS_DIR overrides."
+        "default": "c:/I24D_WhatsApp/openclaw-main/skills",
+        "description": "Directory of agentskills.io skills Lumina can list/describe/run. The skills live inside the checkout; LUMINA_SKILLS_DIR overrides."
       },
       "pcOperatorProvider": {
         "type": "string",
@@ -251,6 +251,11 @@
         "type": "boolean",
         "default": true,
         "description": "Run the operative daemon that applies the operative rules."
+      },
+      "meshEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Run the LUMINA-MESH/1 delivery loop: durable outbox, dispatcher and idempotent inbox, polled with backoff. LUMINA_MESH_ENABLED=0 overrides and is the kill switch."
       },
       "operativeRulesPath": {
         "type": "string",
