@@ -13,11 +13,14 @@ import {
   isDocsMarkdownLintPath,
 } from "../changed-lanes.mts";
 import { hasProtocolGenerationInput } from "../lib/ci-check-family-scope.mts";
+import { toolingDependencyOptions } from "../lib/tooling-dependencies.mjs";
 import { resolvePnpmRunner } from "../pnpm-runner.mts";
 
 type FreshnessCheck = {
   name: string;
   script: string;
+  /** Explicitly opts this entry into qualified tooling without a workspace link. */
+  toolingEntrypoint?: string;
   args: string[];
   fix: string;
   /** Staged paths that select the check. A trigger list, not the check's full input set. */
@@ -62,15 +65,17 @@ export function selectStagedFreshnessChecks(paths: string[]): FreshnessCheck[] {
     {
       name: "native app i18n inventory",
       script: "native:i18n:verify",
-      args: [],
-      fix: "pnpm native:i18n:baseline",
+      toolingEntrypoint: "scripts/native-app-i18n.ts",
+      args: ["verify"],
+      fix: "pnpm native:i18n:baseline from an independently installed checkout of this branch",
       selects: hasNativeI18nInput,
       unstagedInputs: "tree",
     },
     {
       name: "config docs baseline",
       script: "config:docs:check",
-      args: [],
+      toolingEntrypoint: "scripts/generate-config-doc-baseline.ts",
+      args: ["--check"],
       fix: "pnpm config:docs:gen",
       selects: hasConfigDocInput,
       unstagedInputs: "tree",
@@ -111,7 +116,25 @@ function replayingCommits() {
 }
 
 // pnpm startup dominates these checks, so plain `node ...` package scripts run directly.
+// Lumina fork: upstream's tooling-entrypoint branch returns a [command, args]
+// tuple, but the pnpm fallback below needs `shell` and
+// `windowsVerbatimArguments` to survive a Windows .cmd shim. One object shape
+// carries both, so `run` has a single contract to spread.
 function resolveCommand(check: FreshnessCheck): ReturnType<typeof resolvePnpmRunner> {
+  if (check.toolingEntrypoint) {
+    const tooling = toolingDependencyOptions(process.cwd(), check.script, { tsx: true });
+    return {
+      command: process.versions.bun ? "node" : process.execPath,
+      args: [
+        ...(tooling.execArgv ?? []),
+        "--import",
+        tooling.tsxImport ?? new URL("../tsx.mjs", import.meta.url).href,
+        check.toolingEntrypoint,
+        ...check.args,
+      ],
+      shell: false,
+    };
+  }
   const script = JSON.parse(readFileSync("package.json", "utf8")).scripts?.[check.script];
   if (typeof script === "string" && /^node(?: [\w./:=@-]+)+$/u.test(script)) {
     return {
@@ -127,12 +150,19 @@ function resolveCommand(check: FreshnessCheck): ReturnType<typeof resolvePnpmRun
 
 // Independent read-only checks run together so the hook costs the slowest one.
 async function run(check: FreshnessCheck) {
-  const { command, args, shell, windowsVerbatimArguments } = resolveCommand(check);
+  let invocation: ReturnType<typeof resolveCommand>;
+  try {
+    invocation = resolveCommand(check);
+  } catch (error) {
+    return { check, status: 1, output: String(error) };
+  }
+  const { command, args, shell, windowsVerbatimArguments } = invocation;
   return await new Promise<{ check: FreshnessCheck; status: number; output: string }>((resolve) => {
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       shell,
       windowsVerbatimArguments,
+      env: check.toolingEntrypoint ? { ...process.env, TSX_DISABLE_CACHE: "1" } : process.env,
     });
     let output = "";
     child.stdout.on("data", (chunk) => (output += chunk));
