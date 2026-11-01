@@ -33,8 +33,9 @@ They are different parts of the same Lumina project by **DAL NIJARUQ**.
 
 ## Staying Current With Upstream OpenClaw
 
-Current integration: OpenClaw `2026.10.7` at official commit
-`367b4fa493e` (merged 2026-10-26).
+Current integration: OpenClaw `2026.10.9` at official commit
+`4120fe0aacb` (merged 2026-10-31 as `df63d26bd46`; six conflicts, no
+customization lost).
 
 This repository tracks `openclaw/openclaw` as a real git ancestor, so upstream
 releases arrive through an ordinary pull:
@@ -49,23 +50,23 @@ pnpm install
 Conflicts can only appear in the files Lumina actually modifies. Everything
 else fast-forwards untouched. The Lumina-owned surface is:
 
-| Area                                 | Files                                                                                                                                                                                                                                                                                                                                       |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Lumina plugins (no upstream path)    | `extensions/lumina-{cognitive-os,context-engine,open-design,supabase}/**`, `extensions/chatgpt-bridge/**`, `extensions/cline/**`                                                                                                                                                                                                            |
-| Lumina Design tab hooks              | `packages/gateway-protocol/src/schema/plugins.ts`, `src/plugins/registry-control-ui.ts`, `src/gateway/control-ui-plugin-tabs.ts`, `ui/src/app/app-shell-{view.tsx,plugin-window.ts}`, `ui/src/components/app-sidebar-{nav-menus,render}.tsx`, `ui/src/styles/plugin-window.css`                                                             |
-| Lumina core tab (Solid)              | `ui/src/pages/plugin/{bundled-tabs.ts,lumina-core-*,plugin-page.tsx,plugin-page-lifecycle.ts}`, `ui/src/styles/lumina-core.css`, `ui/src/i18n/locales/en-lumina-core.ts`, `scripts/lib/control-ui-i18n-catalog.ts`, `ui/src/test-helpers/i18n-locale.setup.ts`, `test/vitest/vitest.ui.config.ts`                                           |
-| WhatsApp outbound safety             | `extensions/whatsapp/src/outbound-safety.ts`, `send.ts`, `auto-reply/monitor/{inbound-dispatch,on-message}.ts`                                                                                                                                                                                                                              |
-| WhatsApp outage resilience           | `extensions/whatsapp/src/lumina-resilience{,.runtime}.ts`, `reconnect.ts`, `connection-controller.ts`, `channel.ts`, `patches/baileys@7.0.0-rc14.patch` (keepalive)                                                                                                                                                                         |
-| Contact-channel guard and read aloud | `src/lumina/{contact-channels.ts,read-aloud/**}`, `src/auto-reply/reply/{agent-runner-result-payloads,dispatch-from-config.finalize,followup-delivery}.ts`, `src/gateway/server-core-runtime.ts`, `src/plugins/host-hooks.ts`                                                                                                               |
-| Cognitive Bus lifecycle events       | `src/lumina/cognitive-bus.ts`, plus one call each in `src/gateway/server-startup-post-attach.ts`, `src/gateway/server-cron-notifications.ts` and `src/infra/outbound/message-sent-hook.ts`                                                                                                                                                  |
-| Message tool media keys              | `src/infra/outbound/message-action-send.ts` (rejects invented `attachment`/`file`/`audio` send keys)                                                                                                                                                                                                                                        |
-| Windows fixes                        | `src/infra/tailscale.ts`, `src/shared/tailscale-{status,windows-binary}.ts` (tailscale.exe outside PATH), `src/infra/windows-process-start.ts` (CIM start time for reused PIDs), `scripts/pre-commit/check-staged-freshness.mts` (pnpm .cmd shim)                                                                                           |
-| Telegram Mini App /dashboard         | `extensions/telegram/src/bot-native-commands.ts` (core /dashboard yields to the plugin command; upstream #142336)                                                                                                                                                                                                                           |
-| Browser pointer motion               | `extensions/browser/src/browser/pointer-{motion,trajectory}.ts`, `pw-tools-core.interactions.actions.ts`                                                                                                                                                                                                                                    |
-| Native session catalogs              | `extensions/anthropic/session-catalog-*.ts`, `extensions/acpx/src/codex-auth-bridge.ts`, `scripts/lib/native-session-catalogs.json`, `apps/macos/Sources/OpenClaw/Resources/NativeSessionCatalogs.json`, `ui/src/pages/config/settings-targets.ts`, `ui/src/i18n/locales/en-settings.ts`                                                    |
-| Memory evaluation                    | `extensions/memory-core/src/concept-vocabulary.ts`, `scripts/lumina-memory-eval.ts`, `scripts/lumina-procedural-memory.ts`                                                                                                                                                                                                                  |
-| Branding, docs and skills            | `README.md`, `VISION.md`, `AGENTS.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `LUMINA_STATUS.md`, `docs/LUMINA_*.md`, `docs/lumina-core/**`, `docs/plugins/{plugin-inventory,reference}.md`, `docs/plugins/reference/*.md` (Lumina plugins), `docs/assets/lumina-openclaw-banner-*.svg`, `skills/bitso/**`, `package.json`                |
-| CI and scripts                       | `.github/workflows/lumina-baseline-ci.yml`, fork guards on `auto-response.yml`, `clawsweeper-dispatch.yml` and `security-review.yml`, `.github/{CODEOWNERS,dependabot.yml,pull_request_template.md,ISSUE_TEMPLATE/*}`, `scripts/lumina-dev-healthcheck.mts`, `scripts/lumina-publish-github.ts`, `scripts/lumina-whatsapp-known-senders.ts` |
+| Area                                 | Files                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lumina plugins (no upstream path)    | `extensions/lumina-{cognitive-os,context-engine,open-design,supabase}/**`, `extensions/chatgpt-bridge/**`, `extensions/cline/**`                                                                                                                                                                                                                                                   |
+| Lumina Design tab hooks              | `packages/gateway-protocol/src/schema/plugins.ts`, `src/plugins/registry-control-ui.ts`, `src/gateway/control-ui-plugin-tabs.ts`, `ui/src/app/app-shell-{view.tsx,plugin-window.ts}`, `ui/src/components/app-sidebar-{nav-menus,render}.tsx`, `ui/src/styles/plugin-window.css`                                                                                                    |
+| Lumina core tab (Solid)              | `ui/src/pages/plugin/{bundled-tabs.ts,lumina-core-*,plugin-page.tsx,plugin-page-lifecycle.ts}`, `ui/src/styles/lumina-core.css`, `ui/src/i18n/locales/en-lumina-core.ts`, `scripts/lib/control-ui-i18n-catalog.ts`, `ui/src/test-helpers/i18n-locale.setup.ts`, `test/vitest/vitest.ui.config.ts`                                                                                  |
+| WhatsApp outbound safety             | `extensions/whatsapp/src/outbound-safety.ts`, `send.ts`, `auto-reply/monitor/{inbound-dispatch,on-message}.ts`                                                                                                                                                                                                                                                                     |
+| WhatsApp outage resilience           | `extensions/whatsapp/src/lumina-resilience{,.runtime}.ts`, `reconnect.ts`, `connection-controller.ts`, `channel.ts`, `patches/baileys@7.0.0-rc14.patch` (keepalive)                                                                                                                                                                                                                |
+| Contact-channel guard and read aloud | `src/lumina/{contact-channels.ts,read-aloud/**}`, `src/auto-reply/reply/{agent-runner-result-payloads,dispatch-from-config.finalize,followup-delivery}.ts`, `src/gateway/server-core-runtime.ts`, `src/plugins/host-hooks.ts`                                                                                                                                                      |
+| Cognitive Bus lifecycle events       | `src/lumina/cognitive-bus.ts`, plus one call each in `src/gateway/server-startup-post-attach.ts`, `src/gateway/server-cron-notifications.ts` and `src/infra/outbound/message-sent-hook.ts`                                                                                                                                                                                         |
+| Message tool media keys              | `src/infra/outbound/message-action-send.ts` (rejects invented `attachment`/`file`/`audio` send keys)                                                                                                                                                                                                                                                                               |
+| Windows fixes                        | `src/infra/tailscale.ts`, `src/shared/tailscale-{status,windows-binary}.ts` (tailscale.exe outside PATH), `src/infra/windows-process-start.ts` (CIM start time for reused PIDs), `scripts/pre-commit/check-staged-freshness.mts` (pnpm .cmd shim)                                                                                                                                  |
+| Telegram Mini App /dashboard         | `extensions/telegram/src/bot-native-commands.ts` (core /dashboard yields to the plugin command; upstream #142336)                                                                                                                                                                                                                                                                  |
+| Browser pointer motion               | `extensions/browser/src/browser/pointer-{motion,trajectory}.ts`, `pw-tools-core.interactions.actions.ts`                                                                                                                                                                                                                                                                           |
+| Native session catalogs              | `extensions/anthropic/session-catalog-*.ts`, `extensions/acpx/src/codex-auth-bridge.ts`, `scripts/lib/native-session-catalogs.json`, `apps/macos/Sources/OpenClaw/Resources/NativeSessionCatalogs.json`, `ui/src/pages/config/settings-targets.ts`, `ui/src/i18n/locales/en-settings.ts`                                                                                           |
+| Memory evaluation                    | `extensions/memory-core/src/concept-vocabulary.ts`, `scripts/lumina-memory-eval.ts`, `scripts/lumina-procedural-memory.ts`                                                                                                                                                                                                                                                         |
+| Branding, docs and skills            | `README.md`, `VISION.md`, `AGENTS.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `LUMINA_STATUS.md`, `docs/LUMINA_*.md`, `docs/lumina-core/**`, `docs/plugins/{plugin-inventory,reference}.md`, `docs/plugins/reference/*.md` (Lumina plugins), `docs/assets/lumina-openclaw-banner-*.svg`, `skills/bitso/**`, `package.json`                                                       |
+| CI and scripts                       | `.github/workflows/lumina-baseline-ci.yml`, fork guards on `ci.yml` (the main-push ratchet step), `auto-response.yml`, `clawsweeper-dispatch.yml` and `security-review.yml`, `.github/{CODEOWNERS,dependabot.yml,pull_request_template.md,ISSUE_TEMPLATE/*}`, `scripts/lumina-dev-healthcheck.mts`, `scripts/lumina-publish-github.ts`, `scripts/lumina-whatsapp-known-senders.ts` |
 
 Two upstream behaviours to expect when merging:
 
@@ -76,6 +77,37 @@ Two upstream behaviours to expect when merging:
   produce code that compiles against APIs that no longer exist. Check that the
   surrounding functions still exist before accepting a clean-looking merge.
   This is what retired the 7.2 sidebar thread unification at the 8.1 graft.
+
+## What "verified" Means Here
+
+Say which level ran. These are not interchangeable, and the cheap ones get
+mistaken for the expensive ones:
+
+1. `oxlint` over the touched paths
+2. `pnpm lint` in full
+3. boundary `.d.ts` generation
+4. typecheck (`tsgo:core`, `tsgo:extensions`, `tsgo:ui` — each its own project)
+5. tests
+
+Unverified is not green, and a failure that looks like upstream's does not get
+reclassified as green either.
+
+As of 2026-11-01, level 2 does not complete on the Windows development machine.
+`pnpm lint` reaches `scripts/run-oxlint-shards.mts`, which calls
+`scripts/prepare-extension-package-boundary-artifacts.mts` because oxlint needs
+those boundary declarations, and the `plugin-sdk` unit exhausts its 300s cap.
+That unit is upstream's, and it has never completed here:
+`.artifacts/extension-package-boundary/` holds records for seven extensions, all
+from 2026-08-29, and none for `plugin-sdk`.
+
+The cap is only liftable for that one unit, through
+`OPENCLAW_PLUGIN_SDK_BOUNDARY_ROOT_SHIMS_TIMEOUT_MS`; every other unit is fixed
+at `Math.min(300_000, …)`, so `OPENCLAW_TSGO_TIMEOUT_MS` can only lower it.
+That the knob exists for exactly this unit is the hint that upstream knows —
+see their `fix(ci): size serial SDK declaration compilers to the runner`.
+
+Levels 4 and 5 are what CI proves on every push; see
+`.github/workflows/lumina-baseline-ci.yml`.
 
 ## Publishing to GitHub
 
