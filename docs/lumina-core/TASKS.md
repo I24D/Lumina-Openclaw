@@ -14,6 +14,8 @@ Status words: TODO, IN PROGRESS, DONE, BLOCKED.
 | --- | -------------------------------------------------------------------------------------------------------- | ----- | ------- |
 | 22  | The Lumina tab in the other 19 Control UI locales: `pnpm ui:i18n:sync` with an OpenAI or Anthropic key   | dal   | BLOCKED |
 | 23  | Create the append-only `lumina_audit_checkpoints` table in Supabase (`sql/lumina_audit_checkpoints.sql`) | dal   | BLOCKED |
+| 24  | Approve or decline `sql/lumina_mesh_finish_idempotent.sql`: the idempotent fenced close, on its own      | dal   | BLOCKED |
+| 25  | `Agent Skills: 0 loaded` — the gateway resolves `c:/I24D_WhatsApp/skills`, which does not exist          | any   | TODO    |
 
 Both wait for Dal. Task 22: Spanish is done; the remaining locales are machine-translated by a paid
 API, so spending on it is Dal's call, and until then `pnpm ui:i18n:check` reports the English
@@ -30,6 +32,7 @@ boot and a robot network (BLOCKED), and the physical milestones v0.5 and v1.0.
 
 | Task                                                                                                                                                        | Owner                      | Commit           |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ---------------- |
+| Cognitive Mesh running in the production gateway: scheduler, backoff, HTTP counters; idempotence proven on the live instance                                | claude                     | `61f2eb1a90b`    |
 | Cognitive Mesh v1: envelope, durable outbox, idempotent inbox, dispatcher, authority zones, ICCV, Supabase transport, fenced task adapter (ADR 0011)        | claude                     | `d39b90eedee`    |
 | Upstream 2026.10.9 merged into the fork; six conflicts resolved, no customization lost                                                                      | claude                     | `df63d26bd46`    |
 | TEST M2 on a real PostgreSQL: two fencing defects measured, both fixes proven                                                                               | claude                     | `295d26681ee`    |

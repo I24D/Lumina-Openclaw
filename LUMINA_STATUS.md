@@ -110,15 +110,28 @@ physical milestones v0.5 and v1.0. See `docs/lumina-core/SECTION_MAP.md` and `RO
 
 ## CURRENT TASK
 
-Claude Code, 2026-10-31: the LUMINA Cognitive Mesh and the upstream 2026.10.9 merge. The mesh is
-`extensions/lumina-cognitive-os/src/mesh` with 281 tests across 11 files, and `MESH.md` is its map.
-Phases A, B, D and E are complete; C and F are partial (see PARTIAL and BLOCKERS). Codex and
-ChatGPT-LUMINA: no task open.
+Claude Code, 2026-11-01: the LUMINA Cognitive Mesh **runs in the production gateway**. The mesh is
+`extensions/lumina-cognitive-os/src/mesh` with 294 tests across 12 files, and `MESH.md` is its map.
+Codex and ChatGPT-LUMINA: no task open.
 
-The mesh is NOT wired into the gateway. That is the deliberate phase-1 design — the reliable layer
-stays independent of the critical gateway, and the fire-and-forget emitter in
-`src/lumina/cognitive-bus.ts` is untouched — so none of it runs in production until someone
-registers it on purpose.
+Phase 1 kept it deliberately unwired; Dal's production order of 2026-11-01 ended that. Proven on
+the live instance, not in a harness:
+
+- `[mesh] runtime started as openclaw-gateway; handlers=2` at 13:21:19, gateway PID 736.
+- `GET /plugins/lumina-cognitive-os/mesh` (gateway auth) reports `running: true` with live counters.
+- Two real rows were inserted into `lumina_events` and consumed: the first applied once, the second
+  — a resend with a fresh `message_id` and the same `idempotency_key` — came back as
+  `applied: 1, suppressedDuplicates: 1`. The effect ran once, which is the at-least-once contract
+  holding in production.
+- The inbound cursor persisted across a full gateway restart, so the first event was not replayed.
+
+It needed no process of its own, which corrects the design note in `outbox.ts`: the host's retained
+keyed store reaches SQLite through `observePluginStateInWorker`, so runtime SQL is already off the
+Gateway main thread and `worker-access.md` is satisfied. What runs on the main thread is an `await`
+and a `setTimeout`.
+
+Task handoff is deliberately unregistered: it would consume the two RPCs whose defects are still
+open. `LUMINA_MESH_ENABLED=0` is the kill switch.
 
 ## NEXT TASKS
 
@@ -129,8 +142,9 @@ registers it on purpose.
 4. Any agent: the shared-memory audit reports four live inconsistencies it deliberately does not
    repair. Deciding what to do about ten half-superseded rows and the actor case collisions is a
    data decision, not a code one.
-5. Any agent: wire the mesh into the gateway. Database access must go through a worker, per
-   `docs/reference/database-schemas/worker-access.md`.
+5. Dal: approve or decline `sql/lumina_mesh_finish_idempotent.sql` — the idempotent close on its
+   own ("1B"), which the core LUMINA recommends and which changes no signature. The full hardening
+   ("1A") needs `lumina_bus.py` updated in the same window and is a separate decision.
 6. Any agent: keep the suites green; hardware work starts when a body exists.
 
 ## BLOCKERS
