@@ -84,7 +84,7 @@ Say which level ran. These are not interchangeable, and the cheap ones get
 mistaken for the expensive ones:
 
 1. `oxlint` over the touched paths
-2. `pnpm lint` in full
+2. `pnpm check:changed` — the real lint gate (see below)
 3. boundary `.d.ts` generation
 4. typecheck (`tsgo:core`, `tsgo:extensions`, `tsgo:ui` — each its own project)
 5. tests
@@ -92,19 +92,53 @@ mistaken for the expensive ones:
 Unverified is not green, and a failure that looks like upstream's does not get
 reclassified as green either.
 
-As of 2026-11-01, level 2 does not complete on the Windows development machine.
-`pnpm lint` reaches `scripts/run-oxlint-shards.mts`, which calls
-`scripts/prepare-extension-package-boundary-artifacts.mts` because oxlint needs
-those boundary declarations, and the `plugin-sdk` unit exhausts its 300s cap.
-That unit is upstream's, and it has never completed here:
-`.artifacts/extension-package-boundary/` holds records for seven extensions, all
+### `pnpm check:changed`, not `pnpm lint`
+
+A bare `pnpm lint` cannot be green on this repository, upstream included, and
+that is by design rather than a defect. The limit rules — `max-lines`,
+`complexity`, `max-statements` — are scoped to the files a change touched, via
+`OPENCLAW_OXLINT_CHANGED_PATHS`, which `pnpm check:changed` sets. Unscoped, they
+apply repo-wide at error severity, and three of upstream's own files are over the
+700-line cap without being in `config/max-lines-baseline.txt`
+(`src/infra/update-startup.ts` at 705, `src/state/agent-database-startup.ts` at
+708, `src/auto-reply/reply/session-event-handoff.ts` at 734, each byte-identical
+to upstream on both sides). So `pnpm lint` is a superset that includes upstream's
+backlog; `check:changed` is the gate that speaks about your change.
+
+Measured on 2026-11-01, a bare `pnpm lint` also takes longer than 25 minutes on
+the Windows development machine — each oxlint stripe can run the full 300s — so
+it has not been seen to finish here at all.
+
+### The `plugin-sdk` boundary cap
+
+`pnpm lint` needs boundary declarations, so `scripts/run-oxlint-shards.mts`
+calls `scripts/prepare-extension-package-boundary-artifacts.mts`, whose
+`plugin-sdk` unit emits 13,912 files and needs 7m48s — over its 300s cap. That
+unit is upstream's and had never completed here:
+`.artifacts/extension-package-boundary/` held records for seven extensions, all
 from 2026-08-29, and none for `plugin-sdk`.
 
-The cap is only liftable for that one unit, through
-`OPENCLAW_PLUGIN_SDK_BOUNDARY_ROOT_SHIMS_TIMEOUT_MS`; every other unit is fixed
-at `Math.min(300_000, …)`, so `OPENCLAW_TSGO_TIMEOUT_MS` can only lower it.
-That the knob exists for exactly this unit is the hint that upstream knows —
-see their `fix(ci): size serial SDK declaration compilers to the runner`.
+The cap is liftable for that one unit only, through
+`OPENCLAW_PLUGIN_SDK_BOUNDARY_ROOT_SHIMS_TIMEOUT_MS`, which is set to 1800000 at
+user scope on the development machine. Every other unit is fixed at
+`Math.min(300_000, …)`, so `OPENCLAW_TSGO_TIMEOUT_MS` can only lower it. That the
+knob exists for exactly this unit is the hint that upstream knows — see their
+`fix(ci): size serial SDK declaration compilers to the runner`. Once the unit
+completes it writes its receipt and later runs reuse it, so the cost is paid when
+`plugin-sdk` inputs change, which in practice means after an upstream merge.
+
+### Running one test file
+
+Tests are routed to one project each, so naming a file under the wrong config
+prints `No test files found` with the file listed under `exclude` — that is
+routing, not a missing test. `src/channels/**` and `src/auto-reply/**` are
+`unit-fast` candidates; `src/lumina/**` is not and belongs to `unit-src`.
+
+A cold run compiles a Vitest worker, which can exceed the 120s no-output
+watchdog on this machine and be killed as a stall. Raise it with
+`OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS`; the same file took 316s cold and 37s once
+the worker cache was warm. `pnpm test:changed` routes everything correctly but
+ran 50 minutes without output here, so it is not a local option.
 
 Levels 4 and 5 are what CI proves on every push; see
 `.github/workflows/lumina-baseline-ci.yml`.
