@@ -3,8 +3,8 @@ import path from "node:path";
 import { stableStringify } from "@openclaw/normalization-core";
 import { afterEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
-import { inspectClawPluginCapabilities } from "../claws/plugin-capability-probe.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
+import { inspectTemplatePluginCapabilities } from "../templates/plugin-capability-probe.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { clawHubSecurityResponse } from "./clawhub.test-fixtures.js";
 import { createClawHubArchiveFactory } from "./clawhub.test-support.js";
@@ -91,7 +91,7 @@ async function writePluginSource(root: string, tool: string): Promise<string> {
 
 type InstallOptions = Omit<
   Parameters<typeof installManagedPlugin>[0],
-  "request" | "env" | "clawManaged"
+  "request" | "env" | "templateManaged"
 > & { mode?: "update" };
 
 async function localFixture() {
@@ -102,7 +102,7 @@ async function localFixture() {
     installManagedPlugin({
       request: { source: "local", path: sourceDir, ...(mode ? { mode } : {}) },
       env,
-      clawManaged: true,
+      templateManaged: true,
       ...options,
     });
   const deny = (options: InstallOptions = {}) =>
@@ -176,7 +176,7 @@ it("denies an official ClawHub plugin before artifact and record commit, then in
   await withEnvAsync(env, async () => {
     const denied = vi.fn(async () => undefined);
     await expect(
-      installManagedPlugin({ request, env, clawManaged: true, onCapabilityConsent: denied }),
+      installManagedPlugin({ request, env, templateManaged: true, onCapabilityConsent: denied }),
     ).rejects.toMatchObject({ capabilityConsent: { pluginId: "diffs" } });
     expect(denied).toHaveBeenCalledWith(
       expect.objectContaining({ declared: expect.objectContaining({ tools: ["audit.read"] }) }),
@@ -185,7 +185,7 @@ it("denies an official ClawHub plugin before artifact and record commit, then in
 
     const accepted = vi.fn(acceptReview);
     await expect(
-      installManagedPlugin({ request, env, clawManaged: true, onCapabilityConsent: accepted }),
+      installManagedPlugin({ request, env, templateManaged: true, onCapabilityConsent: accepted }),
     ).resolves.toMatchObject({ plugin: { id: "diffs", installed: true } });
     expect(accepted).toHaveBeenCalledOnce();
     expect(
@@ -255,12 +255,12 @@ it("rejects sibling-entry drift even when the merged capability token is unchang
       );
     }
 
-    const expected = inspectClawPluginCapabilities(sourceDir, "claw-audit", env);
-    let changed: ReturnType<typeof inspectClawPluginCapabilities> | undefined;
+    const expected = inspectTemplatePluginCapabilities(sourceDir, "claw-audit", env);
+    let changed: ReturnType<typeof inspectTemplatePluginCapabilities> | undefined;
     const pending = install({
       onCapabilityConsent: acceptReview,
       onBeforePluginArtifactCommit: async (artifact) => {
-        const current = inspectClawPluginCapabilities(
+        const current = inspectTemplatePluginCapabilities(
           artifact.stagedArtifactDir,
           artifact.pluginId,
           env,
@@ -281,7 +281,7 @@ it("rejects sibling-entry drift even when the merged capability token is unchang
           "package.json",
           packageManifest(["./index.js", "./other/other.js"]),
         );
-        changed = inspectClawPluginCapabilities(stagedArtifactDir, "claw-audit", env);
+        changed = inspectTemplatePluginCapabilities(stagedArtifactDir, "claw-audit", env);
       },
     });
     await expect(pending).rejects.toThrow("effective capability grants changed after planning");
