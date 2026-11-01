@@ -331,7 +331,7 @@ describe("supersede", () => {
     expect(result.superseded.superseded_by).toBe(result.row.id);
     expect(result.superseded.status).toBe("superseded");
     expect(
-      auditSharedMemory(await h.store.all()).byKind["superseded-without-status"],
+      auditSharedMemory(await h.store.all()).byKind["superseded-while-active"],
     ).toBeUndefined();
   });
 
@@ -461,15 +461,28 @@ describe("advanceReview", () => {
 });
 
 describe("auditSharedMemory", () => {
-  it("finds a pointer without the matching status, which the live table has", () => {
-    // Ten rows on the live table carry superseded_by with another status.
+  it("flags an active row that was already replaced, which is the harmful case", () => {
     const audit = auditSharedMemory([
       row({ id: "mem_0001", superseded_by: "mem_0002", status: "active" }),
       row({ id: "mem_0002" }),
     ]);
-    const finding = audit.findings.find((f) => f.kind === "superseded-without-status");
+    const finding = audit.findings.find((f) => f.kind === "superseded-while-active");
     expect(finding?.rows).toEqual(["mem_0001"]);
-    expect(finding?.detail).toMatch(/still treat it as current/u);
+    expect(finding?.detail).toMatch(/already replaced/u);
+  });
+
+  it("grades an archived row with a pointer as drift, not as a misread", () => {
+    // All ten such rows on the live table are archived test-suite fixtures. An
+    // archived row is already excluded by a status filter, so calling it a
+    // misread would have sent someone to repair data that reads correctly.
+    const audit = auditSharedMemory([
+      row({ id: "mem_0001", superseded_by: "mem_0002", status: "archived" }),
+      row({ id: "mem_0002" }),
+    ]);
+    expect(audit.byKind["superseded-while-active"]).toBeUndefined();
+    const finding = audit.findings.find((f) => f.kind === "superseded-status-drift");
+    expect(finding?.rows).toEqual(["mem_0001"]);
+    expect(finding?.detail).toMatch(/already excludes it/u);
   });
 
   it("finds a superseded status with no pointer", () => {

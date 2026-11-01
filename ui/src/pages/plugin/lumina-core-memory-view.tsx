@@ -45,8 +45,8 @@ export function MemorySearch(props: { state: ControllerState }): JSX.Element {
         type="search"
         value={props.state.memoryQuery}
         placeholder={t("luminaCore.memory.searchPlaceholder")}
-        onInput={(event: InputEvent) => {
-          props.state.memoryQuery = (event.currentTarget as HTMLInputElement).value;
+        onInput={(event) => {
+          props.state.memoryQuery = event.currentTarget.value;
           props.state.requestUpdate?.();
         }}
       />

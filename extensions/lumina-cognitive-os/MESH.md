@@ -291,12 +291,23 @@ A hypothesis is never stored as a fact: `isEstablished` refuses anything
 independent source that agreed.
 
 `auditSharedMemory` reports and does not repair, because these rows were written
-by several agents over weeks. It finds the four things the live table actually
-has: 106 rows carry `superseded_by` while only 96 say `superseded`, so ten are
-superseded without admitting it; two active content hashes are duplicated;
-`conflict_with` has never been used; and actor names collide on case
-(`chatgpt-lumina` 56 rows against `ChatGPT-Lumina` 23), so anything grouped by
-raw actor is already wrong.
+by several agents over weeks. It finds what the live table actually has: 106 rows
+carry `superseded_by` while only 96 say `superseded`; two active content hashes
+are duplicated; `conflict_with` has never been used; and actor names collide on
+case (`chatgpt-lumina` 56 rows against `ChatGPT-Lumina` 23), so anything grouped
+by raw actor is already wrong.
+
+The ten are **graded, not lumped together**, and that distinction was earned the
+hard way. An `active` row with a pointer is served to any reader filtering on
+status, which is a real misread. An `archived` one is already excluded, so it is
+only bookkeeping drift. Measured on 2026-11-01, before touching anything: all
+ten are `archived`, every one of them an `actor: test-suite` fixture with a
+`test-mvp-*` topic, and **no row is both pointered and active**. So there was
+nothing to repair, and an earlier draft of this document claiming a status filter
+"still treats them as current" was simply wrong about these rows. The audit now
+reports `superseded-while-active` for the harmful case and
+`superseded-status-drift` for the benign one, so nobody is sent to fix data that
+reads correctly.
 
 ## Reaching the ChatGPT core, honestly
 
@@ -405,8 +416,10 @@ which is a separate, authorized step.
 - `LUMINA_STATUS.md` was 25 days stale when this work began; it was brought
   current on 2026-10-31 and now records the mesh, the upstream merge and both
   open defects.
-- The shared-memory audit reports four live inconsistencies and deliberately
-  repairs none of them. Ten half-superseded rows and the actor case collisions
-  are a data decision for Dal, not something this code should rewrite on a hunch.
+- The shared-memory audit reports live inconsistencies and deliberately repairs
+  none of them. The actor case collisions and the two duplicate hashes are a data
+  decision for Dal, not something this code should rewrite on a hunch. The ten
+  pointered rows turned out to need no repair at all: they are archived
+  test-suite fixtures, and archived already excludes them.
 - `event-digest` and `chatgpt-adapter` are unit-proven and unwired: nothing
   schedules a digest or hands the adapter a real relay yet.

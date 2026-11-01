@@ -1780,8 +1780,17 @@ jobs:
           cache-mode: restore
           install-bun: "false"
 
+      # Lumina fork guard: these ratchets diff against the previous commit on
+      # main, and this fork publishes unrelated tree snapshots, so every upstream
+      # upgrade reads as fork-introduced growth. check-protocol-since likewise
+      # wants core-descriptors.ts stamped since 2026.10 while upstream stamps
+      # 2026.9 in a file this fork keeps byte-identical. Upstream sets
+      # OPENCLAW_CI_ON_PUSH, so it never runs this path and never sees that
+      # mismatch. The checks that are meaningful without a base — assertion
+      # safety, mock exports, env-var count, conflict markers, typecheck — run in
+      # lumina-baseline-ci.yml instead, on every push.
       - name: Check main push ratchets and protocol additions
-        if: ${{ !cancelled() && steps.guard_setup.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.OPENCLAW_CI_ON_PUSH != 'true' }}
+        if: ${{ github.repository == 'openclaw/openclaw' && !cancelled() && steps.guard_setup.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.OPENCLAW_CI_ON_PUSH != 'true' }}
         env:
           BASE_SHA: *diff_base
           PROTOCOL_SINCE_BASE_SHA: *diff_base

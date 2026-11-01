@@ -1,6 +1,26 @@
 name: Lumina Baseline CI
 
+# The one workflow in this fork that is meant to run here and nowhere else.
+#
+# Upstream's own CI is gated on `vars.OPENCLAW_CI_ON_PUSH == 'true'` plus
+# `github.repository == 'openclaw/openclaw'`, so for most of this fork's life a
+# push produced only `skipped` runs. A `skipped` run is not validation: it is the
+# absence of one. This job exists so that every push to `main` leaves behind real
+# evidence that the Lumina surface still typechecks and that the mesh behaves.
+#
+# Only checks verified to be meaningful in a fork are listed. Two upstream
+# ratchets are deliberately absent:
+#
+#   * `check:assertion-safety` is a ratchet, not an absolute rule. Run without
+#     `--base <merge-base>` it reports the fork's 135 pre-existing files at once
+#     and can never pass; it is useful per-change, against a base, not in a
+#     standing job that would be permanently red.
+#   * `check:test-mock-exports` does not finish — it was still running after
+#     nine minutes locally — so it would only ever contribute a timeout.
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -8,11 +28,15 @@ permissions:
 
 jobs:
   baseline:
-    name: Typecheck baseline
+    name: Lumina baseline
+    # Lumina-only by design: the inverse of the `== 'openclaw/openclaw'` guard
+    # the inherited workflows use. Nothing here belongs in upstream's CI.
+    if: github.repository != 'openclaw/openclaw'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       CI: "true"
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,8 +55,22 @@ jobs:
       - name: Check conflict markers
         run: pnpm check:no-conflict-markers
 
+      - name: Check env var budget
+        run: pnpm check:env-var-count
+
       - name: Typecheck core
         run: pnpm tsgo:core
 
       - name: Typecheck extensions
         run: pnpm tsgo:extensions
+
+      - name: Typecheck Control UI
+        run: pnpm tsgo:ui
+
+      # The mesh is the part of this fork with no upstream counterpart, so it is
+      # also the part upstream's CI can never cover. 282 tests, ~6s locally.
+      - name: Mesh regression suite
+        run: >
+          node scripts/run-vitest.mjs run
+          --config test/vitest/vitest.extensions.config.ts
+          extensions/lumina-cognitive-os/src/mesh/

@@ -6,6 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// mock-isolation: the real module spawns a Python sidecar process, so a unit test must not reach it.
 vi.mock("../shared/python.js", () => ({
   runPythonSidecarJson: vi.fn(),
 }));

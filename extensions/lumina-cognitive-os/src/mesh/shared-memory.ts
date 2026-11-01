@@ -38,6 +38,12 @@
  * names collide on case (`chatgpt-lumina` 56 rows versus `ChatGPT-Lumina` 23),
  * so any grouping by actor is wrong today. `auditSharedMemory` finds all four,
  * and `supersede` writes both sides of the link so it cannot add more.
+ *
+ * The ten are graded, not lumped together: an `active` row with a pointer is
+ * served to readers that filter on status, which is a real misread, while an
+ * `archived` one is already excluded and is only bookkeeping drift. Measured on
+ * 2026-11-01, all ten are `archived` test-suite fixtures and none is active, so
+ * nothing there needed repairing.
  */
 import { createHash } from "node:crypto";
 
@@ -150,12 +156,22 @@ export function memoryContentHash(draft: {
   return createHash("sha256").update(canonical).digest("hex");
 }
 
+/**
+ * The review stages as a set, so narrowing an unknown metadata value needs no
+ * type assertion and stays in step with `MEMORY_REVIEW_STAGES`.
+ */
+const REVIEW_STAGES: ReadonlySet<string> = new Set(MEMORY_REVIEW_STAGES);
+
+/** Narrows a value read out of `metadata` to a review stage. */
+function isMemoryReview(value: unknown): value is MemoryReview {
+  return typeof value === "string" && REVIEW_STAGES.has(value);
+}
+
 /** Reads the review stage off a row, defaulting to the cautious answer. */
 export function reviewOf(row: Pick<MemoryRow, "metadata">): MemoryReview {
-  const raw = (row.metadata as { review?: unknown }).review;
-  return typeof raw === "string" && (MEMORY_REVIEW_STAGES as readonly string[]).includes(raw)
-    ? (raw as MemoryReview)
-    : "proposed";
+  // `metadata` is Record<string, unknown>, so this is already `unknown`.
+  const raw = row.metadata.review;
+  return isMemoryReview(raw) ? raw : "proposed";
 }
 
 /**
@@ -420,7 +436,8 @@ export class SharedMemory {
 /** One thing the audit found wrong, with the rows involved. */
 export type MemoryFinding = {
   readonly kind:
-    | "superseded-without-status"
+    | "superseded-while-active"
+    | "superseded-status-drift"
     | "status-without-pointer"
     | "duplicate-hash"
     | "actor-case-collision"
@@ -449,10 +466,22 @@ export function auditSharedMemory(rows: readonly MemoryRow[]): SharedMemoryAudit
   const byId = new Map(rows.map((row) => [row.id, row]));
 
   for (const row of rows) {
-    if (row.superseded_by && row.status !== "superseded") {
+    if (row.superseded_by && row.status === "active") {
+      // The harmful case: a reader filtering on `status = 'active'` serves a row
+      // that something else has already replaced.
       findings.push({
-        kind: "superseded-without-status",
-        detail: `points at ${row.superseded_by} but its status is "${row.status}", so status readers still treat it as current`,
+        kind: "superseded-while-active",
+        detail: `points at ${row.superseded_by} while still active, so a status filter serves a row that was already replaced`,
+        rows: [row.id],
+      });
+    } else if (row.superseded_by && row.status !== "superseded") {
+      // Not harmful, and saying so matters. An `archived` row with a pointer is
+      // already excluded by any status filter, so this is bookkeeping drift and
+      // not a misread. Measured on the live table: all ten such rows are
+      // `archived` test-suite fixtures, and none is active.
+      findings.push({
+        kind: "superseded-status-drift",
+        detail: `points at ${row.superseded_by} but its status is "${row.status}"; a status filter already excludes it, so this is drift rather than a misread`,
         rows: [row.id],
       });
     }
@@ -471,8 +500,8 @@ export function auditSharedMemory(rows: readonly MemoryRow[]): SharedMemoryAudit
       });
     }
     if (isEstablished(row)) {
-      const corroboration = (row.metadata as { corroboration?: unknown }).corroboration;
-      const approvedBy = (row.metadata as { approved_by?: unknown }).approved_by;
+      const corroboration = row.metadata.corroboration;
+      const approvedBy = row.metadata.approved_by;
       if (!Array.isArray(corroboration) && typeof approvedBy !== "string") {
         findings.push({
           kind: "established-without-corroboration",

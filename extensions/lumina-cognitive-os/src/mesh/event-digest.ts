@@ -63,6 +63,14 @@ export type DigestEvent = {
 };
 
 const HEADLINE_MAX = 120;
+
+/**
+ * The louder of two priorities. Written as a comparison rather than
+ * `Math.max`, which widens to `number` and would need a type assertion back.
+ */
+function louder(a: DigestPriority, b: DigestPriority): DigestPriority {
+  return b > a ? b : a;
+}
 const KIND_ORDER: readonly DigestKind[] = ["decision", "failure", "work", "evidence", "state"];
 
 const KIND_TITLES: Readonly<Record<DigestKind, string>> = Object.freeze({
@@ -142,7 +150,7 @@ export function buildEventDigest(events: readonly DigestEvent[]): EventDigest {
     ],
     // The loudest report wins, so a later failure is not hidden by an earlier
     // routine sighting of the same fact.
-    priority: Math.max(entry.priority, event.priority) as DigestPriority,
+    priority: louder(entry.priority, event.priority),
   });
 
   for (const event of ordered) {
@@ -204,7 +212,7 @@ export function buildEventDigest(events: readonly DigestEvent[]): EventDigest {
     worstPriority:
       entries.length === 0
         ? null
-        : (Math.max(...entries.map((entry) => entry.priority)) as DigestPriority),
+        : entries.reduce<DigestPriority>((worst, entry) => louder(worst, entry.priority), 1),
   };
 }
 
