@@ -2,28 +2,6 @@ import { redactSensitiveUrlLikeString } from "@openclaw/net-policy/redact-sensit
 import { filterStringEntries } from "@openclaw/normalization-core";
 import { sanitizeTerminalText } from "../../packages/terminal-core/src/safe-text.js";
 import { listAgentIds, resolveAgentWorkspaceDir } from "../agents/agent-scope-config.js";
-import { applyClawAddPlanStateless } from "../claws/add-stateless.js";
-import { CLAW_ADD_RESULT_SCHEMA_VERSION, ClawAddMutationError } from "../claws/add.js";
-import {
-  findClawExtensionPackageCollisions,
-  planClawExtensions,
-} from "../claws/application-plan.js";
-import {
-  assertClawsLabsEnabled,
-  CLAWS_LABS_DISABLED_MESSAGE,
-  ClawsLabsDisabledError,
-  isClawsLabsEnabled,
-} from "../claws/labs-gate.js";
-import { buildClawAddPlan } from "../claws/lifecycle.js";
-import { preflightClawPackage, type ClawSkillInstallConsent } from "../claws/packages.js";
-import { readClawManifestFile } from "../claws/reader.js";
-import { collectClawSkillWarningReviews } from "../claws/skill-warning-review.js";
-import {
-  CLAW_INSPECT_RESULT_SCHEMA_VERSION,
-  CLAW_ADD_PLAN_SCHEMA_VERSION,
-  CLAW_OUTPUT_STABILITY,
-  type ClawAddPlan,
-} from "../claws/types.js";
 import { getRuntimeConfig } from "../config/config.js";
 import { readCurrentConfigForPolicyCheck } from "../config/io.js";
 import { listConfiguredMcpServers } from "../config/mcp-config.js";
@@ -32,44 +10,70 @@ import { redactSensitiveArgv } from "../config/redact-argv.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { redactSensitiveText } from "../logging/redact.js";
 import { defaultRuntime as runtime, writeRuntimeJson } from "../runtime.js";
+import { monotonicNow } from "../shared/monotonic-time.js";
 import { withOpenClawStateLease } from "../state/openclaw-state-lease.js";
-import { sleep } from "../utils/sleep.js";
+import { applyTemplateAddPlanStateless } from "../templates/add-stateless.js";
+import { TEMPLATE_ADD_RESULT_SCHEMA_VERSION, TemplateAddMutationError } from "../templates/add.js";
 import {
-  emitClawFailure,
-  formatClawDiagnostics,
-  logClawAgentConfiguration,
-} from "./claws-cli-output.js";
-import type { ClawsAddOptions, ClawsInspectOptions } from "./claws-cli.js";
+  findTemplateExtensionPackageCollisions,
+  planTemplateExtensions,
+} from "../templates/application-plan.js";
+import {
+  assertTemplatesLabsEnabled,
+  TEMPLATES_LABS_DISABLED_MESSAGE,
+  TemplatesLabsDisabledError,
+  isTemplatesLabsEnabled,
+} from "../templates/labs-gate.js";
+import { buildTemplateAddPlan } from "../templates/lifecycle.js";
+import {
+  preflightTemplatePackage,
+  type TemplateSkillInstallConsent,
+} from "../templates/packages.js";
+import { readTemplateManifestFile } from "../templates/reader.js";
+import { collectTemplateSkillWarningReviews } from "../templates/skill-warning-review.js";
+import {
+  TEMPLATE_INSPECT_RESULT_SCHEMA_VERSION,
+  TEMPLATE_ADD_PLAN_SCHEMA_VERSION,
+  TEMPLATE_OUTPUT_STABILITY,
+  type TemplateAddPlan,
+} from "../templates/types.js";
+import { sleep } from "../utils/sleep.js";
 import { listCronJobsFromGateway } from "./cron-cli/list-jobs.js";
 import { callGatewayFromCli, callGatewayFromCliWithTransport } from "./gateway-rpc.js";
 import { runWithLocalStateOwner } from "./local-state-owner.js";
 import { resolvePluginCapabilityConsentCliOptions } from "./plugin-capability-consent.js";
 import { resolvePluginBatchReload } from "./plugins-lifecycle-client.js";
 import { promptYesNo } from "./prompt.js";
+import {
+  emitTemplateFailure,
+  formatTemplateDiagnostics,
+  logTemplateAgentConfiguration,
+} from "./templates-cli-output.js";
+import type { TemplatesAddOptions, TemplatesInspectOptions } from "./templates-cli.js";
 
-type ClawCliSkillWarning = {
+type TemplateCliSkillWarning = {
   ref: string;
   version: string;
   integrity: string;
   riskWarning: string;
 };
 
-function addPlanSkillWarnings(plan: ClawAddPlan): ClawCliSkillWarning[] {
-  return collectClawSkillWarningReviews(plan).map(({ actionId, ...warning }) => {
+function addPlanSkillWarnings(plan: TemplateAddPlan): TemplateCliSkillWarning[] {
+  return collectTemplateSkillWarningReviews(plan).map(({ actionId, ...warning }) => {
     if (actionId !== `skill:${warning.ref}`) {
-      throw new Error("The Claw skill trust review is incomplete.");
+      throw new Error("The Template skill trust review is incomplete.");
     }
     return warning;
   });
 }
 
-const CLAW_AGENT_RELOAD_TIMEOUT_MS = 15_000;
-const CLAW_AGENT_RELOAD_POLL_MS = 100;
+const TEMPLATE_AGENT_RELOAD_TIMEOUT_MS = 15_000;
+const TEMPLATE_AGENT_RELOAD_POLL_MS = 100;
 
-function logClawAddPlanSummary(plan: ClawAddPlan): void {
-  runtime.log(`Agent: ${plan.agent.finalId}`);
-  runtime.log(`Workspace: ${plan.agent.workspace}`);
-  logClawAgentConfiguration(plan);
+function logTemplateAddPlanSummary(plan: TemplateAddPlan): void {
+  runtime.log(`Agent: ${sanitizeTerminalText(plan.agent.finalId)}`);
+  runtime.log(`Workspace: ${sanitizeTerminalText(plan.agent.workspace)}`);
+  logTemplateAgentConfiguration(plan);
   runtime.log(`Actions: ${plan.summary.totalActions}`);
   runtime.log(`Packages: ${plan.summary.packageActions}`);
   for (const action of plan.actions.filter((candidate) => candidate.kind === "package")) {
@@ -77,7 +81,7 @@ function logClawAddPlanSummary(plan: ClawAddPlan): void {
       typeof action.details?.requirementState === "string"
         ? action.details.requirementState
         : "unresolved";
-    runtime.log(`  Requirement ${action.target}: ${requirementState}`);
+    runtime.log(`  Requirement ${sanitizeTerminalText(action.target)}: ${requirementState}`);
   }
   const skillWarnings = addPlanSkillWarnings(plan);
   if (skillWarnings.length > 0) {
@@ -99,7 +103,7 @@ function logClawAddPlanSummary(plan: ClawAddPlan): void {
         : typeof server?.command === "string"
           ? redactSensitiveArgv([server.command, ...filterStringEntries(server.args)]).join(" ")
           : "invalid declaration";
-    runtime.log(`  MCP ${action.id}: ${target}`);
+    runtime.log(`  MCP ${sanitizeTerminalText(action.id)}: ${sanitizeTerminalText(target)}`);
   }
   runtime.log(`Cron jobs: ${plan.summary.cronJobActions}`);
   if (plan.capabilityChanges.length > 0) {
@@ -115,15 +119,15 @@ function logClawAddPlanSummary(plan: ClawAddPlan): void {
   }
 }
 
-export async function runClawsInspectCommand(
+export async function runTemplatesInspectCommand(
   sourcePath: string,
-  opts: ClawsInspectOptions,
+  opts: TemplatesInspectOptions,
 ): Promise<void> {
-  const result = await readClawManifestFile(sourcePath);
+  const result = await readTemplateManifestFile(sourcePath);
   if (!result.ok) {
-    emitClawFailure(opts.json, formatClawDiagnostics(result.diagnostics), {
-      schemaVersion: CLAW_INSPECT_RESULT_SCHEMA_VERSION,
-      stability: CLAW_OUTPUT_STABILITY,
+    emitTemplateFailure(opts.json, formatTemplateDiagnostics(result.diagnostics), {
+      schemaVersion: TEMPLATE_INSPECT_RESULT_SCHEMA_VERSION,
+      stability: TEMPLATE_OUTPUT_STABILITY,
       valid: false,
       diagnostics: result.diagnostics,
     });
@@ -131,12 +135,12 @@ export async function runClawsInspectCommand(
   }
 
   const config = getRuntimeConfig();
-  const extensionPlan = await planClawExtensions({
+  const extensionPlan = await planTemplateExtensions({
     extensions: result.openClawProfile?.extensions ?? [],
     workspace: result.source.packageRoot,
-    packagePreflight: (pkg, workspace) => preflightClawPackage(pkg, workspace, { config }),
+    packagePreflight: (pkg, workspace) => preflightTemplatePackage(pkg, workspace, { config }),
   });
-  const extensionCollisions = findClawExtensionPackageCollisions({
+  const extensionCollisions = findTemplateExtensionPackageCollisions({
     packages: result.manifest.packages,
     extensions: result.openClawProfile?.extensions ?? [],
   });
@@ -147,8 +151,8 @@ export async function runClawsInspectCommand(
   ];
   const valid = diagnostics.every((diagnostic) => diagnostic.level !== "error");
   const payload = {
-    schemaVersion: CLAW_INSPECT_RESULT_SCHEMA_VERSION,
-    stability: CLAW_OUTPUT_STABILITY,
+    schemaVersion: TEMPLATE_INSPECT_RESULT_SCHEMA_VERSION,
+    stability: TEMPLATE_OUTPUT_STABILITY,
     valid,
     source: result.source,
     manifest: result.manifest,
@@ -163,7 +167,9 @@ export async function runClawsInspectCommand(
     }
     return;
   }
-  runtime.log(`Claw: ${result.source.name}@${result.source.version}`);
+  runtime.log(
+    `Template: ${sanitizeTerminalText(result.source.name)}@${sanitizeTerminalText(result.source.version)}`,
+  );
   runtime.log(
     `Agent: ${sanitizeTerminalText(result.manifest.agent.name ?? result.manifest.agent.id)}`,
   );
@@ -177,35 +183,38 @@ export async function runClawsInspectCommand(
   runtime.log(`MCP servers: ${Object.keys(result.manifest.mcpServers).length}`);
   runtime.log(`Cron jobs: ${result.manifest.cronJobs.length}`);
   if (!valid) {
-    runtime.error(formatClawDiagnostics(diagnostics));
+    runtime.error(formatTemplateDiagnostics(diagnostics));
     runtime.exit(1);
   }
 }
 
 // Add's planning and application both read or mutate Gateway-owned state.
-export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptions): Promise<void> {
+export async function runTemplatesAddCommand(
+  sourcePath: string,
+  opts: TemplatesAddOptions,
+): Promise<void> {
   return await runWithLocalStateOwner({
-    method: "claws.add",
+    method: "templates.add",
     params: {},
-    target: "Claw configuration and provenance",
+    target: "Template configuration and provenance",
     onForeignOwner: "refuse",
     runLocal: async () => {
       const config = getRuntimeConfig();
-      if (!isClawsLabsEnabled(config)) {
-        emitClawFailure(opts.json, CLAWS_LABS_DISABLED_MESSAGE, {
-          schemaVersion: CLAW_ADD_PLAN_SCHEMA_VERSION,
-          stability: CLAW_OUTPUT_STABILITY,
+      if (!isTemplatesLabsEnabled(config)) {
+        emitTemplateFailure(opts.json, TEMPLATES_LABS_DISABLED_MESSAGE, {
+          schemaVersion: TEMPLATE_ADD_PLAN_SCHEMA_VERSION,
+          stability: TEMPLATE_OUTPUT_STABILITY,
           ok: false,
-          error: { code: "claws_labs_disabled", message: CLAWS_LABS_DISABLED_MESSAGE },
+          error: { code: "templates_labs_disabled", message: TEMPLATES_LABS_DISABLED_MESSAGE },
         });
         return;
       }
 
-      const result = await readClawManifestFile(sourcePath);
+      const result = await readTemplateManifestFile(sourcePath);
       if (!result.ok) {
-        emitClawFailure(opts.json, formatClawDiagnostics(result.diagnostics), {
-          schemaVersion: CLAW_ADD_PLAN_SCHEMA_VERSION,
-          stability: CLAW_OUTPUT_STABILITY,
+        emitTemplateFailure(opts.json, formatTemplateDiagnostics(result.diagnostics), {
+          schemaVersion: TEMPLATE_ADD_PLAN_SCHEMA_VERSION,
+          stability: TEMPLATE_OUTPUT_STABILITY,
           valid: false,
           diagnostics: result.diagnostics,
         });
@@ -219,9 +228,9 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
         return;
       }
       const existingAgentIds = listAgentIds(config);
-      const plan = await buildClawAddPlan({
+      const plan = await buildTemplateAddPlan({
         manifest: result.manifest,
-        clawMarkdownBody: result.clawMarkdownBody,
+        templateMarkdownBody: result.templateMarkdownBody,
         packageBootstrap: result.packageBootstrap,
         openClawProfile: result.openClawProfile,
         source: result.source,
@@ -235,8 +244,10 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
             resolveAgentWorkspaceDir(config, agentId),
           ),
           existingMcpServers: listedMcpServers.mcpServers,
-          packagePreflight: (pkg: Parameters<typeof preflightClawPackage>[0], workspace: string) =>
-            preflightClawPackage(pkg, workspace, { config }),
+          packagePreflight: (
+            pkg: Parameters<typeof preflightTemplatePackage>[0],
+            workspace: string,
+          ) => preflightTemplatePackage(pkg, workspace, { config }),
         },
       });
 
@@ -244,8 +255,8 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
         if (opts.json) {
           writeRuntimeJson(runtime, plan);
         } else {
-          logClawAddPlanSummary(plan);
-          runtime.error(formatClawDiagnostics(plan.blockers));
+          logTemplateAddPlanSummary(plan);
+          runtime.error(formatTemplateDiagnostics(plan.blockers));
         }
         runtime.exit(1);
         return;
@@ -255,8 +266,10 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
         if (opts.json) {
           writeRuntimeJson(runtime, plan);
         } else {
-          runtime.log(`Claw add preview: ${plan.claw.name}@${plan.claw.version}`);
-          logClawAddPlanSummary(plan);
+          runtime.log(
+            `Template add preview: ${sanitizeTerminalText(plan.template.name)}@${sanitizeTerminalText(plan.template.version)}`,
+          );
+          logTemplateAddPlanSummary(plan);
         }
         return;
       }
@@ -277,14 +290,14 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
           for (const { target, warning } of warnedPackages) {
             runtime.log(redactSensitiveText(`  ${target}: ${warning}`));
           }
-          riskApproved = await promptYesNo("Acknowledge these warnings and Add the Claw?");
+          riskApproved = await promptYesNo("Acknowledge these warnings and Add the Template?");
         }
         if (!riskApproved) {
           const message =
             "ClawHub trust warnings require --acknowledge-clawhub-risk or interactive confirmation.";
-          emitClawFailure(opts.json, message, {
-            schemaVersion: CLAW_ADD_RESULT_SCHEMA_VERSION,
-            stability: CLAW_OUTPUT_STABILITY,
+          emitTemplateFailure(opts.json, message, {
+            schemaVersion: TEMPLATE_ADD_RESULT_SCHEMA_VERSION,
+            stability: TEMPLATE_OUTPUT_STABILITY,
             status: "failed",
             error: { code: "clawhub_risk_acknowledgement_required", message },
             warnings: warnedPackages,
@@ -306,9 +319,9 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
       ) {
         const message =
           "Plugin capabilities require --accept-capabilities in a non-interactive Add.";
-        emitClawFailure(opts.json, message, {
-          schemaVersion: CLAW_ADD_RESULT_SCHEMA_VERSION,
-          stability: CLAW_OUTPUT_STABILITY,
+        emitTemplateFailure(opts.json, message, {
+          schemaVersion: TEMPLATE_ADD_RESULT_SCHEMA_VERSION,
+          stability: TEMPLATE_OUTPUT_STABILITY,
           status: "failed",
           error: { code: "plugin_capability_consent_required", message },
         });
@@ -316,12 +329,12 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
       }
 
       const warnings = addPlanSkillWarnings(plan);
-      let skillConsent: ClawSkillInstallConsent | undefined;
+      let skillConsent: TemplateSkillInstallConsent | undefined;
       if (warnings.length > 0) {
-        const byRef = new Map<string, ClawCliSkillWarning>();
+        const byRef = new Map<string, TemplateCliSkillWarning>();
         for (const warning of warnings) {
           if (byRef.has(warning.ref)) {
-            throw new Error("The Claw skill trust review contains a duplicate package.");
+            throw new Error("The Template skill trust review contains a duplicate package.");
           }
           byRef.set(warning.ref, warning);
         }
@@ -334,7 +347,7 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
               reviewed.integrity !== pkg.integrity ||
               reviewed.riskWarning !== pkg.riskWarning
             ) {
-              throw new Error("Skill trust state changed; review the Claw again.");
+              throw new Error("Skill trust state changed; review the Template again.");
             }
           },
         };
@@ -344,7 +357,9 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
         const configPath = resolveConfigPath();
         const configEnv = process.env;
         const assertCurrentLab = () =>
-          assertClawsLabsEnabled(readCurrentConfigForPolicyCheck({ configPath, env: configEnv }));
+          assertTemplatesLabsEnabled(
+            readCurrentConfigForPolicyCheck({ configPath, env: configEnv }),
+          );
         assertCurrentLab();
         addResult = await withOpenClawStateLease(
           {
@@ -354,8 +369,8 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
             leaseMs: 60_000,
             waitMs: 5_000,
             heartbeat: "worker",
-            leaseLabel: "Claw add",
-            operationLabel: "claw.add.lease",
+            leaseLabel: "Template add",
+            operationLabel: "template.add.lease",
           },
           async (lease) => {
             assertCurrentLab();
@@ -364,7 +379,7 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
               acceptCapabilities: opts.acceptCapabilities,
               runtime,
             }).onCapabilityConsent;
-            return await applyClawAddPlanStateless(plan, {
+            return await applyTemplateAddPlanStateless(plan, {
               config,
               assertCurrent: () => lease.assertOwned(),
               assertForwardCurrent: assertCurrentLab,
@@ -394,7 +409,7 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
                     },
                   );
                   if (!scratchResult.ok) {
-                    throw new Error("Claw automation scratch changed before import.");
+                    throw new Error("Template automation scratch changed before import.");
                   }
                 },
                 enable: async (id, expectedConfigRevision, commitGuard) => {
@@ -419,9 +434,9 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
                     },
                   ),
                 waitUntilAgentAvailable: async (agentId) => {
-                  const deadline = Date.now() + CLAW_AGENT_RELOAD_TIMEOUT_MS;
+                  const deadline = monotonicNow() + TEMPLATE_AGENT_RELOAD_TIMEOUT_MS;
                   let lastError: unknown;
-                  while (Date.now() < deadline) {
+                  while (monotonicNow() < deadline) {
                     try {
                       const response = await callGatewayFromCliWithTransport<{
                         config?: OpenClawConfig;
@@ -440,11 +455,11 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
                     } catch (error) {
                       lastError = error;
                     }
-                    await sleep(CLAW_AGENT_RELOAD_POLL_MS);
+                    await sleep(TEMPLATE_AGENT_RELOAD_POLL_MS);
                   }
                   const suffix = lastError instanceof Error ? `: ${lastError.message}` : "";
                   throw new Error(
-                    `Gateway did not apply the Claw agent configuration in time${suffix}`,
+                    `Gateway did not apply the Template agent configuration in time${suffix}`,
                   );
                 },
               },
@@ -453,15 +468,15 @@ export async function runClawsAddCommand(sourcePath: string, opts: ClawsAddOptio
         );
       } catch (error) {
         const code =
-          error instanceof ClawsLabsDisabledError
-            ? "claws_labs_disabled"
-            : error instanceof ClawAddMutationError
+          error instanceof TemplatesLabsDisabledError
+            ? "templates_labs_disabled"
+            : error instanceof TemplateAddMutationError
               ? error.code
               : "add_failed";
         const message = error instanceof Error ? error.message : String(error);
-        emitClawFailure(opts.json, message, {
-          schemaVersion: CLAW_ADD_RESULT_SCHEMA_VERSION,
-          stability: CLAW_OUTPUT_STABILITY,
+        emitTemplateFailure(opts.json, message, {
+          schemaVersion: TEMPLATE_ADD_RESULT_SCHEMA_VERSION,
+          stability: TEMPLATE_OUTPUT_STABILITY,
           status: "failed",
           error: { code, message },
         });

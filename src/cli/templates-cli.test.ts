@@ -4,9 +4,11 @@ import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { createDeferredCore } from "../shared/deferred.js";
-import * as cliTestHelpers from "./claws-cli.test-helpers.js";
+import * as cliTestHelpers from "./templates-cli.test-helpers.js";
 
-const enabledClawsLabsConfig = { gateway: { controlUi: { experimental: { claws: true } } } };
+const enabledTemplatesLabsConfig = {
+  gateway: { controlUi: { experimental: { templates: true } } },
+};
 
 const mocks = vi.hoisted(() => ({
   runtime: {
@@ -21,10 +23,10 @@ const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn<() => Record<string, unknown>>(() => ({})),
   readCurrentConfigForPolicyCheck: vi.fn(),
   listConfiguredMcpServers: vi.fn(),
-  applyClawAddPlanStateless: vi.fn(),
+  applyTemplateAddPlanStateless: vi.fn(),
   withOpenClawStateLease: vi.fn(),
   leaseAssertOwned: vi.fn(),
-  preflightClawPackage: vi.fn(),
+  preflightTemplatePackage: vi.fn(),
   callGatewayFromCli: vi.fn(),
   sleep: vi.fn(),
 }));
@@ -52,9 +54,9 @@ vi.mock("../config/mcp-config.js", async (importOriginal) => ({
   listConfiguredMcpServers: mocks.listConfiguredMcpServers,
 }));
 
-vi.mock("../claws/packages.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../claws/packages.js")>()),
-  preflightClawPackage: mocks.preflightClawPackage,
+vi.mock("../templates/packages.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../templates/packages.js")>()),
+  preflightTemplatePackage: mocks.preflightTemplatePackage,
 }));
 
 vi.mock("../state/openclaw-state-lease.js", async (importOriginal) => ({
@@ -62,9 +64,9 @@ vi.mock("../state/openclaw-state-lease.js", async (importOriginal) => ({
   withOpenClawStateLease: mocks.withOpenClawStateLease,
 }));
 
-vi.mock("../claws/add-stateless.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../claws/add-stateless.js")>()),
-  applyClawAddPlanStateless: mocks.applyClawAddPlanStateless,
+vi.mock("../templates/add-stateless.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../templates/add-stateless.js")>()),
+  applyTemplateAddPlanStateless: mocks.applyTemplateAddPlanStateless,
 }));
 
 // mock-isolation: CLI unit tests bypass live Gateway ownership probes; the owner guard has its own test.
@@ -81,8 +83,8 @@ vi.mock("../utils/sleep.js", async (importOriginal) => ({
   sleep: mocks.sleep,
 }));
 
-const { registerClawsCli } = await import("./claws-cli.js");
-const { runClawsAddCommand } = await import("./claws-cli.runtime.js");
+const { registerTemplatesCli } = await import("./templates-cli.js");
+const { runTemplatesAddCommand } = await import("./templates-cli.runtime.js");
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 async function writeManifest(value: unknown = cliTestHelpers.minimalManifest): Promise<string> {
@@ -92,7 +94,7 @@ async function writeManifest(value: unknown = cliTestHelpers.minimalManifest): P
 async function runCli(args: string[]) {
   const program = new Command();
   program.exitOverride();
-  registerClawsCli(program);
+  registerTemplatesCli(program);
   try {
     await program.parseAsync(args, { from: "user" });
   } catch (error) {
@@ -103,7 +105,7 @@ async function runCli(args: string[]) {
 }
 
 async function add(args: string[] = [], source?: string) {
-  await runCli(["claws", "add", source ?? (await writeManifest()), ...args]);
+  await runCli(["templates", "add", source ?? (await writeManifest()), ...args]);
   return args.includes("--json") ? output() : undefined;
 }
 
@@ -125,11 +127,11 @@ async function addWithAgentReadiness(beforeWait?: () => void) {
     ...cliTestHelpers.minimalManifest,
     agent: { id: "worker" },
   });
-  const apply = mocks.applyClawAddPlanStateless.getMockImplementation();
+  const apply = mocks.applyTemplateAddPlanStateless.getMockImplementation();
   if (!apply) {
     throw new Error("Missing Add fixture implementation");
   }
-  mocks.applyClawAddPlanStateless.mockImplementationOnce(async (plan, options) => {
+  mocks.applyTemplateAddPlanStateless.mockImplementationOnce(async (plan, options) => {
     beforeWait?.();
     await options.cronGateway.waitUntilAgentAvailable(plan.agent.finalId);
     return apply(plan, options);
@@ -137,24 +139,23 @@ async function addWithAgentReadiness(beforeWait?: () => void) {
   return await add(["--json"], manifestPath);
 }
 
-describe("claws cli", () => {
+describe("templates cli", () => {
   beforeEach(() => {
-    vi.stubEnv("OPENCLAW_EXPERIMENTAL_CLAWS", "");
     vi.clearAllMocks();
-    mocks.loadConfig.mockReset().mockReturnValue(enabledClawsLabsConfig);
-    mocks.readCurrentConfigForPolicyCheck.mockReset().mockReturnValue(enabledClawsLabsConfig);
+    mocks.loadConfig.mockReset().mockReturnValue(enabledTemplatesLabsConfig);
+    mocks.readCurrentConfigForPolicyCheck.mockReset().mockReturnValue(enabledTemplatesLabsConfig);
     mocks.listConfiguredMcpServers.mockReset().mockResolvedValue({
       ok: true,
       mcpServers: {},
     });
     mocks.callGatewayFromCli.mockReset();
     mocks.sleep.mockReset().mockResolvedValue(undefined);
-    mocks.preflightClawPackage.mockReset().mockResolvedValue({
+    mocks.preflightTemplatePackage.mockReset().mockResolvedValue({
       ok: false,
       code: "package_install_unavailable",
       message: "Package preflight is unavailable.",
     });
-    mocks.applyClawAddPlanStateless.mockReset().mockImplementation(async (plan) => ({
+    mocks.applyTemplateAddPlanStateless.mockReset().mockImplementation(async (plan) => ({
       status: "complete",
       agent: plan.agent,
     }));
@@ -170,22 +171,22 @@ describe("claws cli", () => {
     vi.restoreAllMocks();
   });
 
-  it("blocks local Add while Claws Labs is off", async () => {
+  it("blocks local Add while Templates Labs is off", async () => {
     mocks.loadConfig.mockReturnValue({});
     expect(await add(["--dry-run", "--json"])).toMatchObject({
       ok: false,
-      error: { code: "claws_labs_disabled" },
+      error: { code: "templates_labs_disabled" },
     });
-    expect(mocks.applyClawAddPlanStateless).not.toHaveBeenCalled();
+    expect(mocks.applyTemplateAddPlanStateless).not.toHaveBeenCalled();
   });
 
   it("prints versioned experimental JSON for a development manifest", async () => {
     const manifestPath = await writeManifest();
 
-    await runCli(["claws", "inspect", manifestPath, "--json"]);
+    await runCli(["templates", "inspect", manifestPath, "--json"]);
 
     expect(output()).toMatchObject({
-      schemaVersion: "openclaw.clawInspect.v1",
+      schemaVersion: "openclaw.templateInspect.v1",
       stability: "experimental",
       valid: true,
       source: { kind: "development", version: "0.0.0-development" },
@@ -200,7 +201,7 @@ describe("claws cli", () => {
       const expectedWorkspace = await cliTestHelpers.canonicalFuturePath(workspace);
       if (agentId) {
         mocks.loadConfig.mockReturnValue({
-          ...enabledClawsLabsConfig,
+          ...enabledTemplatesLabsConfig,
           agents: { entries: { "demo-agent": {} } },
         });
       }
@@ -216,9 +217,9 @@ describe("claws cli", () => {
       );
 
       expect(output()).toMatchObject({
-        schemaVersion: "openclaw.clawAddPlan.v1",
+        schemaVersion: "openclaw.templateAddPlan.v1",
         stability: "experimental",
-        claw: { kind: "package", name: "@acme/demo-agent", version: "1.2.3" },
+        template: { kind: "package", name: "@acme/demo-agent", version: "1.2.3" },
         agent: {
           requestedId: "demo-agent",
           finalId: agentId ?? "demo-agent",
@@ -230,7 +231,7 @@ describe("claws cli", () => {
     },
   );
 
-  it("redacts credential-bearing remote MCP URLs in add previews", async () => {
+  it("redacts credentials and sanitizes MCP targets in add previews", async () => {
     const manifestPath = await writeManifest({
       ...cliTestHelpers.minimalManifest,
       mcpServers: {
@@ -238,18 +239,18 @@ describe("claws cli", () => {
           url: "https://example.com/mcp?token=abc123&mode=ok",
           transport: "streamable-http",
         },
+        server: { command: "node\u001b[2Jevil\narg" },
       },
     });
-    const workspace = join(tempDirs.make("openclaw-claws-add-"), "workspace");
-
-    await runClawsAddCommand(manifestPath, { dryRun: true, workspace });
+    const workspace = join(tempDirs.make("openclaw-templates-add-"), "workspace");
+    await runTemplatesAddCommand(manifestPath, { dryRun: true, workspace });
 
     const printed = logLines().join("\n");
     expect(printed).not.toMatch(/^Experimental:/m);
-    expect(printed).toContain("MCP remote:");
-    expect(printed).toContain("example.com");
+    expect(printed).toContain("MCP remote: https://example.com/mcp?token=***&mode=ok");
     expect(printed).not.toContain("abc123");
-    expect(printed).toContain("token=***");
+    expect(printed).toContain("MCP server: nodeevil\\narg");
+    expect(printed).not.toContain("\u001b[2J");
   });
 
   it("discloses capability escalations in the human dry-run", async () => {
@@ -283,11 +284,11 @@ describe("claws cli", () => {
     );
   });
 
-  it("adds a minimal Claw directly with an internal plan binding", async () => {
+  it("adds a minimal Template directly with an internal plan binding", async () => {
     await add(["--json"]);
 
     expect(mocks.runtime.error).not.toHaveBeenCalled();
-    const [plan, options] = mocks.applyClawAddPlanStateless.mock.calls[0]!;
+    const [plan, options] = mocks.applyTemplateAddPlanStateless.mock.calls[0]!;
     expect(options.consentPlanIntegrity).toBe(plan.planIntegrity);
     expect(output()).toMatchObject({
       status: "complete",
@@ -299,14 +300,14 @@ describe("claws cli", () => {
     mocks.readCurrentConfigForPolicyCheck.mockReturnValue({});
     expect(await add(["--json"])).toMatchObject({
       status: "failed",
-      error: { code: "claws_labs_disabled" },
+      error: { code: "templates_labs_disabled" },
     });
-    expect(mocks.applyClawAddPlanStateless).not.toHaveBeenCalled();
+    expect(mocks.applyTemplateAddPlanStateless).not.toHaveBeenCalled();
   });
 
   it("stops Add effects when Labs turns off after apply begins", async () => {
     const commitEffect = vi.fn();
-    mocks.applyClawAddPlanStateless.mockImplementationOnce(async (_plan, options) => {
+    mocks.applyTemplateAddPlanStateless.mockImplementationOnce(async (_plan, options) => {
       await Promise.resolve();
       mocks.readCurrentConfigForPolicyCheck.mockReturnValue({});
       options.assertForwardCurrent?.();
@@ -316,14 +317,14 @@ describe("claws cli", () => {
     await add(["--json"]);
 
     expect(commitEffect).not.toHaveBeenCalled();
-    expect(output().error.code).toBe("claws_labs_disabled");
+    expect(output().error.code).toBe("templates_labs_disabled");
   });
 
   it("requires explicit acknowledgement of a warned skill", async () => {
     const { root } = await cliTestHelpers.writePackageFixture(tempDirs);
     const warning = "This community skill requires review before installation.";
     const integrity = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    mocks.preflightClawPackage.mockResolvedValue({
+    mocks.preflightTemplatePackage.mockResolvedValue({
       ok: true,
       action: "install",
       integrity,
@@ -335,12 +336,12 @@ describe("claws cli", () => {
       error: { code: "clawhub_risk_acknowledgement_required" },
       warnings: [expect.objectContaining({ warning })],
     });
-    expect(mocks.applyClawAddPlanStateless).not.toHaveBeenCalled();
+    expect(mocks.applyTemplateAddPlanStateless).not.toHaveBeenCalled();
     mocks.runtime.writeJson.mockClear();
 
     await add(["--acknowledge-clawhub-risk", "--json"], root);
-    expect(mocks.applyClawAddPlanStateless).toHaveBeenCalledOnce();
-    const consent = mocks.applyClawAddPlanStateless.mock.calls[0]?.[1]?.skillConsent;
+    expect(mocks.applyTemplateAddPlanStateless).toHaveBeenCalledOnce();
+    const consent = mocks.applyTemplateAddPlanStateless.mock.calls[0]?.[1]?.skillConsent;
     expect(consent).toBeDefined();
     const reviewed = { ref: "@acme/demo-skill", version: "1.0.0", integrity, riskWarning: warning };
     expect(() => consent.assertApproved(reviewed)).not.toThrow();
@@ -356,19 +357,19 @@ describe("claws cli", () => {
       await heldLease;
       return await run({ assertOwned: mocks.leaseAssertOwned });
     });
-    const pending = runCli(["claws", "add", manifestPath, "--json"]);
+    const pending = runCli(["templates", "add", manifestPath, "--json"]);
     try {
       await vi.waitFor(() => expect(mocks.withOpenClawStateLease).toHaveBeenCalledOnce());
       expect(mocks.withOpenClawStateLease).toHaveBeenCalledWith(
         expect.objectContaining({ scope: "core:agent-deletion", key: "demo-agent" }),
         expect.any(Function),
       );
-      expect(mocks.applyClawAddPlanStateless).not.toHaveBeenCalled();
+      expect(mocks.applyTemplateAddPlanStateless).not.toHaveBeenCalled();
     } finally {
       releaseLease();
       await pending;
     }
-    const [, options] = mocks.applyClawAddPlanStateless.mock.calls[0]!;
+    const [, options] = mocks.applyTemplateAddPlanStateless.mock.calls[0]!;
     options.assertCurrent();
     expect(mocks.leaseAssertOwned).toHaveBeenCalledOnce();
   });
@@ -395,15 +396,16 @@ describe("claws cli", () => {
 
   it("reports the last Gateway error after the reload deadline", async () => {
     mocks.callGatewayFromCli.mockRejectedValue(new Error("gateway unavailable"));
-
     await addWithAgentReadiness(() => {
-      vi.spyOn(Date, "now").mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValue(15_000);
+      let reads = 0;
+      vi.spyOn(performance, "now").mockImplementation(() => (reads++ < 2 ? 0 : 15_000));
     });
     expect(output()).toMatchObject({
       status: "failed",
       error: {
         code: "add_failed",
-        message: "Gateway did not apply the Claw agent configuration in time: gateway unavailable",
+        message:
+          "Gateway did not apply the Template agent configuration in time: gateway unavailable",
       },
     });
   });
