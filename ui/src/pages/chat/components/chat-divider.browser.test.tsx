@@ -2,7 +2,8 @@ import { afterEach, expect, it } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import type { ChatItem } from "../../../lib/chat/chat-types.ts";
 import { cleanupSolid, mountSolid } from "../../../test-helpers/mount-solid.ts";
-import { ChatNotice } from "./chat-divider.tsx";
+import { ChatNotice } from "./chat-notice-view.tsx";
+import { CHAT_SEARCH_HIGHLIGHT, syncChatSearchHighlight } from "./chat-search-highlight.ts";
 import "../../../styles/base.css";
 import "../../../styles/chat/grouped.css";
 
@@ -48,12 +49,12 @@ it.each([
     showTimestamp: true,
   };
   const view = mountSolid(() => <ChatNotice item={item} />);
+  await expect.element(page.getByText(label)).toBeVisible();
   const row = view.container.querySelector<HTMLDetailsElement>("details.chat-notice-inline")!;
   const summary = row.querySelector<HTMLElement>("summary")!;
   const body = row.querySelector<HTMLElement>(".chat-notice__body")!;
   const time = row.querySelector<HTMLElement>(".chat-notice-inline__time")!;
 
-  await expect.element(view.getByText(label)).toBeVisible();
   expect(time.textContent).toBe("2:37 PM");
   expect(row.open).toBe(false);
   await expect.element(body).not.toBeVisible();
@@ -72,4 +73,28 @@ it.each([
   await userEvent.click(summary);
   expect(row.open).toBe(false);
   await expect.element(body).not.toBeVisible();
+});
+
+it("offers notice text to transcript search highlighting", async () => {
+  const item: Extract<ChatItem, { kind: "notice" }> = {
+    kind: "notice",
+    key: "search-notice",
+    icon: "cpu",
+    label: "Guidance",
+    timestamp: new Date(2026, 9, 16, 14, 37).getTime(),
+    text: "Check the **rollback path** before continuing.",
+  };
+  const view = mountSolid(() => <ChatNotice item={item} />);
+  syncChatSearchHighlight(view.container, "the rollback");
+  try {
+    await expect
+      .poll(() =>
+        Array.from(CSS.highlights.get(CHAT_SEARCH_HIGHLIGHT) ?? [], (range) =>
+          range instanceof Range ? range.toString() : null,
+        ),
+      )
+      .toEqual(["the ", "rollback"]);
+  } finally {
+    syncChatSearchHighlight(view.container, "");
+  }
 });
