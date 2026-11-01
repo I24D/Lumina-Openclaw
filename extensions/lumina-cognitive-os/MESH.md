@@ -322,15 +322,57 @@ missing, so an unwired mesh does not silently drop messages to the core. A
 message the relay could not confirm the server kept is retried rather than
 recorded as delivered.
 
-## Relationship to the live gateway
+## Running in the live gateway
 
-The production gateway runs from `dist/` of this checkout (PID 31432,
-`dist/index.js gateway --port 18789`, started 2026-10-27). Nothing here touches
-it:
+**Superseded on 2026-11-01.** The section below described phase 1, where nothing
+here was connected. Dal's production order ended that phase, and the mesh now
+runs in the gateway. What changed:
 
-- No module in `src/mesh/` is imported by any gateway code path. The three core
-  call sites of `src/lumina/cognitive-bus.ts` are untouched, and the emitter
-  stays fire-and-forget: it must never block or fail because Supabase is
+- `mesh-runtime.ts` is the scheduler, and the only file in the mesh that owns a
+  timer. One beat is an outbound dispatch pass then an inbound poll. The interval
+  doubles while nothing happens and drops to the floor the moment a pass does
+  work, so an idle gateway is not querying every few seconds and a busy one is
+  not waiting a minute.
+- `mesh-wiring.ts` builds it from the host's plugin state and registers the
+  handlers; `index.ts` starts it in the live registration only, and stops it in
+  the existing cleanup. `LUMINA_MESH_ENABLED=0` is the kill switch, and the env
+  read wins over plugin config on purpose.
+- `lumina_mesh_status` reports every counter, read at call time. `lastPassAt` is
+  null until the first pass, so "never ran" and "ran and found nothing" are
+  distinguishable.
+
+**It needed no process of its own, and that corrects the design note in
+`outbox.ts`.** That note said a production backend is SQLite-backed, so the loop
+would need its own process to keep runtime SQL off the Gateway main thread.
+Reading the host says otherwise: the stores come from
+`api.runtime.state.openKeyedStore({ retention: "retained" })`, which reaches
+SQLite through `createAsyncKeyedStore` → `observePluginStateInWorker` → the
+SQLite worker contract. The statements already execute in the host's worker and
+the plugin only awaits a result, which is exactly what
+`docs/reference/database-schemas/worker-access.md` asks for. What runs on the
+main thread is an `await` and a `setTimeout`.
+
+**Task handoff is deliberately unregistered.** Closing a task goes through
+`lumina_finish_task` / `lumina_finish_task_fenced`, and both defects below are
+still open, so a consumer for them would be a known-defective write path in
+production. `mesh.ping` and `mesh.note` are registered instead: local, repeatable
+effects in the transparency log, enough to exercise the real path without writing
+anywhere that matters. A `task.*` message therefore lands in the runtime's
+`unhandled` log, where it is counted and visible rather than acknowledged.
+
+**An unhandled topic is never marked applied.** A queue that reports success for
+a message no handler saw has lost it. The cursor still advances past it, or one
+unroutable message stops every later one.
+
+### Phase 1, for the record
+
+Until 2026-11-01 the mesh was deliberately not wired, and the notes below
+described that state. The production gateway ran from `dist/` of this checkout
+(PID 31432, `dist/index.js gateway --port 18789`, started 2026-10-27):
+
+- No module in `src/mesh/` was imported by any gateway code path. The three core
+  call sites of `src/lumina/cognitive-bus.ts` are untouched either way, and the
+  emitter stays fire-and-forget: it must never block or fail because Supabase is
   unreachable.
 - Tests and typecheck never write `dist/`. `tsconfig.json` sets `noEmit: true`,
   which leaves its `outDir` inert, and the Vitest runners contain no reference to
@@ -356,8 +398,9 @@ node scripts/run-tsgo.mjs -p tsconfig.extensions.json --incremental \
 plugin state in production (ADR 0003) and an in-memory map in tests. Note the
 constraint in `docs/reference/database-schemas/worker-access.md`: runtime
 database access belongs in worker threads, never on the Gateway main thread.
-Phase 1 runs the mesh independently, so this is not yet an issue; wiring it into
-the gateway must go through a worker.
+Settled on 2026-11-01: the host's retained keyed store already executes its
+statements in the SQLite worker, so the mesh satisfies that rule inside the
+gateway process. See "Running in the live gateway".
 
 ## What is blocked, and why
 
@@ -365,7 +408,8 @@ Each of these needs Dal. None of them blocks the rest.
 
 | Blocked                                             | Why                                                                 | Proposal                                                                             |
 | --------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Fence hardening, and the idempotent close           | DDL on the shared project                                           | `sql/lumina_mesh_fence_hardening.sql`, with rollback, proven by `sql/m2-fencing.mjs` |
+| The idempotent close, on its own ("1B")             | DDL on the shared project; the core LUMINA recommends it            | `sql/lumina_mesh_finish_idempotent.sql` — no signature changes, breaks no caller     |
+| Removing the unfenced closing paths ("1A")          | DDL, and `lumina_bus.py` must change in the same window             | `sql/lumina_mesh_fence_hardening.sql`, with rollback, proven by `sql/m2-fencing.mjs` |
 | Unique index for DB-level delivery dedup            | DDL on the shared project                                           | `sql/lumina_mesh_events.sql` §1 — optional; `inbox.ts` already guarantees one effect |
 | Realtime on `lumina_events`                         | DDL, and it raises replication traffic on the busiest table         | `sql/lumina_mesh_events.sql` §2 — optional; polling is correct without it            |
 | `lumina_audit_checkpoints`                          | pre-existing task 23, same reason                                   | `sql/lumina_audit_checkpoints.sql`                                                   |

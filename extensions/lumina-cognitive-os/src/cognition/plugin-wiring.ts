@@ -363,6 +363,12 @@ export const COGNITIVE_STORE_NAMESPACES = {
   causal: `${STORE_PREFIX}.causal`,
   artifacts: `${STORE_PREFIX}.artifacts`,
   episodic: `${STORE_PREFIX}.episodic`,
+  // The mesh keeps three separate namespaces on purpose: clearing the inbound
+  // journal to re-read a window must not touch delivery state, and resetting
+  // the outbox must not forget which effects already ran.
+  meshOutbox: `${STORE_PREFIX}.mesh.outbox`,
+  meshInbox: `${STORE_PREFIX}.mesh.inbox`,
+  meshJournal: `${STORE_PREFIX}.mesh.journal`,
 } as const;
 
 /** Episodic memory on durable state in the live gateway; other loads keep the JSONL fallback. */

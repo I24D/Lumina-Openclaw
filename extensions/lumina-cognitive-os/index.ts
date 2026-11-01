@@ -1,4 +1,3 @@
-import os from "node:os";
 /**
  * Lumina Cognitive OS — Niveles 1-12 (Codex roadmap)
  * ════════════════════════════════════════════════════════════════
@@ -22,7 +21,6 @@ import os from "node:os";
  * and live in the `ui/src/ui/chat` folder.
  * ════════════════════════════════════════════════════════════════
  */
-import path from "node:path";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 // Action
 import { createPlanStore, createActionPlanTool } from "./src/action/action-tools.js";
@@ -83,6 +81,7 @@ import {
 } from "./src/codeact/codeact-tool.js";
 // Cognitive core: router, world model, workspace, self model, body
 import {
+  COGNITIVE_STORE_NAMESPACES,
   createEpisodicMemory,
   createToolRecorder,
   hostDeps,
@@ -112,6 +111,9 @@ import {
 } from "./src/memory/memory-tools.js";
 // Memory
 import { WorkingMemoryStore } from "./src/memory/working-memory.js";
+// LUMINA-MESH/1: the durable side channel beside the gateway's own paths.
+import { createMeshStatusTool } from "./src/mesh/mesh-status-tool.js";
+import { startMeshRuntime } from "./src/mesh/mesh-wiring.js";
 // Operative daemon (Fase 3 — proactive Lumina)
 import { OperativeDaemon } from "./src/operative/operative-daemon.js";
 import {
@@ -121,7 +123,6 @@ import {
   createOperativeReloadTool,
   createOperativeRecentTool,
 } from "./src/operative/operative-tool.js";
-import type { BrainProviderName } from "./src/operator/brain-gemini.js";
 import { createMultiProviderBrain } from "./src/operator/brain-multi.js";
 import { CostMeter } from "./src/operator/cost-meter.js";
 // Global emergency stop (§9): panic hotkey sidecar + software twin tool.
@@ -153,6 +154,11 @@ import {
   createPerceptionRecentTool,
   createPerceptionHealthTool,
 } from "./src/perception/perception-tools.js";
+import {
+  DEFAULT_ENV_PATH,
+  resolveCognitiveConfig,
+  type CognitiveConfig,
+} from "./src/plugin-config.js";
 // Presence
 import { createBootGreetingTool } from "./src/presence/boot-greeting.js";
 import { WakeWordDaemon, createWakeWordTool } from "./src/presence/wake-word.js";
@@ -224,74 +230,6 @@ import { createUiInvokeTool } from "./src/vision/ui-invoke.js";
 import { createUiResolveTool } from "./src/vision/ui-resolve.js";
 import { createWindowClassifyTool } from "./src/vision/window-classify-tool.js";
 
-type CognitiveConfig = {
-  enabled?: boolean;
-  envPath?: string;
-  memoryDir?: string;
-  awarenessIntervalMs?: number;
-  wakeWordEnabled?: boolean;
-  wakeWordModel?: string;
-  bootGreetingEnabled?: boolean;
-  browserDriverEnabled?: boolean;
-  perceptionAutoStart?: boolean;
-  perceptionFps?: number;
-  recipesDir?: string;
-  bridgeUrl?: string;
-  skillsDir?: string;
-  operativeEnabled?: boolean;
-  operativeRulesPath?: string;
-  codeActWorkspaceRoot?: string;
-  recordingsDir?: string;
-  replayAllowedApps?: string[];
-  pcOperatorProvider?: BrainProviderName;
-  pcOperatorModel?: string;
-  supabaseSchema?: string;
-  supabaseMaxRows?: number;
-  supabaseAllowWrites?: boolean;
-  warehousesPath?: string;
-  governancePolicyPath?: string;
-};
-
-function parseAllowedApps(raw: string | undefined): string[] {
-  if (!raw) {
-    return [];
-  }
-  return raw
-    .split(/[,;\s]+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
-function readBooleanEnv(value: string | undefined): boolean | undefined {
-  if (value === undefined || value.trim() === "") {
-    return undefined;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) {
-    return true;
-  }
-  if (["0", "false", "no", "off"].includes(normalized)) {
-    return false;
-  }
-  return undefined;
-}
-
-function readNumberEnv(value: string | undefined): number | undefined {
-  if (value === undefined || value.trim() === "") {
-    return undefined;
-  }
-  const parsed = Number(value.trim());
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function defaultMemoryDir(): string {
-  const base =
-    process.env.APPDATA ??
-    process.env.XDG_DATA_HOME ??
-    path.join(os.homedir(), ".lumina-cognitive-os");
-  return path.join(base, "lumina-cognitive-os", "memory");
-}
-
 /**
  * Builds a WorkflowEnvironment from the lumina-windows-bridge so the
  * workflow engine can evaluate `process_running` / `window_title_contains`
@@ -361,69 +299,9 @@ export default definePluginEntry({
 
   register(api) {
     const raw = (api.pluginConfig ?? {}) as CognitiveConfig;
-    const envPath = raw.envPath ?? "c:/I24D_WhatsApp/.env";
+    const envPath = raw.envPath ?? DEFAULT_ENV_PATH;
     const luminaEnv = loadLuminaEnv({ envPath });
-    const cfg: Required<CognitiveConfig> = {
-      enabled: raw.enabled ?? true,
-      envPath,
-      memoryDir: raw.memoryDir ?? defaultMemoryDir(),
-      awarenessIntervalMs: raw.awarenessIntervalMs ?? 15_000,
-      wakeWordEnabled: raw.wakeWordEnabled ?? false,
-      wakeWordModel: raw.wakeWordModel ?? "hey_jarvis_v0.1",
-      bootGreetingEnabled: raw.bootGreetingEnabled ?? true,
-      browserDriverEnabled: raw.browserDriverEnabled ?? false,
-      perceptionAutoStart: raw.perceptionAutoStart ?? false,
-      perceptionFps: raw.perceptionFps ?? 3,
-      recipesDir: raw.recipesDir ?? "",
-      bridgeUrl: raw.bridgeUrl ?? process.env.LUMINA_BRIDGE_URL ?? "http://127.0.0.1:8765",
-      // The fallback pointed at c:/I24D_WhatsApp/skills, which does not exist:
-      // the 52 skills live inside the checkout. The gateway logged
-      // "Agent Skills: 0 loaded, 0 errors" every start because of it. A path
-      // derived from this file would be better, but the extension is bundled
-      // into dist/, where import.meta.dirname no longer sits beside the
-      // checkout, and absolute machine paths are this block's convention
-      // anyway (see codeActWorkspaceRoot below). Config and
-      // LUMINA_SKILLS_DIR still override.
-      skillsDir:
-        raw.skillsDir ?? process.env.LUMINA_SKILLS_DIR ?? "c:/I24D_WhatsApp/openclaw-main/skills",
-      operativeEnabled: raw.operativeEnabled ?? true,
-      operativeRulesPath: raw.operativeRulesPath ?? process.env.LUMINA_OPERATIVE_RULES ?? "",
-      codeActWorkspaceRoot:
-        raw.codeActWorkspaceRoot ??
-        process.env.LUMINA_CODEACT_WORKSPACE ??
-        "c:/I24D_WhatsApp/codeact-workspace",
-      recordingsDir:
-        raw.recordingsDir ?? process.env.LUMINA_RECORDINGS_DIR ?? "c:/I24D_WhatsApp/recordings",
-      replayAllowedApps:
-        raw.replayAllowedApps ?? parseAllowedApps(process.env.LUMINA_REPLAY_ALLOWED_APPS),
-      pcOperatorProvider:
-        raw.pcOperatorProvider ??
-        (process.env.LUMINA_PC_OPERATOR_PROVIDER as BrainProviderName | undefined) ??
-        "auto",
-      pcOperatorModel: raw.pcOperatorModel ?? process.env.LUMINA_PC_OPERATOR_MODEL ?? "",
-      supabaseSchema:
-        raw.supabaseSchema ??
-        process.env.LUMINA_SUPABASE_SCHEMA ??
-        luminaEnv.LUMINA_SUPABASE_SCHEMA ??
-        "public",
-      supabaseMaxRows:
-        raw.supabaseMaxRows ??
-        readNumberEnv(process.env.LUMINA_SUPABASE_MAX_ROWS) ??
-        readNumberEnv(luminaEnv.LUMINA_SUPABASE_MAX_ROWS) ??
-        100,
-      supabaseAllowWrites:
-        readBooleanEnv(process.env.LUMINA_SUPABASE_ALLOW_WRITES) ??
-        readBooleanEnv(luminaEnv.LUMINA_SUPABASE_ALLOW_WRITES) ??
-        raw.supabaseAllowWrites ??
-        false,
-      warehousesPath:
-        raw.warehousesPath ??
-        process.env.LUMINA_WAREHOUSES_PATH ??
-        luminaEnv.LUMINA_WAREHOUSES_PATH ??
-        "c:/I24D_WhatsApp/src/cuerpo/warehouses",
-      governancePolicyPath:
-        raw.governancePolicyPath ?? process.env.LUMINA_GOVERNANCE_POLICY_PATH ?? "",
-    };
+    const cfg = resolveCognitiveConfig(raw, envPath, luminaEnv);
 
     if (!cfg.enabled) {
       api.logger.info("[lumina-cognitive-os] disabled by config");
@@ -846,12 +724,34 @@ export default definePluginEntry({
       });
     });
 
+    // ── LUMINA-MESH/1 ────────────────────────────────────────────
+    // The durable side channel: outbox, dispatcher and inbox on the host's
+    // plugin-state worker, polled with backoff. Registered after the core so a
+    // handler can reach the activity log the core already publishes.
+    const mesh = startMeshRuntime({
+      live,
+      ...(host.openStore ? { openStore: host.openStore } : {}),
+      logger: {
+        info: (message) => api.logger.info(message),
+        warn: (message) => api.logger.warn(message),
+        error: (message) => api.logger.error(message),
+      },
+      activity,
+      namespaces: COGNITIVE_STORE_NAMESPACES,
+      enabled: cfg.meshEnabled,
+      registerHttpRoute: (route) => api.registerHttpRoute(route),
+    });
+    registerTool(createMeshStatusTool(() => mesh?.runtime));
+
     // ── Cleanup on plugin teardown ───────────────────────────────
     api.lifecycle.registerRuntimeLifecycle({
       id: "lumina-cognitive-os-cleanup",
       description:
-        "Stop the cognitive core, awareness poller, wake-word daemon, operative daemon, recorder, and perception sidecar.",
+        "Stop the cognitive core, mesh loop, awareness poller, wake-word daemon, operative daemon, recorder, and perception sidecar.",
       cleanup: () => {
+        // Awaited inside the runtime: a pass holds a lease, and abandoning it
+        // makes the next process wait out a reclaim timeout for nothing.
+        void mesh?.stop();
         cognition?.dispose();
         poller.stop();
         wake.stop();
