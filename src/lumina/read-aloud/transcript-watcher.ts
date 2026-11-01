@@ -75,7 +75,7 @@ function recentJsonlFiles(directory: string, nowMs: number): TranscriptFile[] {
       }
     })
     .filter((file): file is TranscriptFile => file !== undefined && file.mtimeMs >= cutoff)
-    .sort((left, right) => right.mtimeMs - left.mtimeMs)
+    .toSorted((left, right) => right.mtimeMs - left.mtimeMs)
     .slice(0, MAX_TRACKED_FILES);
 }
 
@@ -231,7 +231,9 @@ export function createTranscriptWatcher(params: {
       if (!line.trim()) {
         continue;
       }
-      let text = "";
+      // Declared without a value: every catch path continues, so the only way
+      // past the block is an assignment the parser actually made.
+      let text: string;
       try {
         text = parse(JSON.parse(line));
       } catch {
@@ -258,7 +260,7 @@ export function createTranscriptWatcher(params: {
     const database = new DatabaseSync(path, { readOnly: true });
     try {
       for (const row of readTranscriptRows(database, known)) {
-        databaseRowIds.set(path, Math.max(databaseRowIds.get(path) ?? 0, Number(row.rowid)));
+        databaseRowIds.set(path, Math.max(databaseRowIds.get(path) ?? 0, row.rowid));
         if (!shouldReadTranscriptSession({ sessionKey: row.sessionKey, channel: row.channel })) {
           continue;
         }

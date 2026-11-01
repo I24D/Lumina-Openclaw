@@ -54,6 +54,29 @@ export function isExternalContactChannel(
   });
 }
 
+/** The channel names a reply operation carries, any of which can name a contact surface. */
+type ReplyContactChannels = {
+  OriginatingChannel?: string;
+  Provider?: string;
+  Surface?: string;
+};
+
+/**
+ * Whether this reply is answering a third-party contact. The reply target lives
+ * apart from the session context, so both arrive here; the caller keeps one
+ * boolean rather than spreading the candidate list across its own file.
+ */
+export function replyDeliversToExternalContact(
+  replyToChannel: string | undefined,
+  session: ReplyContactChannels,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return isExternalContactChannel(
+    [replyToChannel, session.OriginatingChannel, session.Provider, session.Surface],
+    env,
+  );
+}
+
 /**
  * True when a payload carries runtime diagnostics rather than assistant content.
  *

@@ -27,7 +27,7 @@ import {
   createChildDiagnosticTraceContext,
   freezeDiagnosticTraceContext,
 } from "../../infra/diagnostic-trace-context.js";
-import { isExternalContactChannel } from "../../lumina/contact-channels.js";
+import { replyDeliversToExternalContact } from "../../lumina/contact-channels.js";
 import { getReplyOperationSessionReader } from "../../sessions/session-controller.state.js";
 import { captureOpenClawStateWorkerContext } from "../../state/openclaw-state-worker-context.js";
 import { estimateAggregateUsageCost } from "../../utils/usage-format.js";
@@ -356,12 +356,7 @@ export async function prepareReplyAgentPayloads(state: {
   };
   // Lumina: model-fallback diagnostics are operator-facing, so they never
   // reach a third-party contact's channel. See src/lumina/contact-channels.ts.
-  const deliversToExternalContact = isExternalContactChannel([
-    replyToChannel,
-    sessionCtx.OriginatingChannel,
-    sessionCtx.Provider,
-    sessionCtx.Surface,
-  ]);
+  const deliversToExternalContact = replyDeliversToExternalContact(replyToChannel, sessionCtx);
   const returnSilentFallbackFailureIfNeeded = async (): Promise<ReplyPayload | undefined> => {
     if (backgroundMissingReply) {
       return undefined;
@@ -385,12 +380,13 @@ export async function prepareReplyAgentPayloads(state: {
       );
       opts?.onAgentRunTerminalOutcome?.("failed");
     }
-    if (deliversToExternalContact) {
-      // The run failure stays in the reply operation and the run log; the
-      // contact gets silence instead of an internal backend diagnostic.
-      return undefined;
-    }
-    const [preparedPayload] = await buildFinalPayloads([silentFallbackFailurePayload]);
+    // Lumina: the failure is already in the reply operation and the run log, so
+    // a third-party contact gets silence rather than an internal backend
+    // diagnostic. Skipping the build also skips its media normalization, which
+    // would otherwise copy files for a payload nobody receives.
+    const [preparedPayload] = deliversToExternalContact
+      ? []
+      : await buildFinalPayloads([silentFallbackFailurePayload]);
     if (!preparedPayload) {
       return undefined;
     }
@@ -446,17 +442,14 @@ export async function prepareReplyAgentPayloads(state: {
       ? normalizeChatType(sessionCtx.ChatType)
       : undefined;
   const shouldDeliverFallbackNotice =
-    fallbackNoticeChatType !== "group" &&
-    fallbackNoticeChatType !== "channel" &&
-    !deliversToExternalContact;
-  let fallbackNoticeText: string | null =
-    successfulProviderPolicyRetry && !deliversToExternalContact
-      ? buildProviderPolicyRetryNotice({
-          provider: successfulProviderPolicyRetry.provider,
-          model: successfulProviderPolicyRetry.model,
-          cfg,
-        })
-      : null;
+    fallbackNoticeChatType !== "group" && fallbackNoticeChatType !== "channel";
+  let fallbackNoticeText: string | null = successfulProviderPolicyRetry
+    ? buildProviderPolicyRetryNotice({
+        provider: successfulProviderPolicyRetry.provider,
+        model: successfulProviderPolicyRetry.model,
+        cfg,
+      })
+    : null;
   const fallbackModels = {
     selectedProvider,
     selectedModel,
@@ -503,11 +496,15 @@ export async function prepareReplyAgentPayloads(state: {
       });
     }
   }
-  const fallbackNoticePayloads: ReplyPayload[] = fallbackNoticeText
+  // Lumina: one gate for all three notice sources — the policy retry above and
+  // both builders between. The operator-facing record is already written; the
+  // contact just does not receive it.
+  const deliverableNoticeText = deliversToExternalContact ? null : fallbackNoticeText;
+  const fallbackNoticePayloads: ReplyPayload[] = deliverableNoticeText
     ? [
         setReplyPayloadMetadata(
           markReplyPayloadForSourceSuppressionDelivery({
-            text: fallbackNoticeText,
+            text: deliverableNoticeText,
             isFallbackNotice: true,
           }),
           !providerPolicyRetrySucceeded &&

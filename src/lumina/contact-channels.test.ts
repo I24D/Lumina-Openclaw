@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isExternalContactChannel,
   isRuntimeNoticePayload,
+  replyDeliversToExternalContact,
   resolveContactChannels,
 } from "./contact-channels.js";
 
@@ -40,6 +41,30 @@ describe("isExternalContactChannel", () => {
 
   it("stays inert while the guard lists no channel", () => {
     expect(isExternalContactChannel(["whatsapp"], {})).toBe(false);
+  });
+});
+
+describe("replyDeliversToExternalContact", () => {
+  it("reads every channel the reply path carries, not just the reply target", () => {
+    expect(replyDeliversToExternalContact("whatsapp", {}, GUARDED)).toBe(true);
+    expect(
+      replyDeliversToExternalContact(undefined, { OriginatingChannel: "whatsapp" }, GUARDED),
+    ).toBe(true);
+    expect(replyDeliversToExternalContact(undefined, { Provider: "whatsapp" }, GUARDED)).toBe(true);
+    expect(replyDeliversToExternalContact(undefined, { Surface: "whatsapp" }, GUARDED)).toBe(true);
+  });
+
+  it("leaves an operator reply alone", () => {
+    expect(replyDeliversToExternalContact("webchat", { OriginatingChannel: "cli" }, GUARDED)).toBe(
+      false,
+    );
+  });
+
+  // The session context arrives from upstream and carries no guarantee that any
+  // of these fields is set, so an empty one must read as an operator reply
+  // rather than throwing or guessing.
+  it("treats an empty session context as unguarded", () => {
+    expect(replyDeliversToExternalContact(undefined, {}, GUARDED)).toBe(false);
   });
 });
 
