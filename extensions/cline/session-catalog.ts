@@ -2,6 +2,7 @@ import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { parseDateFirstTimestampMs } from "openclaw/plugin-sdk/number-runtime";
 import type {
   SessionCatalogSession,
   SessionCatalogTranscriptItem,
@@ -34,17 +35,6 @@ function boundedString(value: unknown, max = 500): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed ? trimmed.slice(0, max) : undefined;
-}
-
-function timestampMs(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function clineDataDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -94,8 +84,8 @@ async function readMetadata(root: string, threadId: string): Promise<ClineMetada
     throw new Error("Cline session metadata is invalid");
   }
   const metadata = isRecord(raw.metadata) ? raw.metadata : undefined;
-  const createdAt = timestampMs(raw.started_at);
-  const updatedAt = timestampMs(raw.ended_at) ?? stat.mtimeMs;
+  const createdAt = parseDateFirstTimestampMs(raw.started_at);
+  const updatedAt = parseDateFirstTimestampMs(raw.ended_at) ?? stat.mtimeMs;
   return {
     sessionId: threadId,
     name: boundedString(metadata?.title) ?? boundedString(raw.prompt),
@@ -227,7 +217,7 @@ export async function readLocalClineTranscriptPage(params: {
       continue;
     }
     const role = message.role === "user" ? "user" : "assistant";
-    const timestamp = timestampMs(message.ts);
+    const timestamp = parseDateFirstTimestampMs(message.ts);
     for (const [blockIndex, block] of message.content.entries()) {
       if (!isRecord(block) || typeof block.type !== "string") {
         continue;

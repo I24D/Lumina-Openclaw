@@ -1,3 +1,4 @@
+import { parseBooleanValue } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { getLuminaEnvVar, type LoadEnvOptions } from "../env.js";
 
 export type SupabaseKeySource = "SUPABASE_SERVICE_ROLE_KEY" | "SUPABASE_ANON_KEY" | "SUPABASE_KEY";
@@ -36,13 +37,6 @@ function assertSupabaseIdentifier(value: string, label: string): void {
 
 function normalizeSupabaseUrl(value: string): string {
   return value.trim().replace(/\/+$/u, "");
-}
-
-function parseBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined || value.trim() === "") {
-    return fallback;
-  }
-  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
 function parseMaxRows(value: number | string | undefined): number {
@@ -86,7 +80,8 @@ export function resolveSupabaseConfig(options: SupabaseConfigOptions = {}): Supa
   );
   const allowWrites =
     options.allowWrites ??
-    parseBoolean(getLuminaEnvVar("LUMINA_SUPABASE_ALLOW_WRITES", options), false);
+    parseBooleanValue(getLuminaEnvVar("LUMINA_SUPABASE_ALLOW_WRITES", options)) ??
+    false;
 
   return {
     url: normalizeSupabaseUrl(url),

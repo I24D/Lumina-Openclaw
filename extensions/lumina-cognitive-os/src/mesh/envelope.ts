@@ -27,6 +27,7 @@
  * as an explicit, non-throwing failure.
  */
 import { createHash } from "node:crypto";
+import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { newEntityId } from "../shared/ids.js";
 
 /** The protocol name, stored on every envelope so a reader can tell what it is. */
@@ -167,10 +168,6 @@ export type MeshEnvelopeProblem = {
 export type ParseEnvelopeResult =
   | { readonly ok: true; readonly envelope: MeshEnvelope }
   | { readonly ok: false; readonly problems: readonly MeshEnvelopeProblem[] };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function checkIsoUtc(
   value: unknown,

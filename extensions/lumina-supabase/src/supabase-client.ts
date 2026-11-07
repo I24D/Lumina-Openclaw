@@ -13,6 +13,7 @@
  * ever echoed back to the agent.
  */
 import { readFileSync } from "node:fs";
+import { parseBooleanValue } from "openclaw/plugin-sdk/string-coerce-runtime";
 
 const DEFAULT_ENV_PATH = "c:/I24D_WhatsApp/.env";
 const DEFAULT_SCHEMA = "public";
@@ -108,13 +109,6 @@ function normalizeUrl(value: string): string {
   return value.trim().replace(/\/+$/u, "");
 }
 
-function parseBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined || value.trim() === "") {
-    return fallback;
-  }
-  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
-}
-
 function parseMaxRows(value: number | string | undefined): number {
   const parsed =
     typeof value === "number"
@@ -170,7 +164,8 @@ export function resolveSupabaseConfig(options: SupabaseConfigOptions = {}): Supa
     maxRows: parseMaxRows(options.maxRows ?? getEnvVar("LUMINA_SUPABASE_MAX_ROWS", options)),
     allowWrites:
       options.allowWrites ??
-      parseBoolean(getEnvVar("LUMINA_SUPABASE_ALLOW_WRITES", options), false),
+      parseBooleanValue(getEnvVar("LUMINA_SUPABASE_ALLOW_WRITES", options)) ??
+      false,
   };
 }
 

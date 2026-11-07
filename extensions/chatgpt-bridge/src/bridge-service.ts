@@ -3,7 +3,11 @@ import type {
   OpenClawPluginService,
   OpenClawPluginServiceContext,
 } from "openclaw/plugin-sdk/plugin-entry";
-import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
+import {
+  asFiniteNumber,
+  isRecord,
+  normalizeOptionalString,
+} from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
   connectToTarget,
   listPageTargets,
@@ -40,34 +44,23 @@ const DEFAULT_DENY_PATTERNS: readonly string[] = [
   "rm\\s+-rf",
 ];
 
-function readString(source: Record<string, unknown>, key: string, fallback: string): string {
-  const value = source[key];
-  return typeof value === "string" && value.trim() ? value.trim() : fallback;
-}
-
-function readNumber(source: Record<string, unknown>, key: string, fallback: number): number {
-  const value = source[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
 export function resolveBridgeConfig(pluginConfig: unknown): BridgeConfig {
   const source = isRecord(pluginConfig) ? pluginConfig : {};
   const denyPatterns = Array.isArray(source.denyPatterns)
     ? source.denyPatterns.filter((entry): entry is string => typeof entry === "string")
     : DEFAULT_DENY_PATTERNS;
-  const agentId =
-    typeof source.agentId === "string" && source.agentId.trim() ? source.agentId.trim() : undefined;
+  const agentId = normalizeOptionalString(source.agentId);
   return {
     enabled: source.enabled !== false,
-    cdpUrl: readString(source, "cdpUrl", "http://127.0.0.1:18800"),
-    sessionKey: readString(source, "sessionKey", "agent:main:main"),
+    cdpUrl: normalizeOptionalString(source.cdpUrl) ?? "http://127.0.0.1:18800",
+    sessionKey: normalizeOptionalString(source.sessionKey) ?? "agent:main:main",
     ...(agentId ? { agentId } : {}),
-    marker: readString(source, "marker", "@OPENCLAW:"),
-    urlPattern: readString(source, "urlPattern", "chatgpt.com"),
-    maxOrderChars: readNumber(source, "maxOrderChars", 2000),
-    userTurnWindowMs: readNumber(source, "userTurnWindowMs", 300_000),
-    minIntervalMs: readNumber(source, "minIntervalMs", 3_000),
-    maxPerHour: readNumber(source, "maxPerHour", 40),
+    marker: normalizeOptionalString(source.marker) ?? "@OPENCLAW:",
+    urlPattern: normalizeOptionalString(source.urlPattern) ?? "chatgpt.com",
+    maxOrderChars: asFiniteNumber(source.maxOrderChars) ?? 2000,
+    userTurnWindowMs: asFiniteNumber(source.userTurnWindowMs) ?? 300_000,
+    minIntervalMs: asFiniteNumber(source.minIntervalMs) ?? 3_000,
+    maxPerHour: asFiniteNumber(source.maxPerHour) ?? 40,
     denyPatterns,
   };
 }

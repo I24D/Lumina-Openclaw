@@ -12,7 +12,9 @@ Configure the ChatGPT desktop app with this stdio server:
 ```toml
 [mcp_servers.lumina_openclaw]
 command = "C:\\nvm4w\\nodejs\\node.exe"
-args = ["C:\\I24D_WhatsApp\\openclaw-main\\extensions\\chatgpt-bridge\\scripts\\lumina-mcp-server.mjs"]
+args = [
+  "C:\\I24D_WhatsApp\\openclaw-main\\extensions\\chatgpt-bridge\\scripts\\lumina-mcp-server.mjs",
+]
 startup_timeout_sec = 20
 tool_timeout_sec = 620
 ```

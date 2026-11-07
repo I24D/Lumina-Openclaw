@@ -57,6 +57,7 @@
  * never retries blindly. Only a failure that provably never reached the server
  * is reported as a plain, retryable transport failure.
  */
+import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { StateStorePort } from "../shared/state-store.js";
 import {
   readSupabaseJson,
@@ -172,10 +173,6 @@ export type FinishTaskResult =
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_LEASE_SECONDS = 300;
 const DETAIL_MAX_CHARS = 300;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;

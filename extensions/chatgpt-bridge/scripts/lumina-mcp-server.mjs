@@ -29,7 +29,8 @@ function record(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-function readString(value) {
+/** Trimmed non-blank text, or undefined. Standalone: no workspace resolution here. */
+function trimmedText(value) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
@@ -119,7 +120,7 @@ export function runOpenClawJson(args, options = {}) {
         if (code !== 0 || record(parsed).ok === false) {
           const parsedError = record(record(parsed).error);
           const detail =
-            readString(parsedError.message) ||
+            trimmedText(parsedError.message) ||
             stderr.trim() ||
             `OpenClaw termino con codigo ${code}`;
           reject(new Error(detail));
@@ -163,11 +164,11 @@ function conciseJson(value) {
 
 function terminalReply(result) {
   const reply = record(record(result).terminalReply);
-  return readString(reply.text);
+  return trimmedText(reply.text);
 }
 
 function runStatus(result) {
-  return readString(record(result).status) ?? "pending";
+  return trimmedText(record(result).status) ?? "pending";
 }
 
 function presentRun(runId, result) {
@@ -195,7 +196,7 @@ function presentRun(runId, result) {
     };
   }
   if (status === "error") {
-    const error = readString(record(result).error) ?? "La tarea de Lumina termino con error.";
+    const error = trimmedText(record(result).error) ?? "La tarea de Lumina termino con error.";
     return {
       content: [{ type: "text", text: reply ?? error }],
       structuredContent: {
@@ -237,11 +238,11 @@ async function startLuminaRun(instruction, signal) {
     },
     { signal, timeoutMs: 20_000 },
   );
-  const runId = readString(record(result).runId);
+  const runId = trimmedText(record(result).runId);
   if (!runId) {
     throw new Error("El Gateway acepto la orden pero no devolvio runId.");
   }
-  return { runId, status: readString(record(result).status) ?? "started" };
+  return { runId, status: trimmedText(record(result).status) ?? "started" };
 }
 
 async function waitForLuminaRun(runId, timeoutMs, signal) {
@@ -278,7 +279,7 @@ function registerTools(server) {
                 configured: state.configured === true,
                 connected: state.connected === true || state.lifecycle === "ready",
                 lifecycle:
-                  readString(state.lifecycle) ?? readString(state.healthState) ?? "unknown",
+                  trimmedText(state.lifecycle) ?? trimmedText(state.healthState) ?? "unknown",
               },
             ];
           }),

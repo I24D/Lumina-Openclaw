@@ -1,12 +1,7 @@
 // Transcript record parsers for the read-aloud pipeline.
 // Each parser returns the speakable final answer of one assistant turn, or "" for
 // anything that is not a completed answer (tool calls, deltas, reasoning, echoes).
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
+import { asOptionalRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
 
 /** Joins the text blocks of an assistant message, ignoring tool and reasoning blocks. */
 export function textFromContent(content: unknown): string {

@@ -1,3 +1,4 @@
+import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
   readSupabaseJson,
   resolveSupabaseConfig,
@@ -325,10 +326,6 @@ export type ReadMeshEnvelopesOptions = {
   readonly fetchImpl?: SupabaseFetchFn;
   readonly timeoutMs?: number;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * Reads mesh rows oldest first, past a cursor, and validates each one.

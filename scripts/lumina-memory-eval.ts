@@ -8,7 +8,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { MemorySearchResponse } from "../src/gateway/server-methods/memory-search.js";
+// The gateway handler only imports this type; the barrel that owns and exports
+// it is the one the handler itself reads from.
+import type { MemorySearchResponse } from "../src/memory-host-sdk/host/types.js";
 
 type EvalCase = {
   id: string;

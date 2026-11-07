@@ -6,7 +6,7 @@ import {
   type GatewayRequestHandlerOptions,
 } from "openclaw/plugin-sdk/gateway-runtime";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
-import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 
 type McpTarget = {
   agentId: string;
@@ -38,22 +38,17 @@ const MCP_RETRY_AFTER_MS = 3_000;
 const MCP_REPLY_MAX_CHARS = 500_000;
 const MAX_TIMER_TIMEOUT_MS = 2_147_483_647;
 
-function readString(source: Record<string, unknown>, key: string, fallback: string): string {
-  const value = source[key];
-  return typeof value === "string" && value.trim() ? value.trim() : fallback;
-}
-
-function optionalString(source: Record<string, unknown>, key: string): string | undefined {
-  const value = source[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+/** Keyed read over the shared trimming seam; blank fields read as absent. */
+function trimmedField(source: Record<string, unknown>, key: string): string | undefined {
+  return normalizeOptionalString(source[key]);
 }
 
 function resolveMcpTarget(pluginConfig: unknown): McpTarget {
   const source = isRecord(pluginConfig) ? pluginConfig : {};
-  const agentId = readString(source, "mcpAgentId", "main");
+  const agentId = trimmedField(source, "mcpAgentId") ?? "main";
   return {
     agentId,
-    sessionKey: readString(source, "mcpSessionKey", `agent:${agentId}:chatgpt-voice`),
+    sessionKey: trimmedField(source, "mcpSessionKey") ?? `agent:${agentId}:chatgpt-voice`,
   };
 }
 
@@ -97,7 +92,7 @@ function truncate(value: string, maximum: number): string {
 function terminalReplyText(value: unknown): string | undefined {
   const source = isRecord(value) ? value : {};
   const reply = isRecord(source.terminalReply) ? source.terminalReply : {};
-  return optionalString(reply, "text");
+  return trimmedField(reply, "text");
 }
 
 function messageText(value: unknown): string | undefined {
@@ -119,11 +114,11 @@ function messageText(value: unknown): string | undefined {
     if (!isRecord(block)) {
       continue;
     }
-    const type = optionalString(block, "type");
+    const type = trimmedField(block, "type");
     if (type && !["text", "output_text"].includes(type)) {
       continue;
     }
-    const text = optionalString(block, "text") ?? optionalString(block, "value");
+    const text = trimmedField(block, "text") ?? trimmedField(block, "value");
     if (!text) {
       continue;
     }
@@ -158,8 +153,8 @@ function isTerminalJob(job: DurableMcpJob): boolean {
 function isTerminalTimeout(value: Record<string, unknown>): boolean {
   return (
     typeof value.endedAt === "number" ||
-    optionalString(value, "error") !== undefined ||
-    optionalString(value, "stopReason") !== undefined ||
+    trimmedField(value, "error") !== undefined ||
+    trimmedField(value, "stopReason") !== undefined ||
     value.providerStarted === true
   );
 }
@@ -192,7 +187,7 @@ function projectWaitResult(params: {
   now?: number;
 }): DurableMcpJob {
   const value = isRecord(params.result) ? params.result : {};
-  const status = optionalString(value, "status") ?? "pending";
+  const status = trimmedField(value, "status") ?? "pending";
   const now = params.now ?? Date.now();
   const replyText = terminalReplyText(value);
   if (status === "ok") {
@@ -205,8 +200,8 @@ function projectWaitResult(params: {
     };
   }
   if (status === "error" || (status === "timeout" && isTerminalTimeout(value))) {
-    const error = optionalString(value, "error");
-    const stopReason = optionalString(value, "stopReason");
+    const error = trimmedField(value, "error");
+    const stopReason = trimmedField(value, "stopReason");
     return {
       ...params.current,
       status: "failed",
@@ -397,7 +392,7 @@ export function registerChatGptMcpGatewayMethods(api: OpenClawPluginApi): void {
           { scopes: ["operator.admin"] },
         );
         const resultRecord = isRecord(result) ? result : {};
-        const runId = optionalString(resultRecord, "runId");
+        const runId = trimmedField(resultRecord, "runId");
         if (!runId) {
           throw new Error("chat.send accepted the task without returning runId");
         }
@@ -417,7 +412,7 @@ export function registerChatGptMcpGatewayMethods(api: OpenClawPluginApi): void {
           ...resultRecord,
           runId,
           durable: true,
-          status: optionalString(resultRecord, "status") ?? "started",
+          status: trimmedField(resultRecord, "status") ?? "started",
         });
       } catch (error) {
         respondError(respond, error);
@@ -465,7 +460,7 @@ export function registerChatGptMcpGatewayMethods(api: OpenClawPluginApi): void {
     async ({ params, respond }) => {
       const input = isRecord(params) ? params : {};
       const limit = optionalInteger(input, "limit", 1, 100) ?? 20;
-      const status = optionalString(input, "status");
+      const status = trimmedField(input, "status");
       if (status && !["running", "completed", "failed", "cancelled"].includes(status)) {
         respond(
           false,

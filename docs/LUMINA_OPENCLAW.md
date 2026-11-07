@@ -113,8 +113,9 @@ it has not been seen to finish here at all.
 
 `pnpm lint` needs boundary declarations, so `scripts/run-oxlint-shards.mts`
 calls `scripts/prepare-extension-package-boundary-artifacts.mts`, whose
-`plugin-sdk` unit emits 13,912 files and needs 7m48s — over its 300s cap. That
-unit is upstream's and had never completed here:
+`plugin-sdk` unit emits 14,204 files and needs well over its 300s cap (13,912
+files in 7m48s before 2026.11.1). That unit is upstream's and had never completed
+here:
 `.artifacts/extension-package-boundary/` held records for seven extensions, all
 from 2026-08-29, and none for `plugin-sdk`.
 
@@ -126,6 +127,24 @@ knob exists for exactly this unit is the hint that upstream knows — see their
 `fix(ci): size serial SDK declaration compilers to the runner`. Once the unit
 completes it writes its receipt and later runs reuse it, so the cost is paid when
 `plugin-sdk` inputs change, which in practice means after an upstream merge.
+
+The variable is a user-scope one, so a shell — or an editor session, or anything
+it launched — that was started before it was set does not have it, and inherits
+the 300s default instead. `pnpm check:changed` then fails its `lint extensions`
+lane with `plugin-sdk boundary dts timed out after 300000ms`, which reads like a
+machine limit and is not one. Check `$env:OPENCLAW_PLUGIN_SDK_BOUNDARY_ROOT_SHIMS_TIMEOUT_MS`
+in the process, not only at user scope, before concluding anything from that
+timeout.
+
+### ripgrep is required, not optional
+
+`scripts/database-worker-inventory.mjs` spawns `rg --files` to collect the SQLite
+worker inventory, so `pnpm check:changed` fails its `SQLite worker ratchet` lane
+with `spawnSync rg ENOENT` on a machine without ripgrep — in 4s, which looks like
+a fast pass in the summary table until the lane's status is read. Upstream
+installs it in CI through `.ci-harness/.github/actions/setup-ripgrep`; here it is
+`winget install BurntSushi.ripgrep.MSVC`, which puts its package directory on the
+user PATH and so needs a fresh shell for the same reason as the cap above.
 
 ### Running one test file
 
