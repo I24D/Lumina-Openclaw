@@ -9,7 +9,7 @@ import { enqueueSessionEventForHost } from "../auto-reply/reply/session-event-ha
 import type { CliDeps } from "../cli/deps.types.js";
 import { resolveControlUiAutomationRunUrl } from "../config/control-ui-link-base.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { CronAgentSelectionRequiredError } from "../cron/agent-id.js";
+import { resolveCronJobEffectiveAgentId } from "../cron/agent-id.js";
 import { redactCronCommandSummaryForExternalDelivery } from "../cron/command-output-summary.js";
 import { commitCronConversationResult } from "../cron/conversation-result.js";
 import { resolveCronDeliveryPlan, sendCronAnnouncePayloadStrict } from "../cron/delivery.js";
@@ -119,6 +119,8 @@ async function runGatewayCronFailureRepair(
         expectedTarget: target,
         // Only the agent's authored reply reaches the chat; the next alert owns escalation.
         suppressErrorDelivery: true,
+        // The scheduler's repair brief permits silence; public provenance does not grant it.
+        replyExpectation: "optional",
       });
       const accepted = await receipt.accepted;
       if (!accepted.ok) {
@@ -155,6 +157,13 @@ function redactWebhookUrl(url: string): string {
 function redactOptionalWebhookUrl(url: unknown): string | undefined {
   const normalized = normalizeOptionalString(url);
   return normalized ? redactWebhookUrl(normalized) : undefined;
+}
+
+function stripCronJobDiagnostics(job: NonNullable<CronEvent["job"]>) {
+  const state = { ...job.state };
+  delete state.lastDiagnostics;
+  delete state.lastDiagnosticSummary;
+  return { ...job, state };
 }
 
 function redactCommandCronEventForExternalDelivery(evt: CronEvent, job?: CronJob): CronEvent {
@@ -201,13 +210,7 @@ function redactCommandCronEventForExternalDelivery(evt: CronEvent, job?: CronJob
     }
   }
   if (stripEmbeddedJobDiagnostics && evt.job) {
-    const state = { ...evt.job.state };
-    delete state.lastDiagnostics;
-    delete state.lastDiagnosticSummary;
-    redacted.job = {
-      ...evt.job,
-      state,
-    };
+    redacted.job = stripCronJobDiagnostics(evt.job);
   }
   return redacted;
 }
@@ -245,15 +248,9 @@ function buildCronFinishedWebhookPayload(evt: CronEvent) {
   }
   const { summary: _summary, diagnostics: _diagnostics, ...payload } = evt;
   if (evt.job) {
-    const state = { ...evt.job.state };
-    delete state.lastDiagnostics;
-    delete state.lastDiagnosticSummary;
     return {
       ...payload,
-      job: {
-        ...evt.job,
-        state,
-      },
+      job: stripCronJobDiagnostics(evt.job),
     };
   }
   return payload;
@@ -454,12 +451,10 @@ async function sendGatewayCronFailureAlertUnderAdmission(
     mayHaveReachedRecipient ||= reachedRecipient;
   };
   try {
-    const requestedAgentId =
-      normalizeOptionalString(params.job.agentId) ??
-      normalizeOptionalString(params.routing.defaultAgentId);
-    if (!requestedAgentId) {
-      throw new CronAgentSelectionRequiredError();
-    }
+    const requestedAgentId = resolveCronJobEffectiveAgentId(
+      params.job,
+      params.routing.defaultAgentId,
+    );
     const { agentId, cfg: runtimeConfig } = params.resolveCronAgent(requestedAgentId);
     if (params.mode === "webhook") {
       if (!params.to) {

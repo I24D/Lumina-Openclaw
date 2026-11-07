@@ -14,7 +14,7 @@ import {
 } from "../changed-lanes.mts";
 import { hasProtocolGenerationInput } from "../lib/ci-check-family-scope.mts";
 import { toolingDependencyOptions } from "../lib/tooling-dependencies.mjs";
-import { resolvePnpmRunner } from "../pnpm-runner.mts";
+import { buildCmdExeCommandLine, resolveWindowsCmdExePath } from "../windows-cmd-helpers.mjs";
 
 type FreshnessCheck = {
   name: string;
@@ -116,52 +116,48 @@ function replayingCommits() {
 }
 
 // pnpm startup dominates these checks, so plain `node ...` package scripts run directly.
-// Lumina fork: upstream's tooling-entrypoint branch returns a [command, args]
-// tuple, but the pnpm fallback below needs `shell` and
-// `windowsVerbatimArguments` to survive a Windows .cmd shim. One object shape
-// carries both, so `run` has a single contract to spread.
-function resolveCommand(check: FreshnessCheck): ReturnType<typeof resolvePnpmRunner> {
+function resolveCommand(check: FreshnessCheck): [string, string[]] {
   if (check.toolingEntrypoint) {
     const tooling = toolingDependencyOptions(process.cwd(), check.script, { tsx: true });
-    return {
-      command: process.versions.bun ? "node" : process.execPath,
-      args: [
+    return [
+      process.versions.bun ? "node" : process.execPath,
+      [
         ...(tooling.execArgv ?? []),
         "--import",
         tooling.tsxImport ?? new URL("../tsx.mjs", import.meta.url).href,
         check.toolingEntrypoint,
         ...check.args,
       ],
-      shell: false,
-    };
+    ];
   }
   const script = JSON.parse(readFileSync("package.json", "utf8")).scripts?.[check.script];
   if (typeof script === "string" && /^node(?: [\w./:=@-]+)+$/u.test(script)) {
-    return {
-      command: process.execPath,
-      args: [...script.split(" ").slice(1), ...check.args],
-      shell: false,
-    };
+    return [process.execPath, [...script.split(" ").slice(1), ...check.args]];
   }
-  // Lumina fork: a bare spawn("pnpm") is ENOENT on Windows, where pnpm is a
-  // .cmd shim, so every staged docs page failed the hook there.
-  return resolvePnpmRunner({ pnpmArgs: ["run", check.script, ...check.args] });
+  return ["pnpm", ["run", check.script, ...check.args]];
 }
 
 // Independent read-only checks run together so the hook costs the slowest one.
 async function run(check: FreshnessCheck) {
-  let invocation: ReturnType<typeof resolveCommand>;
+  let invocation: [string, string[]];
+  let windowsVerbatimArguments = false;
   try {
     invocation = resolveCommand(check);
+    if (process.platform === "win32" && invocation[0] === "pnpm") {
+      invocation = [
+        resolveWindowsCmdExePath(),
+        ["/d", "/s", "/c", buildCmdExeCommandLine("pnpm.cmd", invocation[1])],
+      ];
+      windowsVerbatimArguments = true;
+    }
   } catch (error) {
     return { check, status: 1, output: String(error) };
   }
-  const { command, args, shell, windowsVerbatimArguments } = invocation;
+  const [command, args] = invocation;
   return await new Promise<{ check: FreshnessCheck; status: number; output: string }>((resolve) => {
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      shell,
-      windowsVerbatimArguments,
+      ...(windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       env: check.toolingEntrypoint ? { ...process.env, TSX_DISABLE_CACHE: "1" } : process.env,
     });
     let output = "";

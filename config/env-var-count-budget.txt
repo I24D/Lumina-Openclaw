@@ -21,6 +21,8 @@
 # Retiring A2UI removes its four renderer build environment names.
 # OPENCLAW_CONFIG_READONLY_NOTICE (#187015) lets the deployment explain where to edit Gateway configuration.
 # Ordinary Git updates now consume the existing, documented source-build declaration flag.
+# OPENCLAW_DEV_RELOAD_BUNDLED_PLUGINS (#187962) is the owner-approved launch-only bundled plugin development reload opt-in.
+# Approved Gmail child-only push and hook credential environment sources.
 # The Lumina fork contributes seven OPENCLAW_* names of its own, which is why this
 # number is seven above upstream's. They exist only on this side of the fork:
 # OPENCLAW_AGENTS points the read-aloud transcript watcher at the agent state directory.
@@ -28,4 +30,4 @@
 # fixed session binding and its entrypoint override.
 # OPENCLAW_DESIGN_MODEL selects the model the Open Design surface renders with.
 # OPENCLAW_MEMORY and OPENCLAW_WAREHOUSE name the Supabase memory and warehouse schemas the cognitive OS reads.
-466
+468

@@ -8,6 +8,10 @@ export {
   ToolInputError,
   ToolAuthorizationError,
   textResult,
-  payloadTextResult,
 } from "../../../../src/agents/tools/common.js";
 export type { AnyAgentTool } from "../../../../src/agents/tools/common.js";
+// 2026.11.1 moved the result builders into their own module, and `common.ts`
+// re-exports only two of the three. Upstream's own callers import this one
+// straight from there, so this file follows them rather than widening the
+// core's surface to suit the extension.
+export { payloadTextResult } from "../../../../src/agents/tools/tool-results.js";
