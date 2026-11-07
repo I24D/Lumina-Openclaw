@@ -65,6 +65,10 @@ export function createPlanRunTool(plans: PlanStore, runner: PlanRunner): AnyAgen
           });
         case "status":
           return jsonResult({ ok: true, run: runner.status(plan) });
+        default: {
+          params.action satisfies never;
+          throw new ToolInputError(`Unknown action ${String(params.action)}.`);
+        }
       }
     },
   };

@@ -394,6 +394,15 @@ export class TaskRecovery {
         await this.claims?.register(claim.attempt_id, claim);
         return { ok: true, claim };
       }
+      default:
+        // Never retried: an outcome this adapter cannot read may already have
+        // been applied in Postgres.
+        outcome satisfies never;
+        return {
+          ok: false,
+          reason: "outcome-unknown",
+          detail: "lumina RPC returned an outcome kind this adapter does not know",
+        };
     }
   }
 
@@ -421,6 +430,15 @@ export class TaskRecovery {
           ok: false,
           reason: "transport",
           detail: `HTTP ${outcome.status}: ${outcome.message}`,
+        };
+      default:
+        // Never retried: an outcome this adapter cannot read may already have
+        // been applied in Postgres.
+        outcome satisfies never;
+        return {
+          ok: false,
+          reason: "outcome-unknown",
+          detail: "lumina RPC returned an outcome kind this adapter does not know",
         };
     }
   }
@@ -479,6 +497,15 @@ export class TaskRecovery {
           lease_expires_at: renewed.lease_expires_at,
         };
       }
+      default:
+        // Never retried: an outcome this adapter cannot read may already have
+        // been applied in Postgres.
+        outcome satisfies never;
+        return {
+          ok: false,
+          reason: "outcome-unknown",
+          detail: "lumina RPC returned an outcome kind this adapter does not know",
+        };
     }
   }
 
@@ -544,6 +571,15 @@ export class TaskRecovery {
           }
         );
       }
+      default:
+        // Never retried: an outcome this adapter cannot read may already have
+        // been applied in Postgres.
+        outcome satisfies never;
+        return {
+          ok: false,
+          reason: "outcome-unknown",
+          detail: "lumina RPC returned an outcome kind this adapter does not know",
+        };
     }
   }
 }

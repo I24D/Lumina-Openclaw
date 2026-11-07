@@ -70,7 +70,7 @@ export function coreProbes(deps: {
           recommendation: "Check the awareness poller.",
         };
       }
-      return env.network.online === false
+      return !env.network.online
         ? {
             status: "degraded",
             detail: "Offline: cloud models and messaging may fail; local functions continue.",

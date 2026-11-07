@@ -124,7 +124,8 @@ function discoverDaemonUrl(timeoutMs = 1_500) {
     );
     socket.setEncoding("utf8");
     socket.once("connect", () => socket.write(`${JSON.stringify({ type: "status" })}\n`));
-    socket.on("data", (chunk) => {
+    // setEncoding("utf8") above makes every chunk a string.
+    socket.on("data", (/** @type {string} */ chunk) => {
       buffer += chunk;
       const newline = buffer.indexOf("\n");
       if (newline < 0) {
@@ -138,7 +139,7 @@ function discoverDaemonUrl(timeoutMs = 1_500) {
         }
         finish(() => resolve(url.replace(/\/$/u, "")));
       } catch (error) {
-        finish(() => reject(error));
+        finish(() => reject(error instanceof Error ? error : new Error(String(error))));
       }
     });
     socket.once("error", (error) => finish(() => reject(error)));
@@ -224,8 +225,8 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch((error) => {
-    console.error(`[lumina-open-design] ${error.message}`);
+  main().catch((/** @type {unknown} */ error) => {
+    console.error(`[lumina-open-design] ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
 }

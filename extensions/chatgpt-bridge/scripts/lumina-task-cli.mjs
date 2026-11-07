@@ -147,7 +147,7 @@ async function main() {
   throw new Error(`Comando desconocido: ${command}`);
 }
 
-main().catch((error) => {
+main().catch((/** @type {unknown} */ error) => {
   const message = error instanceof Error ? error.message : String(error);
   print({ ok: false, error: message });
   process.exitCode = 1;

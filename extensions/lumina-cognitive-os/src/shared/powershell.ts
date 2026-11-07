@@ -106,7 +106,6 @@ export async function runPowerShell(
   });
 }
 
-// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- JSON results are typed by the caller.
 /**
  * Pipes everything `script` outputs into ConvertTo-Json. The script runs inside a
  * script block: Windows PowerShell 5.1 rejects a line that starts with `|`
@@ -117,6 +116,7 @@ export function jsonPipeline(script: string): string {
   return `& {\n${script}\n} | ConvertTo-Json -Depth 8 -Compress`;
 }
 
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- JSON results are typed by the caller.
 export async function runPowerShellJson<T = unknown>(
   script: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,

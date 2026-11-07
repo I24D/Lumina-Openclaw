@@ -232,6 +232,8 @@ export const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   "lumina_artifacts",
   "lumina_causal",
   "lumina_evaluate",
+  // Mesh — the task and event mesh the gateway runs (2026-11-01)
+  "lumina_mesh_status",
 ]);
 
 export function validatePlan(input: unknown): PlanValidation {

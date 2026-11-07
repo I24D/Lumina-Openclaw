@@ -151,6 +151,7 @@ describe("a failing effect", () => {
   it("keeps a non-Error throw readable and bounded", async () => {
     const h = harness();
     const result = await h.inbox.apply(envelope(), async () => {
+      // oxlint-disable-next-line typescript/only-throw-error -- a non-Error throw is what this test is about.
       throw `plain ${"x".repeat(500)}`;
     });
     expect(result.status).toBe("failed");

@@ -84,7 +84,7 @@ export function reflect(params: {
   }
 
   for (const [action, cycles] of countBy(params.cycles, (c) =>
-    c.error || (c.executed === false && c.interrupted) ? (c.action ?? c.event.kind) : undefined,
+    c.error || (!c.executed && c.interrupted) ? (c.action ?? c.event.kind) : undefined,
   )) {
     if (cycles.length < REPEATS) {
       continue;

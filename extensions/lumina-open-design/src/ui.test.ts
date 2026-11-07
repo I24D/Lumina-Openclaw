@@ -15,6 +15,7 @@ describe("lumina-open-design panel", () => {
   // unparsable, which silently kills every listener in it rather than failing
   // any build step.
   it("emits a browser script the engine can parse", () => {
+    // oxlint-disable-next-line typescript/no-implied-eval -- parsing that script is the whole check.
     expect(() => new Function(inlineScript())).not.toThrow();
   });
 

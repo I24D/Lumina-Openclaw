@@ -14,6 +14,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { listDirectoryTreeStrict } from "openclaw/plugin-sdk/file-access-runtime";
 import type { Probe } from "../brainstem/brainstem.js";
 import type { StateStorePort } from "../shared/state-store.js";
 
@@ -151,10 +152,13 @@ export async function hashPath(target: string): Promise<{ sha256: string; bytes:
     }
     return { sha256: hash.digest("hex"), bytes: stat.size };
   }
-  const entries = await fs.readdir(target, { recursive: true, withFileTypes: true });
+  // A plain recursive readdir follows directory symlinks; the strict walk
+  // refuses to leave its root. The sort stays, so a directory's pinned hash
+  // keeps the order it was first recorded with.
+  const entries = await listDirectoryTreeStrict(target);
   const files = entries
-    .filter((e) => e.isFile())
-    .map((e) => path.join(e.parentPath, e.name))
+    .filter((entry) => entry.dirent.isFile())
+    .map((entry) => path.join(target, entry.relativePath))
     .toSorted();
   const hash = createHash("sha256");
   let bytes = 0;

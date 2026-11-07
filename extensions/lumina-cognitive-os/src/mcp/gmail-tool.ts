@@ -16,7 +16,7 @@ function encodeBase64Url(s: string): string {
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
-    .replace(/=+$/, "");
+    .replace(/[=]+$/, "");
 }
 
 function decodeBase64Url(s: string): string {

@@ -280,7 +280,9 @@ describe("CognitiveLoop.consume", () => {
             e.kind === "long.task"
               ? (signal) =>
                   new Promise<void>((_resolve, reject) => {
-                    signal.addEventListener("abort", () => reject(signal.reason));
+                    signal.addEventListener("abort", () =>
+                      reject(new Error("long.task aborted", { cause: signal.reason })),
+                    );
                   })
               : () => undefined,
         }),
@@ -347,7 +349,9 @@ describe("CognitiveLoop.consume", () => {
             e.kind === "long.task"
               ? (signal) =>
                   new Promise<void>((_resolve, reject) => {
-                    signal.addEventListener("abort", () => reject(signal.reason));
+                    signal.addEventListener("abort", () =>
+                      reject(new Error("long.task aborted", { cause: signal.reason })),
+                    );
                   })
               : () => undefined,
         }),

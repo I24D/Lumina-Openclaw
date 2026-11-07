@@ -153,7 +153,11 @@ export function createChatGptBridgeService(api: OpenClawPluginApi): OpenClawPlug
     };
 
     loop = (async () => {
-      while (!stopped) {
+      // `stopped` is set by stop() in the outer closure, never in this body.
+      for (;;) {
+        if (stopped) {
+          break;
+        }
         let wait = RETRY_ERROR_MS;
         try {
           wait = await attachOnce();
@@ -163,7 +167,9 @@ export function createChatGptBridgeService(api: OpenClawPluginApi): OpenClawPlug
         if (stopped || wait === 0) {
           break;
         }
-        await new Promise((resolve) => setTimeout(resolve, wait));
+        await new Promise((resolve) => {
+          setTimeout(resolve, wait);
+        });
       }
     })();
   };

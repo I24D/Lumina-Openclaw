@@ -34,6 +34,11 @@ function trimmedText(value) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+/** A rejection reason is always an Error, whatever the thrower passed. */
+function asError(value) {
+  return value instanceof Error ? value : new Error(errorMessage(value));
+}
+
 function errorMessage(value) {
   if (value instanceof Error) {
     return value.message;
@@ -94,7 +99,7 @@ export function runOpenClawJson(args, options = {}) {
         stdout = appendLimited(stdout, chunk, "stdout");
       } catch (error) {
         terminate();
-        finish(() => reject(error));
+        finish(() => reject(asError(error)));
       }
     });
     child.stderr.on("data", (chunk) => {
@@ -102,7 +107,7 @@ export function runOpenClawJson(args, options = {}) {
         stderr = appendLimited(stderr, chunk, "stderr");
       } catch (error) {
         terminate();
-        finish(() => reject(error));
+        finish(() => reject(asError(error)));
       }
     });
     child.once("error", (error) => finish(() => reject(error)));
@@ -463,11 +468,10 @@ function registerTools(server) {
     },
     async ({ run_id }, extra) => {
       try {
-        const result = await gatewayCall(
-          "chatgpt.mcp.abort",
-          { ...(run_id ? { runId: run_id } : {}) },
-          { signal: extra.signal, timeoutMs: 20_000 },
-        );
+        const result = await gatewayCall("chatgpt.mcp.abort", run_id ? { runId: run_id } : {}, {
+          signal: extra.signal,
+          timeoutMs: 20_000,
+        });
         return {
           content: [{ type: "text", text: "La solicitud de cancelacion fue enviada a Lumina." }],
           structuredContent: { ok: true, result },
@@ -547,7 +551,7 @@ export async function main() {
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : undefined;
 if (invokedPath === import.meta.url) {
-  main().catch((error) => {
+  main().catch((/** @type {unknown} */ error) => {
     console.error(`[lumina-mcp] ${errorMessage(error)}`);
     process.exitCode = 1;
   });

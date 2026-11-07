@@ -104,7 +104,7 @@ function requestJsonIpc(
             : "OpenDesign Studio IPC rejected the request";
         finish(() => reject(new Error(message)));
       } catch (error) {
-        finish(() => reject(error));
+        finish(() => reject(error instanceof Error ? error : new Error(String(error))));
       }
     });
     socket.once("error", (error) => {
@@ -291,7 +291,9 @@ export class LuminaOpenDesignRuntime {
     }
     child.kill();
     await Promise.race([
-      new Promise<void>((resolve) => child.once("exit", () => resolve())),
+      new Promise<void>((resolve) => {
+        child.once("exit", () => resolve());
+      }),
       sleep(2_500),
     ]);
   }
@@ -331,8 +333,8 @@ export class LuminaOpenDesignRuntime {
   }
 
   private async ensureOpenCodeBridge(): Promise<string> {
-    const access = this.gatewayAccess;
-    if (!access?.bearerToken) {
+    const gatewayAccess = this.gatewayAccess;
+    if (!gatewayAccess?.bearerToken) {
       throw new Error("Gateway bearer token is unavailable");
     }
     const bridgeDir = path.join(this.settings.dataDir, "lumina-openclaw");
@@ -341,10 +343,10 @@ export class LuminaOpenDesignRuntime {
     const wrapperPath = path.join(bridgeDir, "lumina-opencode-wrapper.cjs");
     const launcherPath = path.join(bridgeDir, "lumina-opencode.cmd");
     const proxyBaseUrl =
-      access.openAiProxyBaseUrl ??
-      `${new URL(access.apiBaseUrl).origin}/plugins/lumina-open-design/openai/v1`;
+      gatewayAccess.openAiProxyBaseUrl ??
+      `${new URL(gatewayAccess.apiBaseUrl).origin}/plugins/lumina-open-design/openai/v1`;
     const opencodeBin =
-      access.opencodeBinPath ??
+      gatewayAccess.opencodeBinPath ??
       path.join(
         this.settings.resourceRoot,
         "bin",
@@ -359,7 +361,7 @@ export class LuminaOpenDesignRuntime {
           name: "Lumina OpenClaw",
           options: {
             baseURL: proxyBaseUrl,
-            apiKey: access.bearerToken,
+            apiKey: gatewayAccess.bearerToken,
           },
           models: {
             [OPENCLAW_DESIGN_MODEL]: {
@@ -385,7 +387,7 @@ export class LuminaOpenDesignRuntime {
       "process.exit(result.status ?? 1);",
       "",
     ].join("\n");
-    const nodeBin = access.nodeBinPath ?? process.execPath;
+    const nodeBin = gatewayAccess.nodeBinPath ?? process.execPath;
     const launcher = `@echo off\r\n"${nodeBin}" "${wrapperPath}" %*\r\n`;
     await this.writeBridgeFile(providerPath, `${JSON.stringify(providerConfig, null, 2)}\n`);
     await this.writeBridgeFile(wrapperPath, wrapper);
@@ -396,11 +398,11 @@ export class LuminaOpenDesignRuntime {
   async syncGatewayAgent(
     options: { testConnection?: boolean } = {},
   ): Promise<OpenDesignGatewayIntegration> {
-    const access = this.gatewayAccess;
+    const gatewayAccess = this.gatewayAccess;
     const baseUrl =
-      access?.openAiProxyBaseUrl ??
-      `${new URL(access?.apiBaseUrl ?? "http://127.0.0.1:18789/v1").origin}/plugins/lumina-open-design/openai/v1`;
-    if (!access?.bearerToken) {
+      gatewayAccess?.openAiProxyBaseUrl ??
+      `${new URL(gatewayAccess?.apiBaseUrl ?? "http://127.0.0.1:18789/v1").origin}/plugins/lumina-open-design/openai/v1`;
+    if (!gatewayAccess?.bearerToken) {
       this.gatewayIntegration = {
         configured: false,
         connected: false,
@@ -519,14 +521,14 @@ export class LuminaOpenDesignRuntime {
   }
 
   async gatewayChatCompletions(payload: Record<string, unknown>): Promise<Response> {
-    const access = this.gatewayAccess;
-    if (!access?.bearerToken) {
+    const gatewayAccess = this.gatewayAccess;
+    if (!gatewayAccess?.bearerToken) {
       throw new Error("Gateway bearer token is unavailable");
     }
-    return await fetch(`${access.apiBaseUrl.replace(/\/$/u, "")}/chat/completions`, {
+    return await fetch(`${gatewayAccess.apiBaseUrl.replace(/\/$/u, "")}/chat/completions`, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${access.bearerToken}`,
+        authorization: `Bearer ${gatewayAccess.bearerToken}`,
         "content-type": "application/json",
       },
       body: JSON.stringify(payload),

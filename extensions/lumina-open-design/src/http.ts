@@ -245,9 +245,15 @@ async function daemonJson(runtime: LuminaOpenDesignRuntime, pathname: string, in
   }
   if (!response.ok) {
     const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-    throw new Error(
-      String(record.message ?? record.error ?? `OpenDesign returned ${response.status}`),
-    );
+    // Only a string field is a message; stringifying an object field would put
+    // "[object Object]" in front of the operator instead of the real failure.
+    const detail =
+      typeof record.message === "string"
+        ? record.message
+        : typeof record.error === "string"
+          ? record.error
+          : `OpenDesign returned ${response.status}`;
+    throw new Error(detail);
   }
   return body as Record<string, unknown>;
 }

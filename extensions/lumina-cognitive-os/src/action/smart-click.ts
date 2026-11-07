@@ -270,19 +270,17 @@ async function runVerification(params: {
     };
   } else if (policyKind === "screenshot") {
     policy = { kind: "screenshot_diff", minChangeRatio: 0.005 };
+  } else if (preScreenshotPath && postLive.screenshotPath) {
+    // auto: prefer screenshot_diff (it catches "the view changed"); the two
+    // branches below fall back to uia_recheck, then to no verification.
+    policy = { kind: "screenshot_diff", minChangeRatio: 0.005 };
+  } else if (postLive.uiaNodes) {
+    policy = {
+      kind: "uia_recheck",
+      expect: { automationId: pickedMatch.automationId, name: pickedMatch.name },
+    };
   } else {
-    // auto: prefer screenshot_diff (catches "the view changed"), fall back
-    // to uia_recheck if no screenshots available.
-    if (preScreenshotPath && postLive.screenshotPath) {
-      policy = { kind: "screenshot_diff", minChangeRatio: 0.005 };
-    } else if (postLive.uiaNodes) {
-      policy = {
-        kind: "uia_recheck",
-        expect: { automationId: pickedMatch.automationId, name: pickedMatch.name },
-      };
-    } else {
-      policy = { kind: "none" };
-    }
+    policy = { kind: "none" };
   }
   return verifyPostAction({ policy, preScreenshotPath, postLive });
 }

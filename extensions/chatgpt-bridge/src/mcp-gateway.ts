@@ -276,7 +276,11 @@ export function registerChatGptMcpGatewayMethods(api: OpenClawPluginApi): void {
     }
     observers.add(runId);
     void (async () => {
-      while (!stopping) {
+      // `stopping` is set by the service shutdown, never in this body.
+      for (;;) {
+        if (stopping) {
+          return;
+        }
         const current = await jobs.lookup(runId);
         if (!current || isTerminalJob(current)) {
           return;
@@ -302,7 +306,7 @@ export function registerChatGptMcpGatewayMethods(api: OpenClawPluginApi): void {
         await delay(MCP_RETRY_AFTER_MS);
       }
     })()
-      .catch((error) => {
+      .catch((error: unknown) => {
         api.logger.warn(
           `chatgpt-bridge: durable observer stopped for ${runId}: ${formatErrorMessage(error)}`,
         );
@@ -474,7 +478,7 @@ export function registerChatGptMcpGatewayMethods(api: OpenClawPluginApi): void {
         const selected = entries
           .map((entry) => entry.value)
           .filter((job) => !status || job.status === status)
-          .sort((left, right) => right.updatedAt - left.updatedAt)
+          .toSorted((left, right) => right.updatedAt - left.updatedAt)
           .slice(0, limit)
           .map(publicJob);
         respond(true, { jobs: selected, count: selected.length, durable: true });

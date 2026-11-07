@@ -230,10 +230,11 @@ describe("EmbodiedController", () => {
   });
 
   it("never reaches the body when the supervisor does not allow", async () => {
+    const execute = vi.fn();
     const body: BodyAdapter = {
       id: "spy",
       mode: "simulated",
-      execute: vi.fn(),
+      execute,
       stop: vi.fn(),
       placeId: () => undefined,
     };
@@ -243,7 +244,7 @@ describe("EmbodiedController", () => {
 
     expect(result.review.verdict).toBe("confirm");
     expect(result.outcome).toBeUndefined();
-    expect(body.execute).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("halts the body the moment the emergency stop engages", async () => {

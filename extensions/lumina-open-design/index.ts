@@ -132,7 +132,7 @@ export default definePluginEntry({
                   );
                 }
               })
-              .catch((error) => {
+              .catch((error: unknown) => {
                 api.logger.warn(
                   `lumina-open-design: deferred integration check failed: ${formatErrorMessage(error)}`,
                 );

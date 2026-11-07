@@ -55,7 +55,11 @@ describe("LuminaOpenDesignRuntime gateway integration", () => {
 
       const update = request.mock.calls[1];
       expect(update?.[0]).toBe("/api/app-config");
-      const body = JSON.parse(String(update?.[1]?.body)) as Record<string, unknown>;
+      const rawBody = update?.[1]?.body;
+      if (typeof rawBody !== "string") {
+        throw new Error(`expected a string request body, got ${typeof rawBody}`);
+      }
+      const body = JSON.parse(rawBody) as Record<string, unknown>;
       expect(body).toMatchObject({
         agentId: "opencode",
         agentModels: {
