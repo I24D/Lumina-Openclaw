@@ -149,6 +149,11 @@ describe("production lint suppressions", () => {
         "extensions/discord/src/outbound-adapter.test-harness.ts|typescript/no-unnecessary-type-parameters|1",
         // Ranking sorts private intermediate arrays; shared page order still uses a copy.
         "extensions/knowledge/src/memory-index.ts|unicorn/no-array-sort|7",
+        // Lumina fork: the sidecar and Supabase readers are generic only in their
+        // return type, because the caller owns the shape of the JSON they parse.
+        "extensions/lumina-cognitive-os/src/shared/powershell.ts|typescript/no-unnecessary-type-parameters|1",
+        "extensions/lumina-cognitive-os/src/shared/python.ts|typescript/no-unnecessary-type-parameters|1",
+        "extensions/lumina-cognitive-os/src/supabase/supabase-client.ts|typescript/no-unnecessary-type-parameters|1",
         "extensions/memory-core/src/memory/hybrid.ts|unicorn/no-array-sort|2",
         "extensions/memory-core/src/memory/manager-embedding-ops.ts|unicorn/no-array-fill-with-reference-type|1",
         "extensions/nostr/src/nostr-profile-url-safety.ts|no-warning-comments|1",
