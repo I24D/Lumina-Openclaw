@@ -19,6 +19,7 @@ import type { AwarenessChange, AwarenessEventBus } from "../awareness/event-bus.
  *   reload() → re-reads operative-rules.json
  */
 import type { ActionLogStore } from "../memory/action-log.js";
+import { bridgeAuthHeaders } from "../shared/bridge-client.js";
 import {
   defaultRulesPath,
   loadOperativeRules,
@@ -206,7 +207,7 @@ export function defaultBridgeToastDispatcher(): ToastDispatcher {
     try {
       await fetch(`${url}/notify_toast`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: bridgeAuthHeaders({ "content-type": "application/json" }),
         body: JSON.stringify({
           title: suggestion.title.slice(0, 64),
           message: suggestion.message.slice(0, 240),

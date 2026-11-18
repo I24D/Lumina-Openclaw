@@ -18,6 +18,7 @@
 import { Type } from "typebox";
 import { getLuminaEnvVar } from "../env.js";
 import type { ActionLogStore } from "../memory/action-log.js";
+import { bridgeAuthHeaders } from "../shared/bridge-client.js";
 import { jsonResult, ToolInputError, type AnyAgentTool } from "../shared/tool-result.js";
 import type { RecorderProcess } from "./recorder-process.js";
 import { defaultScrubbingPolicy } from "./scrubbing.js";
@@ -41,7 +42,7 @@ function defaultToastDispatcher(): ToastDispatcher {
     try {
       await fetch(`${url}/notify_toast`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: bridgeAuthHeaders({ "content-type": "application/json" }),
         body: JSON.stringify(params),
         signal: controller.signal,
       });

@@ -34,7 +34,12 @@ import { ShellDocks } from "./app-shell-docks.tsx";
 import { ShellLazyOverlays, type ShellElementAttributes } from "./app-shell-lazy-view.tsx";
 import { isPluginWindowShell } from "./app-shell-plugin-window.ts";
 import { readShellView, type ShellView, type ShellViewHost } from "./app-shell-view-state.ts";
-import { beginNativeWindowDrag, beginNativeWindowDragFromTopInset } from "./native-window-drag.ts";
+import { isNativeMacWebChromeHost } from "./native-web-chrome.ts";
+import {
+  beginNativeWindowDrag,
+  beginNativeWindowDragFromTopInset,
+  beginNativeWindowDragFromTitlebar,
+} from "./native-window-drag.ts";
 import { FloatingUpdateCard } from "./navigation-surface-view.tsx";
 import { floatingSidebarAttentionVisible } from "./navigation-surface.ts";
 import { RouterOutlet } from "./router-outlet.tsx";
@@ -100,10 +105,32 @@ export function ApplicationShell(props: {
     };
   });
   const [navResizing, setNavResizing] = createSignal(false);
+  // Plugin pages decide their sidebar from plugin navigation, which arrives after the route.
+  const [pluginRevision, setPluginRevision] = createSignal(0);
+  onSettled(() =>
+    props.host.context?.plugins.subscribe(() => setPluginRevision((value) => value + 1)),
+  );
   const view = createMemo(() => {
     props.host.shellRevision();
+    pluginRevision();
     return readShellView(props.host);
   });
+  // A page with a sidebar opens it at once after a page without one. Its next collapse
+  // change clears this, so the explicit toggle keeps its motion.
+  const navPageShown = createMemo<{ hidden: boolean; collapsed: boolean; instant: boolean }>(
+    (previous) => {
+      const { navPageHidden: hidden, navCollapsed: collapsed } = view();
+      const opened = previous?.hidden === true && !hidden;
+      return {
+        hidden,
+        collapsed,
+        instant: opened || (previous?.collapsed === collapsed && previous.instant),
+      };
+    },
+  );
+  // Single-attribute bindings lack an equality guard; resize-only updates keep inert unchanged.
+  const navBackdropInert = createMemo(() => !view().navDrawerOpen);
+  const settingsSaveStatusInert = createMemo(() => view().mobileNavLayout && view().navDrawerOpen);
   const sessionOwner = createMemo(() => view().context.sessions);
   const sessionRows = createMemo(() =>
     projectOwner(sessionOwner(), (sessions) => sessions.state.result?.sessions),
@@ -149,6 +176,7 @@ export function ApplicationShell(props: {
       />
       <div
         ref={(element) => (props.host.shellElement = element)}
+        onMouseDown={beginNativeWindowDragFromTitlebar}
         class={[
           "shell",
           {
@@ -158,6 +186,8 @@ export function ApplicationShell(props: {
               (props.host.shellRevision(), isPluginWindowShell(props.host.routeState)),
             "shell--session": view().sessionRoute,
             "shell--nav-collapsed": view().navCollapsed,
+            "shell--nav-page-hidden": view().navPageHidden,
+            "shell--nav-page-shown": navPageShown().instant,
             "shell--mobile-nav": view().mobileNavLayout,
             "shell--merged-chat-chrome": view().mergedChatChrome,
             "shell--floating-header": view().floatingHeader,
@@ -188,6 +218,10 @@ export function ApplicationShell(props: {
             <MacosTitlebarControls
               inert={view().navDrawerOpen}
               historyOnly={view().settingsTakeover}
+              macNavigation={isNativeMacWebChromeHost() && !view().mobileNavLayout}
+              navigationExpanded={!view().navCollapsed}
+              onToggleSidebar={() => props.host.viewCallbacks.toggleSidebar()}
+              onOpenPalette={props.host.openPalette}
               canGoBack={props.host.nativeHistoryState().canGoBack}
               canGoForward={props.host.nativeHistoryState().canGoForward}
             />
@@ -301,7 +335,7 @@ export function ApplicationShell(props: {
             class="shell-nav-backdrop"
             tabindex={-1}
             aria-hidden="true"
-            inert={!view().navDrawerOpen}
+            inert={navBackdropInert()}
             onClick={() => props.host.closeNavDrawer({ restoreFocus: true })}
           />
           <div
@@ -311,6 +345,7 @@ export function ApplicationShell(props: {
               props.host.navDrawerElement = element;
             }}
             class={["shell-nav", { "nav-drawer": view().mobileNavLayout }]}
+            onMouseDown={beginNativeWindowDragFromTopInset}
             role={view().mobileNavLayout ? "dialog" : undefined}
             aria-modal={view().mobileNavLayout && view().navDrawerOpen ? "true" : undefined}
             aria-label={view().mobileNavLayout ? t("palette.categories.navigation") : undefined}
@@ -321,20 +356,18 @@ export function ApplicationShell(props: {
             inert={view().navigationSurfaceHidden}
           >
             <Show
-              when={view().settingsTakeover}
-              fallback={
-                <Show when={view().workspaceChromeVisible}>
-                  <Show
-                    when={(props.host.shellRevision(), !props.host.navigationSidebar.isConnected)}
-                  >
-                    <NavigationFallback />
-                  </Show>
-                  <ShellComponentBoundary label={t("palette.categories.navigation")}>
-                    <NavigationSidebar host={props.host} />
-                  </ShellComponentBoundary>
-                </Show>
+              when={
+                view().railAvailable || (view().workspaceChromeVisible && !view().settingsTakeover)
               }
             >
+              <Show when={(props.host.shellRevision(), !props.host.navigationSidebar.isConnected)}>
+                <NavigationFallback />
+              </Show>
+              <ShellComponentBoundary label={t("palette.categories.navigation")}>
+                <NavigationSidebar host={props.host} />
+              </ShellComponentBoundary>
+            </Show>
+            <Show when={view().settingsTakeover}>
               <LazySettingsSidebar
                 host={props.host}
                 sidebarProps={{ ...view().settingsSidebarProps, footerStatus: footerStatus() }}
@@ -354,6 +387,7 @@ export function ApplicationShell(props: {
           <resizable-divider
             class="sidebar-resizer"
             prop:label={t("nav.resize")}
+            prop:measureSize={() => view().shellWidth}
             prop:splitRatio={view().expandedNavWidth / view().shellWidth}
             prop:minRatio={(NAV_WIDTH_MIN + view().railWidth) / view().shellWidth}
             prop:maxRatio={(NAV_WIDTH_MAX + view().railWidth) / view().shellWidth}
@@ -471,7 +505,7 @@ export function ApplicationShell(props: {
           </ShellLayoutProvider>
         </main>
         <Show when={view().settingsTakeover}>
-          <div class="settings-save-status" inert={view().mobileNavLayout && view().navDrawerOpen}>
+          <div class="settings-save-status" inert={settingsSaveStatusInert()}>
             <LazySettingsSaveStatus host={props.host} />
           </div>
         </Show>

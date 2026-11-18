@@ -35,6 +35,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ActionLogStore } from "../memory/action-log.js";
 import type { RecorderStore, RecordingEvent } from "../recorder/recorder-store.js";
+import { bridgeAuthHeaders } from "../shared/bridge-client.js";
 import { textOf } from "../shared/text.js";
 import { getStrategy } from "./strategies/registry.js";
 import type {
@@ -372,7 +373,7 @@ export function defaultLiveContextProvider(bridgeUrl: string): LiveContextProvid
       const t = setTimeout(() => controller.abort(), 4_000);
       const r = await fetch(`${base}/screenshot`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: bridgeAuthHeaders({ "content-type": "application/json" }),
         body: "{}",
         signal: controller.signal,
       });
@@ -391,7 +392,7 @@ export function defaultLiveContextProvider(bridgeUrl: string): LiveContextProvid
       const t = setTimeout(() => controller.abort(), 3_000);
       const r = await fetch(`${base}/window_control`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: bridgeAuthHeaders({ "content-type": "application/json" }),
         body: JSON.stringify({ action: "list" }),
         signal: controller.signal,
       });
@@ -448,7 +449,7 @@ export function defaultActionDispatcher(params: {
       const t = setTimeout(() => controller.abort(), 6_000);
       const r = await fetch(`${base}/input_control`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: bridgeAuthHeaders({ "content-type": "application/json" }),
         body: JSON.stringify(payload),
         signal: controller.signal,
       });

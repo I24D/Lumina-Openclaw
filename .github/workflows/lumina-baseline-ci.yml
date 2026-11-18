@@ -68,9 +68,17 @@ jobs:
         run: pnpm tsgo:ui
 
       # The mesh is the part of this fork with no upstream counterpart, so it is
-      # also the part upstream's CI can never cover. 282 tests, ~6s locally.
+      # also the part upstream's CI can never cover. 294 tests, ~7s locally.
+      #
+      # The filter is relative to the config's `dir: "extensions"`, so an
+      # `extensions/` prefix here matches nothing. This lane carried that prefix
+      # and ran zero tests while reporting success, because the shared extension
+      # configs set `passWithNoTests: true` for sharding. `--passWithNoTests=false`
+      # is what makes this lane honest: a filter that stops matching now fails
+      # instead of passing in silence.
       - name: Mesh regression suite
         run: >
           node scripts/run-vitest.mjs run
           --config test/vitest/vitest.extensions.config.ts
-          extensions/lumina-cognitive-os/src/mesh/
+          --passWithNoTests=false
+          lumina-cognitive-os/src/mesh/

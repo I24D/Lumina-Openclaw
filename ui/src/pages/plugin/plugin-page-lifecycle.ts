@@ -11,6 +11,7 @@ import {
   resolveControlUiPluginTabPathname,
 } from "../../../../src/gateway/control-ui-plugin-frame-contract.js";
 import type { GatewayBrowserClient, GatewayControlUiPluginTab } from "../../api/gateway.ts";
+import { pluginTabKey } from "../../app-route-paths.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import { hasOperatorReadAccess } from "../../app/operator-access.ts";
 import { uiDevGatewayResourceUrl } from "../../dev-gateway.ts";
@@ -18,7 +19,6 @@ import { listen } from "../../lib/reactive/listener.ts";
 import { openPreferredApplicationSession } from "../../lib/sessions/route-navigation.ts";
 import { postWidgetTheme, registerWidgetThemeFrame } from "../../lib/widget-theme.ts";
 import { answerLuminaDesignFrameRequest } from "./bundled-tabs.ts";
-import { pluginTabKey } from "./route.tsx";
 
 /**
  * One-way navigation request from an advertised, authenticated same-origin plugin

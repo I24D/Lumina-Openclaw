@@ -16,6 +16,7 @@ import {
   resolveChannelStreamingBlockEnabled,
 } from "openclaw/plugin-sdk/channel-outbound";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
+import { resolveOutboundMediaAccessForConfig } from "openclaw/plugin-sdk/outbound-media";
 import { buildInboundHistoryFromEntries } from "openclaw/plugin-sdk/reply-history";
 import type { FinalizedMsgContext, ReplyDispatchKind } from "openclaw/plugin-sdk/reply-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
@@ -418,6 +419,7 @@ export function createWhatsAppReplyPlan(params: {
     accountId: params.route.accountId,
   });
   const mediaLocalRoots = getAgentScopedMediaLocalRoots(params.cfg, params.route.agentId);
+  const mediaAccess = resolveOutboundMediaAccessForConfig(params.cfg);
   const sourceReplyDeliveryMode =
     params.context.ChatType === "group" || params.context.ChatType === "channel"
       ? resolveChannelMessageSourceReplyDeliveryMode({ cfg: params.cfg, ctx: params.context })
@@ -468,6 +470,7 @@ export function createWhatsAppReplyPlan(params: {
         normalizedReplyResult: normalizedDeliveryPayload,
         transport: params.transport,
         mediaLocalRoots,
+        mediaAccess,
         maxMediaBytes: params.maxMediaBytes,
         textLimit,
         chunkMode,

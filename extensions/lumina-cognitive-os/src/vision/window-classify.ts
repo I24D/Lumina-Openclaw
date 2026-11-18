@@ -222,12 +222,14 @@ export function strategyOrder(classification: WindowClassification): Strategy[] 
  * snapshot, so this is process-name-level classification — pass explicit
  * signals to `classifyWindow` when you have the window class.
  */
+import { bridgeAuthHeaders } from "../shared/bridge-client.js";
+
 export async function classifyForegroundWindow(
   bridgeUrl: string,
 ): Promise<WindowClassification & { foreground: { process?: string; title?: string } | null }> {
   const base = bridgeUrl.replace(/\/+$/u, "");
   try {
-    const res = await fetch(`${base}/perception`, { method: "GET" });
+    const res = await fetch(`${base}/perception`, { method: "GET", headers: bridgeAuthHeaders() });
     const data = (await res.json()) as {
       foreground?: { process?: string; title?: string } | null;
     };

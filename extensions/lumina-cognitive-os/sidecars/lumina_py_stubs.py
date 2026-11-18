@@ -42,6 +42,10 @@ def _request(method: str, path: str, payload: Optional[Dict[str, Any]] = None,
     url = f"{BRIDGE_URL}{path}"
     data = None
     headers = {"accept": "application/json"}
+    token = os.environ.get("LUMINA_BRIDGE_TOKEN", "")
+    if token:
+        headers["x-bridge-token"] = token
+        headers["authorization"] = f"Bearer {token}"
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
         headers["content-type"] = "application/json"

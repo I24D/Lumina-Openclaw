@@ -34,6 +34,7 @@ import {
 } from "../code/sandbox-policy.js";
 import type { ActionLogStore } from "../memory/action-log.js";
 import type { RiskEngine } from "../risk/risk-engine.js";
+import { getBridgeToken } from "../shared/bridge-client.js";
 import { runPythonSidecar, sidecarRoot } from "../shared/python.js";
 
 const SIDECAR_ROOT = sidecarRoot();
@@ -226,6 +227,7 @@ export class CodeActEngine {
       maxStderrBytes: this.policy.maxStderrBytes,
       env: {
         LUMINA_BRIDGE_URL: this.bridgeUrl,
+        ...(getBridgeToken() ? { LUMINA_BRIDGE_TOKEN: getBridgeToken() } : {}),
         PYTHONPATH: SIDECAR_ROOT,
       },
     });

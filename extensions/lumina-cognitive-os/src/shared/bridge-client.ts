@@ -14,6 +14,24 @@
  * It is intentionally minimal. No retries, no caching — those are concerns
  * of the calling tool, not the transport.
  */
+import { getLuminaEnvVar } from "../env.js";
+
+/**
+ * RPI-2026-001: Bridge auth. The bridge REQUIRES a token (LUMINA_BRIDGE_TOKEN,
+ * read from process.env or the I24D .env file). These helpers attach it to
+ * every bridge call so all consumers inherit authentication.
+ */
+export function getBridgeToken(): string | undefined {
+  return getLuminaEnvVar("LUMINA_BRIDGE_TOKEN");
+}
+
+export function bridgeAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const token = getBridgeToken();
+  if (!token) {
+    return { ...extra };
+  }
+  return { ...extra, "x-bridge-token": token, authorization: `Bearer ${token}` };
+}
 
 export type BridgeClient = {
   readonly bridgeUrl: string;
@@ -43,8 +61,10 @@ export function createBridgeClient(options: BridgeClientOptions): BridgeClient {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const init: RequestInit = { method, signal: controller.signal };
+      init.headers = bridgeAuthHeaders(
+        method === "POST" ? { "content-type": "application/json" } : {},
+      );
       if (method === "POST") {
-        init.headers = { "content-type": "application/json" };
         init.body = JSON.stringify(body ?? {});
       }
       const response = await f(`${base}${path}`, init);

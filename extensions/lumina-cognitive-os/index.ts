@@ -193,7 +193,7 @@ import { configureOmniParserClient } from "./src/replay/strategies/vision-ground
 import { RiskEngine } from "./src/risk/risk-engine.js";
 import { createRiskEvaluateTool, createRiskRecentTool } from "./src/risk/risk-tool.js";
 // PC Operator Loop (Camino A — autonomous observe→think→act→verify)
-import { createBridgeClient } from "./src/shared/bridge-client.js";
+import { bridgeAuthHeaders, createBridgeClient } from "./src/shared/bridge-client.js";
 import { runPythonSidecarJson } from "./src/shared/python.js";
 import { createSkillEvalTool, createSkillEvalRecordTool } from "./src/skills/skill-eval-tool.js";
 import { SkillEvalStore } from "./src/skills/skill-eval.js";
@@ -249,10 +249,13 @@ async function fetchWorkflowEnvironment(bridgeUrl: string): Promise<WorkflowEnvi
   const timer = setTimeout(() => controller.abort(), 3_000);
   try {
     const [procsRes, winRes] = await Promise.all([
-      fetch(`${base}/processes`, { signal: controller.signal }).catch(() => null),
+      fetch(`${base}/processes`, {
+        signal: controller.signal,
+        headers: bridgeAuthHeaders(),
+      }).catch(() => null),
       fetch(`${base}/window_control`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: bridgeAuthHeaders({ "content-type": "application/json" }),
         body: JSON.stringify({ action: "list" }),
         signal: controller.signal,
       }).catch(() => null),

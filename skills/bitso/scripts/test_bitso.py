@@ -170,25 +170,25 @@ def test_business_error_surfaces_code(monkeypatch):
 
 
 def test_parse_env_handles_real_world_quirks():
-    """Casos que existen de verdad en el .env del workspace."""
+    """Casos con formato real pero VALORES FICTICIOS (jamás credenciales reales en fixtures)."""
     parsed = bc.parse_env_text(
         "\n".join(
             [
                 "# comentario",
                 "",
                 "BITSO_API_KEY=abc123",
-                "WEATHERAPI_KEY= 9fd6f867   ",  # espacio tras el '='
+                "WEATHERAPI_KEY= 1a2b3c4d   ",  # espacio tras el '='
                 'QUOTED="con comillas"',
-                "GMAIL_APP_PASSWORD=myit tgry zwrv pope",  # espacios dentro
+                "GMAIL_APP_PASSWORD=abcd wxyz mnpr stuv",  # espacios dentro
                 "export EXPORTED=si",
                 "SIN_IGUAL",
             ]
         )
     )
     assert parsed["BITSO_API_KEY"] == "abc123"
-    assert parsed["WEATHERAPI_KEY"] == "9fd6f867"
+    assert parsed["WEATHERAPI_KEY"] == "1a2b3c4d"
     assert parsed["QUOTED"] == "con comillas"
-    assert parsed["GMAIL_APP_PASSWORD"] == "myit tgry zwrv pope"
+    assert parsed["GMAIL_APP_PASSWORD"] == "abcd wxyz mnpr stuv"
     assert parsed["EXPORTED"] == "si"
     assert "SIN_IGUAL" not in parsed
 

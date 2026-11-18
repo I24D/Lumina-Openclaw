@@ -8,6 +8,7 @@
  * sight in one step — no screenshot capture/analyze round-trip.
  */
 import { Type } from "typebox";
+import { bridgeAuthHeaders } from "../shared/bridge-client.js";
 import { jsonResult, type AnyAgentTool } from "../shared/tool-result.js";
 
 export function createSightTool(bridgeUrl: string): AnyAgentTool {
@@ -25,7 +26,10 @@ export function createSightTool(bridgeUrl: string): AnyAgentTool {
     async execute() {
       const base = (bridgeUrl || "http://127.0.0.1:8765").replace(/\/+$/u, "");
       try {
-        const resp = await fetch(`${base}/perception`, { signal: AbortSignal.timeout(6_000) });
+        const resp = await fetch(`${base}/perception`, {
+          signal: AbortSignal.timeout(6_000),
+          headers: bridgeAuthHeaders(),
+        });
         const data = (await resp.json()) as Record<string, unknown>;
         return jsonResult(data);
       } catch (err) {
