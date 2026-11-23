@@ -72,3 +72,47 @@ it("freezes only the hook-enriched current user projection before native dispatc
     __openclaw: { modelPromptProjection: { version: 1, text: expected } },
   });
 });
+
+it("keeps a projection frozen by an embedded attempt when a model fallback reaches Codex", async () => {
+  setRuntimeConfigSnapshot({});
+  const params = createParams(path.join(tempDir, "fallback-projection.jsonl"), tempDir);
+  const target = {
+    agentId: "main",
+    sessionId: "fallback-projection",
+    sessionKey: "agent:main:fallback-projection",
+    storePath: path.join(tempDir, "fallback-projection.sqlite"),
+  };
+  await attachSqliteSessionTarget(params, target.storePath, target.sessionId);
+  const createRecorder = await loadUserTurnTranscriptRecorderFactoryForTest();
+  const recorder = createRecorder({
+    input: {
+      text: params.prompt,
+      idempotencyKey: "fallback-projection:user",
+      provenance: { kind: "internal_system", sourceTool: "test" },
+    },
+    target: { ...target, sessionEntry: undefined },
+  });
+  await recorder.persistApproved();
+  // The embedded primary (for example an Ollama model that answered 429) froze its own
+  // projection and dispatched before the fallback chain selected the Codex harness.
+  const frozen = "embedded runtime projection of hello";
+  await recorder.captureModelPromptProjection!(frozen, () => {});
+  recorder.markSentToProvider?.();
+  params.userTurnTranscriptRecorder = recorder;
+  await bindProductionHarnessHostCapabilitiesForTest(params);
+  let dispatchProjection: unknown;
+  const harness = createStartedThreadHarness(async (method) => {
+    if (method === "turn/start") {
+      dispatchProjection = recorder.getPersistedMessage?.()?.["__openclaw"]?.modelPromptProjection;
+    }
+  });
+  const run = runCodexAppServerAttempt(params);
+  await run.waitForTurnAccepted();
+  await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
+  await run;
+  expect(dispatchProjection).toEqual({ version: 1, text: frozen });
+  expect(recorder.getPersistedMessage?.()?.["__openclaw"]?.modelPromptProjection).toEqual({
+    version: 1,
+    text: frozen,
+  });
+});

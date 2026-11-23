@@ -1,6 +1,7 @@
 import {
   embeddedAgentLog,
   formatErrorMessage,
+  readModelPromptProjection,
   runAgentHarnessLlmInputHook,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { CodexAccessProgramUnavailableError } from "./access-program.js";
@@ -365,7 +366,10 @@ export async function prepareCodexAttemptTurnRequest(
       if (
         !params.skipPreparedUserTurnMessage &&
         !recorder?.isBlocked() &&
-        recorder?.captureModelPromptProjection
+        recorder?.captureModelPromptProjection &&
+        // A model fallback from the embedded runtime already froze this user turn. Like the
+        // embedded runner, keep the first frozen projection instead of failing the turn.
+        readModelPromptProjection(recorder.getPersistedMessage?.()) === undefined
       ) {
         const { prompt: builtPrompt, promptInputRange } = turnState.promptBuild;
         if (!promptInputRange) {

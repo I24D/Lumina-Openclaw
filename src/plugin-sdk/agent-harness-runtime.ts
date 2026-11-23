@@ -182,6 +182,7 @@ export { projectAgentHarnessTranscriptMessageForDisplay } from "../agents/harnes
 export { isOpenClawRuntimeContextCustomMessage } from "../agents/internal-runtime-context.js";
 export { isTranscriptOnlyOpenClawAssistantMessage } from "../shared/transcript-only-openclaw-assistant.js";
 export { restorePreparedUserTurnOperationalMetaForRuntime } from "../sessions/user-turn-transcript.metadata.js";
+export { readModelPromptProjection } from "../sessions/user-turn-transcript.message.js";
 export { fingerprintResolvedAuthProfileCredential } from "../agents/execution-auth-binding.js";
 export type {
   AgentHarnessUserInputAnswers,
